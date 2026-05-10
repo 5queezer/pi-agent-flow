@@ -60,11 +60,11 @@ const EXPLORE_FLOW: FlowConfig = {
 	systemPrompt: [
 		"## Mission",
 		"",
-		"During this explore flow — your mission is to investigate a topic thoroughly using `batch` and `web` tools, then curate and report only the most valuable findings.",
+		"During this explore flow — your mission is to investigate a topic thoroughly using `batch`, `bash`, and `web` tools, then curate and report only the most valuable findings.",
 		"",
 		"## Workflow",
 		"",
-		"1. **Explore** — Use `batch` (read, bash) and `web` (search, fetch) to investigate broadly. Run as many tool calls as needed. Follow leads, search external docs, grep the codebase, read relevant files.",
+		"1. **Explore** — Use `batch` (read), `bash` (shell commands), and `web` (search, fetch) to investigate broadly. Run as many tool calls as needed. Follow leads, search external docs, grep the codebase, read relevant files.",
 		"2. **Curate** — Before outputting your final JSON, review every tool call you made. Select only the ones that produced concrete, relevant, non-redundant findings. Discard dead-ends, duplicates, and failed searches.",
 		"3. **Report** — Output a structured JSON block with your curated results.",
 		"",
@@ -555,6 +555,19 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 				noteText = flowOutput || "Exploration completed with no structured output.";
 			}
 
+			// Append kept findings so the parent agent can use them
+			if (exploreData?.kept?.length) {
+				noteText += "\n\n## Kept Findings";
+				for (const item of exploreData.kept) {
+					const toolLabel = item.tool + (item.action ? ": " + item.action : "");
+					const queryPart = item.query ? " — " + item.query : "";
+					noteText += `\n- [${toolLabel}]${queryPart} — ${item.resultSummary}`;
+					if (item.resultExcerpt) {
+						noteText += `\n  ${item.resultExcerpt}`;
+					}
+				}
+			}
+
 
 
 			const isError = isFlowError(childResult) && !exploreData;
@@ -581,91 +594,24 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 		},
 
 		renderResult(result: any, options: any, theme: any) {
-			// During streaming we forward raw flow updates, so details may be FlowDetails
-			const flowDetails = result.details?.mode === "flow" ? result.details : null;
-			const exploreDetails = result.details?.mode === "explore" ? result.details : null;
+			const details = result.details as ExploreToolDetails | undefined;
+			const aim = details?.aim || "";
+			const cancelled = details?.cancelled;
+			const error = details?.error;
 
-			// --- Streaming state (flow-style aim/act/msg lines) ---
-			if (options.isPartial && flowDetails?.results?.[0]) {
-				const r = flowDetails.results[0];
-				const container = new Container();
-
-				// Header
-				container.addChild(new TruncatedText(theme.fg("accent", theme.bold("explore")), 0, 0));
-				container.addChild(new Spacer(1));
-
-				// aim: line
-				if (r.aim) {
-					container.addChild(new TruncatedText(
-						`${theme.fg("dim", "├─ aim: ")}${theme.fg("dim", r.aim)}`,
-						0, 0,
-					));
-				}
-
-				// act: line (last tool call + count)
-				const lastTool = getLastToolCall(r.messages);
-				if (lastTool) {
-					const argsShort = formatArgsShort(lastTool.name, lastTool.args);
-					const actPrefix = `├─ act: [${r.usage.toolCalls}] - `;
-					container.addChild(new TruncatedText(
-						`${theme.fg("dim", actPrefix)}${theme.fg("dim", `${lastTool.name} ${argsShort}`)}`,
-						0, 0,
-					));
-				}
-
-				// msg: line (streaming text or last assistant text)
-				const streamingText = result.content?.[0]?.text || getLastAssistantText(r.messages) || "";
-				const msgPrefix = "└─ msg: ";
-				if (streamingText) {
-					container.addChild(new TruncatedText(
-						`${theme.fg("dim", msgPrefix)}${theme.fg("dim", streamingText)}`,
-						0, 0,
-					));
-				} else {
-					container.addChild(new TruncatedText(
-						`${theme.fg("dim", msgPrefix)}${theme.fg("dim", "[n/a]")}`,
-						0, 0,
-					));
-				}
-
-				return container;
-			}
-
-			// --- Error state ---
-			if (exploreDetails?.error) {
-				return new Text(theme.fg("error", `× explore: ${exploreDetails.error}`), 0, 0);
-			}
-
-			// --- Complete state ---
-			const cancelled = exploreDetails?.cancelled;
-			const exploreData = exploreDetails?.result;
-
+			// Build one-liner: explore — <aim> [status]
 			let text = theme.fg("accent", theme.bold("explore"));
-
-			if (exploreDetails?.aim) {
-				text += theme.fg("dim", ` — ${exploreDetails.aim}`);
+			if (aim) {
+				text += theme.fg("dim", " — " + aim);
 			}
-
-			if (cancelled) {
+			if (options.isPartial) {
+				text += theme.fg("dim", " […]");
+			} else if (cancelled) {
 				text += theme.fg("warning", " [cancelled]");
-			} else if (exploreDetails?.error) {
+			} else if (error) {
 				text += theme.fg("error", " [err]");
 			} else {
 				text += theme.fg("success", " [done]");
-			}
-
-			if (options.expanded && exploreData) {
-				text += "\n" + theme.fg("dim", `${exploreData.kept.length} kept from ${exploreData.totalToolCalls} calls (${Math.round(exploreData.durationMs / 1000)}s)`);
-				text += "\n" + theme.fg("dim", exploreData.note);
-				if (exploreData.kept.length > 0) {
-					text += "\n" + theme.fg("muted", "Findings:");
-					for (const item of exploreData.kept) {
-						text += `\n  ${theme.fg("muted", "-")} ${theme.fg("dim", item.resultSummary)}`;
-						if (item.resultExcerpt) {
-							text += `\n    ${theme.fg("dim", item.resultExcerpt)}`;
-						}
-					}
-				}
 			}
 
 			return new Text(text, 0, 0);

@@ -21,7 +21,7 @@ import {
 	Key,
 } from "@mariozechner/pi-tui";
 import { runFlow } from "./flow.js";
-import { discoverFlows } from "./agents.js";
+import { type FlowConfig } from "./agents.js";
 import { buildForkSessionSnapshotJsonl, sanitizeForkSnapshot } from "./snapshot.js";
 import { resolveFlowDepthConfig } from "./depth.js";
 import { type AgentSessionMode } from "./session-mode.js";
@@ -37,6 +37,67 @@ import { extractStructuredOutput } from "./structured-output.js";
 import { appendStrategicHint } from "./tool-utils.js";
 
 const EXPLORE_VERSION = "1.0.0";
+
+// ---------------------------------------------------------------------------
+// Inline flow config — explore is a self-contained tool, not a discoverable flow
+// ---------------------------------------------------------------------------
+
+const EXPLORE_FLOW: FlowConfig = {
+	name: "explore",
+	description: "Autonomous research and codebase exploration with curated findings",
+	tools: ["batch", "bash", "web"],
+	maxDepth: 0,
+	tier: "flash",
+	systemPrompt: [
+		"## Mission",
+		"",
+		"During this explore flow — your mission is to investigate a topic thoroughly using `batch` and `web` tools, then curate and report only the most valuable findings.",
+		"",
+		"## Workflow",
+		"",
+		"1. **Explore** — Use `batch` (read, bash) and `web` (search, fetch) to investigate broadly. Run as many tool calls as needed. Follow leads, search external docs, grep the codebase, read relevant files.",
+		"2. **Curate** — Before outputting your final JSON, review every tool call you made. Select only the ones that produced concrete, relevant, non-redundant findings. Discard dead-ends, duplicates, and failed searches.",
+		"3. **Report** — Output a structured JSON block with your curated results.",
+		"",
+		"## Rules",
+		"",
+		"- **Read-only.** Do not modify, create, or delete files. Exploration is inspection only.",
+		"- **Be thorough.** Run 5–15 tool calls if the topic warrants it.",
+		"- **Be selective.** Keep at most 10 findings. For each, write a one-sentence `resultSummary` and a short `resultExcerpt`.",
+		"- **Include evidence.** Cite file paths, line ranges, URLs, or command outputs.",
+		"- **Time budget.** If approaching timeout, stop exploring and curate what you have.",
+		"",
+		"## Structured Output",
+		"",
+		"In addition to the standard schema fields, include an `extensions.explore` object:",
+		"",
+		"{",
+		'  "version": "1.0",',
+		'  "status": "complete",',
+		'  "summary": "1-3 sentence overview of what was found",',
+		'  "extensions": {',
+		'    "explore": {',
+		'      "note": "Synthesized narrative: what patterns were found, what matters, and why.",',
+		'      "kept": [',
+		'        {',
+		'          "phase": "search",',
+		'          "tool": "web",',
+		'          "action": "search",',
+		'          "query": "search query or command",',
+		'          "resultSummary": "One-sentence summary of what this call revealed.",',
+		'          "resultExcerpt": "Short excerpt, file path, or URL."',
+		"        }",
+		"      ],",
+		'      "discardedCount": 7,',
+		'      "durationMs": 45230,',
+		'      "totalToolCalls": 10',
+		"    }",
+		"  }",
+		"}",
+	].join("\n"),
+	source: "bundled",
+	filePath: "<inline>",
+};
 const BOX_BORDER_LEFT = "│ ";
 const BOX_BORDER_RIGHT = " │";
 const BOX_BORDER_OVERHEAD = BOX_BORDER_LEFT.length + BOX_BORDER_RIGHT.length;
@@ -183,20 +244,14 @@ class ExploreOverlayComponent extends Container {
 		const titleColor = (s: string) => this.theme.fg("dim", this.theme.bold(s));
 		const labelColor = (s: string) => this.theme.fg("dim", s);
 
-		return rawLines.map((line, index) => {
-			if (index === 0) {
-				return new BoxBorderTop(borderColor, "explore", titleColor).render(width)[0];
-			}
-			if (index === rawLines.length - 1) {
-				return new BoxBorderBottom(
-					borderColor,
-					`v${EXPLORE_VERSION}`,
-					labelColor,
-				).render(width)[0];
-			}
+		const lines: string[] = [];
+		lines.push(new BoxBorderTop(borderColor, "explore", titleColor).render(width)[0]);
+		for (const line of rawLines) {
 			const padded = truncateToWidth(line, innerWidth, "", true);
-			return `${borderColor(BOX_BORDER_LEFT)}${padded}${borderColor(BOX_BORDER_RIGHT)}`;
-		});
+			lines.push(`${borderColor(BOX_BORDER_LEFT)}${padded}${borderColor(BOX_BORDER_RIGHT)}`);
+		}
+		lines.push(new BoxBorderBottom(borderColor, `v${EXPLORE_VERSION}`, labelColor).render(width)[0]);
+		return lines;
 	}
 
 	private updateDynamicContent(): void {
@@ -344,17 +399,6 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 				};
 			}
 
-			// Discover flows — explore.md must be present
-			const discovery = discoverFlows(ctx.cwd, "all");
-			const exploreFlow = discovery.flows.find((f) => f.name === "explore");
-			if (!exploreFlow) {
-				return {
-					content: [{ type: "text", text: "Explore flow definition not found. Is agents/explore.md present?" }],
-					details: { mode: "explore", intent, aim, result: null, cancelled: false, error: "Flow not found" } as ExploreToolDetails,
-					isError: true,
-				};
-			}
-
 			// Build fork session snapshot
 			const forkSessionSnapshotJsonl = sanitizeForkSnapshot(
 				buildForkSessionSnapshotJsonl(ctx.sessionManager),
@@ -387,11 +431,12 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 			let tuiRef: TUI | undefined;
 			let doneRef: ((result?: unknown) => void) | undefined;
 			let overlayPromise: Promise<unknown> | undefined;
+			let doneCalled = false;
 
 			// Start child process
 			const childPromise = runFlow({
 				cwd: ctx.cwd,
-				flows: discovery.flows,
+				flows: [EXPLORE_FLOW],
 				flowName: "explore",
 				intent,
 				aim,
@@ -416,7 +461,7 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 				makeDetails: (results: SingleResult[]) => ({
 					mode: "flow",
 					delegationMode: "fork",
-					projectAgentsDir: discovery.projectFlowsDir,
+					projectAgentsDir: null,
 					results,
 				}),
 			});
@@ -428,6 +473,8 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 						tuiRef = tui;
 						doneRef = done;
 						return new ExploreOverlayComponent(tui, state, theme, () => {
+							if (doneCalled) return;
+							doneCalled = true;
 							state.cancelled = true;
 							internalController.abort();
 							done(null);
@@ -450,7 +497,8 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 			const childResult = await childPromise;
 
 			// Ensure overlay is closed
-			if (doneRef) {
+			if (doneRef && !doneCalled) {
+				doneCalled = true;
 				doneRef(null);
 			}
 

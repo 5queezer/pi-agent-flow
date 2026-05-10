@@ -59,7 +59,6 @@ Agent work is organized into two tiers. **Access is not the boundary — intent 
 | Flow | Tools | maxDepth | Tier | Notes |
 |------|-------|----------|------|-------|
 | `scout` | batch, bash, find, grep, ls, web | 0 | lite | Explore, map, discover. Full access for best exploration. The pathfinder. |
-| `explore` | batch, bash, web | 0 | flash | Autonomous research with live overlay. Searches web + code, self-curates findings. The researcher. |
 | `build` | batch, bash, find, grep, ls, web | 0 | flash | Implement, test, verify, ship. The craftsman. |
 | `audit` | batch, bash, find, grep, ls, web | 0 | flash | Audit security, quality, correctness; fix safe issues. The watchful eye. |
 | `debug` | batch, bash, find, grep, ls, web | 0 | flash | Investigate root cause AND fix the bug. The detective + fixer. |

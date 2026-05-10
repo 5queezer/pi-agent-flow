@@ -208,7 +208,6 @@ class ExploreOverlayComponent extends Container {
 
 		// Intent line (aim)
 		this.addChild(new Text(this.theme.fg("text", this.theme.bold(this.state.aim)), 0, 0));
-		this.addChild(new Spacer(1));
 
 		// Stats line (dynamic)
 		this.statsText = new Text("", 0, 0);
@@ -221,7 +220,6 @@ class ExploreOverlayComponent extends Container {
 		// Status line (dynamic)
 		this.statusText = new Text("", 0, 0);
 		this.addChild(this.statusText);
-		this.addChild(new Spacer(1));
 
 		// Help
 		this.helpText = new Text(this.theme.fg("dim", "Press Esc to cancel"), 0, 0);
@@ -266,12 +264,9 @@ class ExploreOverlayComponent extends Container {
 				? "finishing"
 				: "exploring";
 
-		// Stats line
-		this.statsText.setText(
-			`${this.theme.fg("dim", `Time: ${elapsedSec}s`)}    ` +
-			`${this.theme.fg("dim", `Calls: ${calls}`)}    ` +
-			`${this.theme.fg("dim", `Status: ${status}`)}`,
-		);
+		// Stats line — truncate to prevent wrapping in narrow overlay
+		const statsRaw = `Time: ${elapsedSec}s    Calls: ${calls}    Status: ${status}`;
+		this.statsText.setText(this.theme.fg("dim", truncateChars(statsRaw, 60)));
 
 		// Activity list — last 5 tool calls
 		this.activityContainer.clear();
@@ -376,38 +371,7 @@ function getLastAssistantText(messages: any[]): string | undefined {
 	return undefined;
 }
 
-/** Extract tool call / result pairs from message history. */
-function extractToolCallOutputs(messages: any[]): Array<{ name: string; args: Record<string, unknown>; output: string }> {
-	if (!Array.isArray(messages)) return [];
 
-	// Map toolCallId → result text
-	const resultMap = new Map<string, string>();
-	for (const msg of messages) {
-		if (msg.role !== "tool" || !Array.isArray(msg.content)) continue;
-		const id = msg.toolCallId || msg.tool_call_id || "";
-		if (!id) continue;
-		const text = msg.content
-			.filter((p: any) => p.type === "text" && typeof p.text === "string")
-			.map((p: any) => p.text)
-			.join("");
-		resultMap.set(id, text);
-	}
-
-	// Pair with tool calls
-	const pairs: Array<{ name: string; args: Record<string, unknown>; output: string }> = [];
-	for (const msg of messages) {
-		if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
-		for (const part of msg.content) {
-			if (part.type !== "toolCall") continue;
-			const id = part.toolCallId || part.tool_call_id || "";
-			if (!id || !resultMap.has(id)) continue;
-			const name = part.name || part.toolName || "unknown";
-			const args = part.arguments || part.input || {};
-			pairs.push({ name, args, output: resultMap.get(id)! });
-		}
-	}
-	return pairs;
-}
 
 function truncateChars(text: string, max: number): string {
 	if (text.length <= max) return text;
@@ -591,23 +555,7 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 				noteText = flowOutput || "Exploration completed with no structured output.";
 			}
 
-			// Append raw tool outputs so the parent sees actual content
-			const toolPairs = extractToolCallOutputs(childResult.messages);
-			if (toolPairs.length > 0) {
-				noteText += "\n\n---\n\n[Tool call outputs]\n";
-				for (let i = 0; i < toolPairs.length; i++) {
-					const p = toolPairs[i];
-					const argsStr = formatArgsShort(p.name, p.args);
-					noteText += `\n${i + 1}. ${p.name} ${argsStr}\n`;
-					noteText += "Output:\n";
-					// Truncate extremely long outputs to keep context manageable
-					const maxOut = 8000;
-					const out = p.output.length > maxOut
-						? p.output.slice(0, maxOut) + "\n[...truncated...]"
-						: p.output;
-					noteText += out + "\n";
-				}
-			}
+
 
 			const isError = isFlowError(childResult) && !exploreData;
 			const details: ExploreToolDetails = {
@@ -628,13 +576,8 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 			return result;
 		},
 
-		renderCall(args: any, theme: any) {
-			const aim = (args.aim as string) || "";
-			let text = theme.fg("accent", theme.bold("explore"));
-			if (aim) {
-				text += theme.fg("dim", ` — ${aim}`);
-			}
-			return new Text(text, 0, 0);
+		renderCall(_args: any, _theme: any) {
+			return new Text("", 0, 0);
 		},
 
 		renderResult(result: any, options: any, theme: any) {

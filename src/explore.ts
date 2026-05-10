@@ -38,10 +38,13 @@ import {
 import { extractStructuredOutput } from "./structured-output.js";
 import { appendStrategicHint } from "./tool-utils.js";
 
+import { createRequire } from "node:module";
+
 let EXPLORE_VERSION = "0.0.0";
 try {
-	const resolved = require.resolve("pi-agent-flow/package.json");
-	EXPLORE_VERSION = require(resolved).version;
+	const require = createRequire(import.meta.url);
+	const pkg = require("../package.json");
+	EXPLORE_VERSION = pkg.version;
 } catch { /* fallback */ }
 
 // ---------------------------------------------------------------------------
@@ -71,7 +74,6 @@ const EXPLORE_FLOW: FlowConfig = {
 		"- **Be thorough.** Run 5–15 tool calls if the topic warrants it.",
 		"- **Be selective.** Keep at most 10 findings. For each, write a one-sentence `resultSummary` and a short `resultExcerpt`.",
 		"- **Include evidence.** Cite file paths, line ranges, URLs, or command outputs.",
-		"- **No redundant reads.** Do NOT re-read files or sections you have already read. Each tool call result is in your context — review it before making another call. Prefer reading larger sections at once rather than making multiple small reads of the same file.",
 		"- **Time budget.** If approaching timeout, stop exploring and curate what you have.",
 		"",
 		"## Structured Output",
@@ -105,8 +107,8 @@ const EXPLORE_FLOW: FlowConfig = {
 	source: "bundled",
 	filePath: "<inline>",
 };
-const BOX_BORDER_LEFT = "│ ";
-const BOX_BORDER_RIGHT = " │";
+const BOX_BORDER_LEFT = "│";
+const BOX_BORDER_RIGHT = "│";
 const BOX_BORDER_OVERHEAD = BOX_BORDER_LEFT.length + BOX_BORDER_RIGHT.length;
 const OVERLAY_WIDTH = "92%";
 const OVERLAY_MIN_WIDTH = 40;
@@ -211,15 +213,10 @@ class ExploreOverlayComponent extends Container {
 		// Stats line (dynamic)
 		this.statsText = new Text("", 0, 0);
 		this.addChild(this.statsText);
-		this.addChild(new Spacer(1));
-
-		// Activity label
-		this.addChild(new Text(this.theme.fg("muted", "Activity:"), 0, 0));
 
 		// Activity list (dynamic)
 		this.activityContainer = new Container();
 		this.addChild(this.activityContainer);
-		this.addChild(new Spacer(1));
 
 		// Status line (dynamic)
 		this.statusText = new Text("", 0, 0);
@@ -300,9 +297,10 @@ class ExploreOverlayComponent extends Container {
 			for (let i = 0; i < recent.length; i++) {
 				const tc = recent[i];
 				const prefix = i === recent.length - 1 ? "└─" : "├─";
-				const line = `${prefix} ${tc.name} ${formatArgsShort(tc.name, tc.args)}`;
+				const argsShort = formatArgsShort(tc.name, tc.args);
+				const line = `${prefix} ${tc.name} ${argsShort}`;
 				this.activityContainer.addChild(
-					new Text(this.theme.fg("dim", line), 0, 0),
+					new TruncatedText(this.theme.fg("dim", line), 0, 0),
 				);
 			}
 		}
@@ -319,9 +317,49 @@ class ExploreOverlayComponent extends Container {
 
 /** Format tool call args into a short string. */
 function formatArgsShort(toolName: string, args: Record<string, unknown>): string {
+	// batch tool: args.o is an array of operations
+	if (toolName === "batch" && Array.isArray(args.o)) {
+		const ops = args.o as Array<Record<string, unknown>>;
+		const first = ops[0];
+		if (!first) return "";
+		const opType = first.o as string;
+		if (opType === "bash") {
+			const cmd = (first.c as string) || "";
+			return cmd ? `"${truncateChars(cmd, 50)}"` : "";
+		}
+		if (opType === "read") {
+			const path = (first.p as string) || "";
+			return path ? `"${path}"` : "";
+		}
+		if (opType === "write" || opType === "edit") {
+			const path = (first.p as string) || "";
+			return path ? `"${path}"` : "";
+		}
+		// Fallback for other batch ops
+		const p = (first.p as string) || (first.c as string) || "";
+		return p ? `"${truncateChars(p, 50)}"` : "";
+	}
+
+	// web tool: args.op is an array of operations
+	if (toolName === "web" && Array.isArray(args.op)) {
+		const ops = args.op as Array<Record<string, unknown>>;
+		const first = ops[0];
+		if (!first) return "";
+		const opType = first.o as string;
+		if (opType === "search") {
+			const q = (first.q as string) || "";
+			return q ? `"${truncateChars(q, 50)}"` : "";
+		}
+		if (opType === "fetch") {
+			const u = (first.u as string) || "";
+			return u ? `"${truncateChars(u, 50)}"` : "";
+		}
+	}
+
+	// Direct args (legacy or simple tools)
 	const cmd = (args.command as string) || (args.query as string) || (args.url as string) || "";
-	if (cmd) return `"${cmd.slice(0, 60)}${cmd.length > 60 ? "..." : ""}"`;
-	return JSON.stringify(args).slice(0, 60);
+	if (cmd) return `"${truncateChars(cmd, 50)}"`;
+	return "";
 }
 
 /** Extract last assistant text from messages. */
@@ -336,6 +374,39 @@ function getLastAssistantText(messages: any[]): string | undefined {
 		if (joined.trim()) return joined.trim();
 	}
 	return undefined;
+}
+
+/** Extract tool call / result pairs from message history. */
+function extractToolCallOutputs(messages: any[]): Array<{ name: string; args: Record<string, unknown>; output: string }> {
+	if (!Array.isArray(messages)) return [];
+
+	// Map toolCallId → result text
+	const resultMap = new Map<string, string>();
+	for (const msg of messages) {
+		if (msg.role !== "tool" || !Array.isArray(msg.content)) continue;
+		const id = msg.toolCallId || msg.tool_call_id || "";
+		if (!id) continue;
+		const text = msg.content
+			.filter((p: any) => p.type === "text" && typeof p.text === "string")
+			.map((p: any) => p.text)
+			.join("");
+		resultMap.set(id, text);
+	}
+
+	// Pair with tool calls
+	const pairs: Array<{ name: string; args: Record<string, unknown>; output: string }> = [];
+	for (const msg of messages) {
+		if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+		for (const part of msg.content) {
+			if (part.type !== "toolCall") continue;
+			const id = part.toolCallId || part.tool_call_id || "";
+			if (!id || !resultMap.has(id)) continue;
+			const name = part.name || part.toolName || "unknown";
+			const args = part.arguments || part.input || {};
+			pairs.push({ name, args, output: resultMap.get(id)! });
+		}
+	}
+	return pairs;
 }
 
 function truncateChars(text: string, max: number): string {
@@ -520,6 +591,24 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 				noteText = flowOutput || "Exploration completed with no structured output.";
 			}
 
+			// Append raw tool outputs so the parent sees actual content
+			const toolPairs = extractToolCallOutputs(childResult.messages);
+			if (toolPairs.length > 0) {
+				noteText += "\n\n---\n\n[Tool call outputs]\n";
+				for (let i = 0; i < toolPairs.length; i++) {
+					const p = toolPairs[i];
+					const argsStr = formatArgsShort(p.name, p.args);
+					noteText += `\n${i + 1}. ${p.name} ${argsStr}\n`;
+					noteText += "Output:\n";
+					// Truncate extremely long outputs to keep context manageable
+					const maxOut = 8000;
+					const out = p.output.length > maxOut
+						? p.output.slice(0, maxOut) + "\n[...truncated...]"
+						: p.output;
+					noteText += out + "\n";
+				}
+			}
+
 			const isError = isFlowError(childResult) && !exploreData;
 			const details: ExploreToolDetails = {
 				mode: "explore",
@@ -541,13 +630,9 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 
 		renderCall(args: any, theme: any) {
 			const aim = (args.aim as string) || "";
-			const intent = (args.intent as string) || "";
 			let text = theme.fg("accent", theme.bold("explore"));
 			if (aim) {
 				text += theme.fg("dim", ` — ${aim}`);
-			}
-			if (intent && intent !== aim) {
-				text += "\n" + theme.fg("dim", `  ${intent}`);
 			}
 			return new Text(text, 0, 0);
 		},
@@ -612,21 +697,22 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 			const cancelled = exploreDetails?.cancelled;
 			const exploreData = exploreDetails?.result;
 
-			let text = cancelled
-				? theme.fg("warning", "~ ")
-				: theme.fg("success", "> ");
-			text += theme.fg("accent", theme.bold("explore"));
+			let text = theme.fg("accent", theme.bold("explore"));
 
 			if (exploreDetails?.aim) {
 				text += theme.fg("dim", ` — ${exploreDetails.aim}`);
 			}
 
-			if (exploreData) {
-				const keptCount = Math.min(exploreData.kept.length, exploreData.totalToolCalls);
-				text += `\n${theme.fg("dim", `  ${keptCount} kept from ${exploreData.totalToolCalls} calls (${Math.round(exploreData.durationMs / 1000)}s)`)}`;
+			if (cancelled) {
+				text += theme.fg("warning", " [cancelled]");
+			} else if (exploreDetails?.error) {
+				text += theme.fg("error", " [err]");
+			} else {
+				text += theme.fg("success", " [done]");
 			}
 
 			if (options.expanded && exploreData) {
+				text += "\n" + theme.fg("dim", `${exploreData.kept.length} kept from ${exploreData.totalToolCalls} calls (${Math.round(exploreData.durationMs / 1000)}s)`);
 				text += "\n" + theme.fg("dim", exploreData.note);
 				if (exploreData.kept.length > 0) {
 					text += "\n" + theme.fg("muted", "Findings:");

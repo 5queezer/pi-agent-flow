@@ -47,6 +47,7 @@ export function getFlowTier(flowName: string): FlowTier {
 			return "lite";
 		case "build":
 		case "audit":
+		case "explore":
 			return "flash";
 		case "ideas":
 		case "craft":

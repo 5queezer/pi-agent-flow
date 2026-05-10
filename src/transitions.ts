@@ -38,6 +38,9 @@ export const DEFAULT_TRANSITIONS: FlowTransition[] = [
 	{ from: "audit", to: "build", on: "failure", advice: "Audit found issues. Consider running a [build] flow to fix them." },
 	{ from: "craft", to: "build", on: "success", advice: "Plan ready. Consider running a [build] flow to implement the design." },
 	{ from: "ideas", to: "craft", on: "success", advice: "Ideas explored. Consider running a [craft] flow to design the approach, or [build] to implement directly." },
+	{ from: "explore", to: "build", on: "success", advice: "Exploration complete. Consider running a [build] flow to implement changes based on your findings." },
+	{ from: "explore", to: "scout", on: "success", advice: "Exploration mapped the landscape. Consider running a [scout] flow for targeted code tracing." },
+	{ from: "explore", to: "debug", on: "failure", advice: "Explore failed to find what you needed. Consider running a [debug] flow to investigate the area directly." },
 ];
 
 // ---------------------------------------------------------------------------

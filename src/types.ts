@@ -327,3 +327,47 @@ export interface PiAgentFlowAPI {
 	getSettings: () => { toolOptimize: boolean; structuredOutput: boolean; maxConcurrency: number };
 }
 
+// ---------------------------------------------------------------------------
+// Explore plugin types
+// ---------------------------------------------------------------------------
+
+/** A single curated finding from an exploration session. */
+export interface ExploreKeptItem {
+	/** Phase of exploration this finding came from. */
+	phase: "search" | "code" | "inspect" | "web" | "other";
+	/** Tool that produced this finding. */
+	tool: string;
+	/** Specific action: search, fetch, read, bash, etc. */
+	action?: string;
+	/** The query, command, or search string. */
+	query?: string;
+	/** One-sentence summary of the finding's value. */
+	resultSummary: string;
+	/** Short excerpt, file path, or URL. */
+	resultExcerpt?: string;
+}
+
+/** The curated payload from an explore session. */
+export interface ExploreDetails {
+	/** Synthesized narrative of what was found and why it matters. */
+	note: string;
+	/** Curated findings selected by the child agent. */
+	kept: ExploreKeptItem[];
+	/** How many tool calls were discarded during curation. */
+	discardedCount: number;
+	/** Total duration of the exploration in milliseconds. */
+	durationMs: number;
+	/** Total tool calls made before curation. */
+	totalToolCalls: number;
+}
+
+/** Details attached to the explore tool result for rendering. */
+export interface ExploreToolDetails {
+	mode: "explore";
+	intent: string;
+	aim: string;
+	result: ExploreDetails | null;
+	cancelled: boolean;
+	error?: string;
+}
+

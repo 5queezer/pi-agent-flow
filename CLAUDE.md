@@ -59,6 +59,7 @@ Agent work is organized into two tiers. **Access is not the boundary — intent 
 | Flow | Tools | maxDepth | Tier | Notes |
 |------|-------|----------|------|-------|
 | `scout` | batch, bash, find, grep, ls, web | 0 | lite | Explore, map, discover. Full access for best exploration. The pathfinder. |
+| `explore` | batch, bash, web | 0 | flash | Autonomous research with live overlay. Searches web + code, self-curates findings. The researcher. |
 | `build` | batch, bash, find, grep, ls, web | 0 | flash | Implement, test, verify, ship. The craftsman. |
 | `audit` | batch, bash, find, grep, ls, web | 0 | flash | Audit security, quality, correctness; fix safe issues. The watchful eye. |
 | `debug` | batch, bash, find, grep, ls, web | 0 | flash | Investigate root cause AND fix the bug. The detective + fixer. |
@@ -67,9 +68,19 @@ Agent work is organized into two tiers. **Access is not the boundary — intent 
 
 > **None of these flows have `ask_user`.** If user input is needed, a flow emits a `⚠️ Decision Required` block for the orchestrator to present. Only the orchestrator talks to the user.
 >
-> These flows do the heavy lifting. They do not talk to the user — they receive a mission, execute, and return structured results. Their intent is scoped: a `scout` maps the terrain; a `build` agent ships code; an `audit` agent checks it; a `debug` agent traces roots *and* fixes them; an `ideas` agent explores possibilities; a `craft` agent designs carefully.
+> These flows do the heavy lifting. They do not talk to the user — they receive a mission, execute, and return structured results. Their intent is scoped: a `scout` maps the terrain; an `explore` agent researches broadly and curates findings; a `build` agent ships code; an `audit` agent checks it; a `debug` agent traces roots *and* fixes them; an `ideas` agent explores possibilities; a `craft` agent designs carefully.
 
 > **Tier** (lite / flash / full) only affects **model selection** — which LLM candidate to use. It does **not** restrict tools or access.
+
+### The `explore` Tool (Parent-Level)
+
+`explore` is a first-class parent tool (like `ask_user` and `flow`), not a standard flow. It:
+- Spawns a forked `explore` child agent with `batch` + `web` (read-only)
+- Shows a live pi-tui overlay while the agent works (similar to `ask_user` popup)
+- The child freely researches, then self-curates its findings
+- Returns only the curated results — all exploration noise stays in the child process
+- Produces `extensions.explore` structured output with `note`, `kept[]`, `discardedCount`, `durationMs`, `totalToolCalls`
+- Escapes to `debug` on failure, `build` or `scout` on success
 
 ### Tier 2 — Orchestrator: Main Agent
 **Question:** "What should we do, and who should do it?"  

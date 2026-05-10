@@ -521,7 +521,7 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 					{
 						overlay: true,
 						overlayOptions: {
-							anchor: "center",
+							anchor: "bottom-center",
 							width: OVERLAY_WIDTH,
 							minWidth: OVERLAY_MIN_WIDTH,
 							maxHeight: "85%",

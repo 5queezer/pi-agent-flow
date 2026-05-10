@@ -464,19 +464,19 @@ function buildSummary(
 
 	if (counts.error === 0) {
 		// All success
-		parts.push(`✓ ${totalOps} operations: ${successParts.join(", ")}`);
+		parts.push(`[+] ${totalOps} operations: ${successParts.join(", ")}`);
 	} else {
 		// Mixed success/failure
 		parts.push(
-			`✗ ${counts.error} failed${counts.skipped > 0 ? `, ${counts.skipped} skipped` : ""}`,
+			`[-] ${counts.error} failed${counts.skipped > 0 ? `, ${counts.skipped} skipped` : ""}`,
 		);
 		if (totalSuccess > 0) {
-			parts.push(`  ✓ ${successParts.join(", ")} ok`);
+			parts.push(`  [+] ${successParts.join(", ")} ok`);
 		}
 		for (const err of errors) {
 			const hint = err.hint ?? "";
 			const hintSuffix = hint ? ` — ${hint}` : "";
-			parts.push(`  ✗ ${err.op} ${err.path}: ${err.message}${hintSuffix}`);
+			parts.push(`  [-] ${err.op} ${err.path}: ${err.message}${hintSuffix}`);
 		}
 	}
 
@@ -484,7 +484,7 @@ function buildSummary(
 	for (const tf of truncatedFiles) {
 		if (tf.nextOffset) {
 			parts.push(
-				`  ⚠ ${tf.path} truncated (${tf.shown}/${tf.total} lines) — use s=${tf.nextOffset}`,
+				`  [!] ${tf.path} truncated (${tf.shown}/${tf.total} lines) — use s=${tf.nextOffset}`,
 			);
 		}
 	}
@@ -492,7 +492,7 @@ function buildSummary(
 	// Aggregate line limit warnings
 	if (aggregateLimitSkipped.length > 0) {
 		parts.push(
-			`  ⚠ Aggregate line limit (${MAX_TOTAL_RESULT_LINES}) reached — skipped ${aggregateLimitSkipped.length} read${aggregateLimitSkipped.length > 1 ? "s" : ""}: ${aggregateLimitSkipped.map((s) => s.path).join(", ")}`,
+			`  [!] Aggregate line limit (${MAX_TOTAL_RESULT_LINES}) reached — skipped ${aggregateLimitSkipped.length} read${aggregateLimitSkipped.length > 1 ? "s" : ""}: ${aggregateLimitSkipped.map((s) => s.path).join(", ")}`,
 		);
 	}
 

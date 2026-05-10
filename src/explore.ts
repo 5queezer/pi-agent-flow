@@ -14,6 +14,7 @@ import {
 	Text,
 	Spacer,
 	truncateToWidth,
+	TruncatedText,
 	type Component,
 	type TUI,
 	type KeybindingsManager,
@@ -31,12 +32,17 @@ import {
 	type ExploreToolDetails,
 	type ExploreDetails,
 	getFlowOutput,
+	getLastToolCall,
 	isFlowError,
 } from "./types.js";
 import { extractStructuredOutput } from "./structured-output.js";
 import { appendStrategicHint } from "./tool-utils.js";
 
-const EXPLORE_VERSION = "1.0.0";
+let EXPLORE_VERSION = "0.0.0";
+try {
+	const resolved = require.resolve("pi-agent-flow/package.json");
+	EXPLORE_VERSION = require(resolved).version;
+} catch { /* fallback */ }
 
 // ---------------------------------------------------------------------------
 // Inline flow config — explore is a self-contained tool, not a discoverable flow
@@ -65,6 +71,7 @@ const EXPLORE_FLOW: FlowConfig = {
 		"- **Be thorough.** Run 5–15 tool calls if the topic warrants it.",
 		"- **Be selective.** Keep at most 10 findings. For each, write a one-sentence `resultSummary` and a short `resultExcerpt`.",
 		"- **Include evidence.** Cite file paths, line ranges, URLs, or command outputs.",
+		"- **No redundant reads.** Do NOT re-read files or sections you have already read. Each tool call result is in your context — review it before making another call. Prefer reading larger sections at once rather than making multiple small reads of the same file.",
 		"- **Time budget.** If approaching timeout, stop exploring and curate what you have.",
 		"",
 		"## Structured Output",
@@ -196,10 +203,6 @@ class ExploreOverlayComponent extends Container {
 		private onCancel: () => void,
 	) {
 		super();
-
-		// Title
-		this.addChild(new Text(this.theme.fg("accent", this.theme.bold("🔍 Exploring")), 0, 0));
-		this.addChild(new Spacer(1));
 
 		// Intent line (aim)
 		this.addChild(new Text(this.theme.fg("text", this.theme.bold(this.state.aim)), 0, 0));
@@ -539,8 +542,10 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 		renderCall(args: any, theme: any) {
 			const aim = (args.aim as string) || "";
 			const intent = (args.intent as string) || "";
-			let text = theme.fg("toolTitle", theme.bold("explore "));
-			text += theme.fg("muted", aim);
+			let text = theme.fg("accent", theme.bold("explore"));
+			if (aim) {
+				text += theme.fg("dim", ` — ${aim}`);
+			}
 			if (intent && intent !== aim) {
 				text += "\n" + theme.fg("dim", `  ${intent}`);
 			}
@@ -548,32 +553,77 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 		},
 
 		renderResult(result: any, options: any, theme: any) {
-			const details = result.details as ExploreToolDetails | undefined;
+			// During streaming we forward raw flow updates, so details may be FlowDetails
+			const flowDetails = result.details?.mode === "flow" ? result.details : null;
+			const exploreDetails = result.details?.mode === "explore" ? result.details : null;
 
-			if (details?.error) {
-				return new Text(theme.fg("error", `✗ explore: ${details.error}`), 0, 0);
+			// --- Streaming state (flow-style aim/act/msg lines) ---
+			if (options.isPartial && flowDetails?.results?.[0]) {
+				const r = flowDetails.results[0];
+				const container = new Container();
+
+				// Header
+				container.addChild(new TruncatedText(theme.fg("accent", theme.bold("explore")), 0, 0));
+				container.addChild(new Spacer(1));
+
+				// aim: line
+				if (r.aim) {
+					container.addChild(new TruncatedText(
+						`${theme.fg("dim", "├─ aim: ")}${theme.fg("dim", r.aim)}`,
+						0, 0,
+					));
+				}
+
+				// act: line (last tool call + count)
+				const lastTool = getLastToolCall(r.messages);
+				if (lastTool) {
+					const argsShort = formatArgsShort(lastTool.name, lastTool.args);
+					const actPrefix = `├─ act: [${r.usage.toolCalls}] - `;
+					container.addChild(new TruncatedText(
+						`${theme.fg("dim", actPrefix)}${theme.fg("dim", `${lastTool.name} ${argsShort}`)}`,
+						0, 0,
+					));
+				}
+
+				// msg: line (streaming text or last assistant text)
+				const streamingText = result.content?.[0]?.text || getLastAssistantText(r.messages) || "";
+				const msgPrefix = "└─ msg: ";
+				if (streamingText) {
+					container.addChild(new TruncatedText(
+						`${theme.fg("dim", msgPrefix)}${theme.fg("dim", streamingText)}`,
+						0, 0,
+					));
+				} else {
+					container.addChild(new TruncatedText(
+						`${theme.fg("dim", msgPrefix)}${theme.fg("dim", "[n/a]")}`,
+						0, 0,
+					));
+				}
+
+				return container;
 			}
 
-			if (options.isPartial) {
-				const waitingText = result.content
-					?.filter((part: any) => part?.type === "text")
-					.map((part: any) => part.text ?? "")
-					.join("\n")
-					.trim() || "Exploring...";
-				return new Text(theme.fg("muted", waitingText), 0, 0);
+			// --- Error state ---
+			if (exploreDetails?.error) {
+				return new Text(theme.fg("error", `× explore: ${exploreDetails.error}`), 0, 0);
 			}
 
-			const cancelled = details?.cancelled;
-			const exploreData = details?.result;
+			// --- Complete state ---
+			const cancelled = exploreDetails?.cancelled;
+			const exploreData = exploreDetails?.result;
 
 			let text = cancelled
-				? theme.fg("warning", "◐ ")
-				: theme.fg("success", "✓ ");
+				? theme.fg("warning", "~ ")
+				: theme.fg("success", "> ");
 			text += theme.fg("accent", theme.bold("explore"));
 
+			if (exploreDetails?.aim) {
+				text += theme.fg("dim", ` — ${exploreDetails.aim}`);
+			}
+
 			if (exploreData) {
-				text += theme.fg("dim", ` — ${exploreData.kept.length} kept from ${exploreData.totalToolCalls} calls`);
-				text += theme.fg("dim", ` (${Math.round(exploreData.durationMs / 1000)}s)`);
+				const keptCount = Math.min(exploreData.kept.length, exploreData.totalToolCalls);
+				text += `\n${theme.fg("dim", `  ${keptCount} kept from ${exploreData.totalToolCalls} calls (${Math.round(exploreData.durationMs / 1000)}s)`)}`;
 			}
 
 			if (options.expanded && exploreData) {
@@ -581,7 +631,7 @@ export function createExploreTool(pi: import("@mariozechner/pi-coding-agent").Ex
 				if (exploreData.kept.length > 0) {
 					text += "\n" + theme.fg("muted", "Findings:");
 					for (const item of exploreData.kept) {
-						text += `\n  ${theme.fg("success", "●")} ${theme.fg("dim", item.resultSummary)}`;
+						text += `\n  ${theme.fg("muted", "-")} ${theme.fg("dim", item.resultSummary)}`;
 						if (item.resultExcerpt) {
 							text += `\n    ${theme.fg("dim", item.resultExcerpt)}`;
 						}

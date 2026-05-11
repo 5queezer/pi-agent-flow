@@ -195,30 +195,15 @@ export function renderFlowResult(
 		const hasActive = scrambleManager.hasAnyActiveAnimations(now);
 
 		if (hasActive) {
-			// Schedule a single next frame — chained, not interval.
-			// The invalidate() call triggers a re-render, which checks
-			// hasAnyActiveRipples again and schedules the next frame.
-			if (!s.rippleTimer) {
-				s.rippleTimer = setTimeout(() => {
-					s.rippleTimer = undefined;
+			if (!s.animTimer) {
+				s.animTimer = setTimeout(() => {
+					s.animTimer = undefined;
 					args.invalidate!();
 				}, 50);
 			}
-			if (s.idleTimer) {
-				clearTimeout(s.idleTimer);
-				s.idleTimer = undefined;
-			}
-		} else {
-			if (s.rippleTimer) {
-				clearTimeout(s.rippleTimer);
-				s.rippleTimer = undefined;
-			}
-			if (!s.idleTimer) {
-				s.idleTimer = setTimeout(() => {
-					s.idleTimer = undefined;
-					args.invalidate!();
-				}, 5000);
-			}
+		} else if (s.animTimer) {
+			clearTimeout(s.animTimer);
+			s.animTimer = undefined;
 		}
 	}
 

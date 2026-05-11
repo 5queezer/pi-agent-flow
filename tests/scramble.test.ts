@@ -208,6 +208,148 @@ describe('ScrambleStateManager (stream mode)', () => {
 		const result = manager.streamMsg(TEST_ID, 'new text', Date.now(), false, 40);
 		expect(hasDimAnsi(result)).toBe(true);
 	});
+
+	it('streamMsg resets when a new flow starts after completion', () => {
+		const base = 1000000;
+		// First flow completes
+		manager.streamMsg(TEST_ID, 'first flow', base, false, 40);
+		manager.streamMsg(TEST_ID, 'first flow', base + 500, true, 40);
+		expect(manager.hasAnyActiveAnimations(base + 500)).toBe(false);
+		// New flow starts — should reset and scramble again
+		const result = manager.streamMsg(TEST_ID, 'second flow', base + 600, false, 40);
+		expect(hasDimAnsi(result)).toBe(true);
+		expect(stripAnsi(result)).not.toBe('second flow');
+	});
+
+	it('streamAct resets when a new flow starts after completion', () => {
+		const base = 1000000;
+		// First flow completes
+		manager.streamAct(TEST_ID, 'read first.ts', base, false, 40);
+		manager.streamAct(TEST_ID, 'read first.ts', base + 500, true, 40);
+		expect(manager.hasAnyActiveAnimations(base + 500)).toBe(false);
+		// New flow starts — should reset and scramble again
+		const result = manager.streamAct(TEST_ID, 'write second.ts', base + 600, false, 40);
+		expect(hasDimAnsi(result)).toBe(true);
+		expect(stripAnsi(result)).not.toBe('write second.ts');
+	});
+
+	it('streamMsg strips ANSI for stable comparison', () => {
+		const base = 1000000;
+		// Text with ANSI codes that change between renders
+		const textWithAnsi1 = '\x1b[32mhello\x1b[0m world';
+		const textWithAnsi2 = '\x1b[33mhello\x1b[0m world';
+		manager.streamMsg(TEST_ID, textWithAnsi1, base, false, 40);
+		// Same visible text, different ANSI codes — should NOT reset
+		const result = manager.streamMsg(TEST_ID, textWithAnsi2, base + 500, false, 40);
+		// Should be fully revealed (same text, no reset)
+		expect(stripAnsi(result)).toBe('hello world');
+		expect(hasDimAnsi(result)).toBe(false);
+	});
+
+	it('streamMsg adjusts revealed count when visible window slides', () => {
+		const base = 1000000;
+		const budget = 10;
+		// Start with text that fits in budget
+		manager.streamMsg(TEST_ID, '0123456789', base, false, budget);
+		// Let it reveal 5 chars
+		manager.streamMsg(TEST_ID, '0123456789', base + 200, false, budget);
+		const mid = manager.streamMsg(TEST_ID, '0123456789', base + 200, false, budget);
+		const midRevealed = stripAnsi(mid).replace(/[\x21-\x7E]/g, '#');
+		// Should have some resolved chars at the start
+		expect(stripAnsi(mid).slice(0, 1)).not.toBe(''); // at least 1 char revealed by ~170ms
+
+		// Now grow text beyond budget — window slides
+		const result = manager.streamMsg(TEST_ID, '0123456789abc', base + 200, false, budget);
+		const stripped = stripAnsi(result);
+		// The visible text is the tail (last 10 chars). Because the window slid,
+		// the overlap-based adjustment should keep some chars revealed instead of
+		// dropping to 0 and showing pure scramble.
+		expect(stripped.length).toBeLessThanOrEqual(budget);
+		// Should NOT be pure scramble noise — at least some chars should be resolved
+		// (the overlap "6789" was previously revealed and is still visible)
+		expect(stripped.slice(0, 2)).toBe('34'); // "3456789abc" tail, overlap preserved
+	});
+
+	it('streamMsg preserves revealed chars when text grows within budget', () => {
+		const base = 1000000;
+		const budget = 40;
+		manager.streamMsg(TEST_ID, 'hello world', base, false, budget);
+		// Let 6 chars reveal
+		const partial = manager.streamMsg(TEST_ID, 'hello world', base + 250, false, budget);
+		expect(stripAnsi(partial).slice(0, 6)).toBe('hello '); // 250/35 ≈ 7 chars
+
+		// Grow text within budget — same visible text, just longer
+		const result = manager.streamMsg(TEST_ID, 'hello world!', base + 250, false, budget);
+		// Old visible text "hello world" is a prefix of new visible text.
+		// Previously-revealed chars should stay revealed; only the new "!" is scrambled.
+		const stripped = stripAnsi(result);
+		expect(stripped.slice(0, 6)).toBe('hello ');
+	});
+
+	it('streamMsg resets to pure scramble on completely different text', () => {
+		const base = 1000000;
+		const budget = 40;
+		manager.streamMsg(TEST_ID, 'first message text here', base, false, budget);
+		// Let it fully reveal
+		manager.streamMsg(TEST_ID, 'first message text here', base + 1000, false, budget);
+		const done = manager.streamMsg(TEST_ID, 'first message text here', base + 1000, false, budget);
+		expect(hasDimAnsi(done)).toBe(false);
+
+		// Completely different text — no overlap
+		const result = manager.streamMsg(TEST_ID, 'totally different content now', base + 1001, false, budget);
+		// Should reset and show scramble
+		expect(hasDimAnsi(result)).toBe(true);
+	});
+
+	it('streamMsg handles rapid window sliding without dropping to zero revealed', () => {
+		const base = 1000000;
+		const budget = 15;
+		// Start with short text
+		manager.streamMsg(TEST_ID, 'abc', base, false, budget);
+		manager.streamMsg(TEST_ID, 'abc', base + 500, false, budget); // fully revealed
+
+		// Rapid growth: text jumps from 3 to 50 chars. Window slides aggressively.
+		const longText = 'x'.repeat(47) + 'abc';
+		const result = manager.streamMsg(TEST_ID, longText, base + 600, false, budget);
+		const stripped = stripAnsi(result);
+		expect(stripped.length).toBeLessThanOrEqual(budget);
+		expect(hasDimAnsi(result)).toBe(true);
+	});
+
+	it('streamMsg survives clock backward jump without stalling', () => {
+		const base = 1000000;
+		manager.streamMsg(TEST_ID, 'hello world', base, false, 40);
+		// Partial reveal at t=100
+		const partial = manager.streamMsg(TEST_ID, 'hello world', base + 100, false, 40);
+		expect(hasDimAnsi(partial)).toBe(true);
+
+		// Clock jumps backward (simulates NTP sync or VM time drift)
+		const afterJump = manager.streamMsg(TEST_ID, 'hello world', base + 50, false, 40);
+		// Should not crash or instantly complete — animation still active
+		expect(hasDimAnsi(afterJump)).toBe(true);
+
+		// Clock recovers and catches up
+		const recovered = manager.streamMsg(TEST_ID, 'hello world', base + 500, false, 40);
+		expect(stripAnsi(recovered)).toBe('hello world');
+		expect(hasDimAnsi(recovered)).toBe(false);
+	});
+
+	it('streamAct survives clock backward jump without stalling', () => {
+		const base = 1000000;
+		manager.streamAct(TEST_ID, 'read file.ts', base, false, 40);
+		// Partial reveal at t=100
+		const partial = manager.streamAct(TEST_ID, 'read file.ts', base + 100, false, 40);
+		expect(hasDimAnsi(partial)).toBe(true);
+
+		// Clock jumps backward
+		const afterJump = manager.streamAct(TEST_ID, 'read file.ts', base + 50, false, 40);
+		expect(hasDimAnsi(afterJump)).toBe(true);
+
+		// Clock recovers
+		const recovered = manager.streamAct(TEST_ID, 'read file.ts', base + 500, false, 40);
+		expect(stripAnsi(recovered)).toBe('read file.ts');
+		expect(hasDimAnsi(recovered)).toBe(false);
+	});
 });
 
 // ---------------------------------------------------------------------------

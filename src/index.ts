@@ -28,6 +28,7 @@ import {
 	stripSlidingPromptsFromMessages,
 	makeSlidingPromptMessage,
 } from "./sliding-prompt.js";
+import { setupSpecMode } from "./spec-mode.js";
 import { createTimedBashToolDefinition } from "./timed-bash.js";
 import {
 	resolveFlowDepthConfig,
@@ -168,6 +169,9 @@ export default function (pi: ExtensionAPI) {
 
 	// Wire up bundled notification channel
 	setupNotify(pi);
+
+	// Wire up /spec toggle
+	setupSpecMode(pi);
 
 	const depthConfig = resolveFlowDepthConfig(pi);
 	const { currentDepth, maxDepth, canDelegate, ancestorFlowStack, preventCycles } =

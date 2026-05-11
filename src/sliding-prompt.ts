@@ -17,6 +17,22 @@ const SLIDING_PROMPT_UUID = randomUUID();
 export const SLIDING_PROMPT_OPEN_TAG = `<pi-flow-sliding-system id="${SLIDING_PROMPT_UUID}">`;
 export const SLIDING_PROMPT_CLOSE_TAG = `</pi-flow-sliding-system id="${SLIDING_PROMPT_UUID}">`;
 
+// ---------------------------------------------------------------------------
+// Mode state — toggled by /spec command
+// ---------------------------------------------------------------------------
+
+let _specModeActive = true;
+
+/** Query whether spec-driven planning mode is active. */
+export function isSpecModeActive(): boolean {
+	return _specModeActive;
+}
+
+/** Set spec-driven planning mode on/off. */
+export function setSpecModeActive(active: boolean): void {
+	_specModeActive = active;
+}
+
 export const SLIDING_PROMPT =
 	`${SLIDING_PROMPT_OPEN_TAG}\n` +
 	`You are in spec-driven planning mode.\n\n` +
@@ -68,6 +84,18 @@ export const SLIDING_PROMPT =
 	`- ❌ Writing spec without Q&A record\n` +
 	`- ❌ Using bash/write directly (delegate to flows)\n` +
 	`${SLIDING_PROMPT_CLOSE_TAG}`;
+
+export const IMPLEMENT_PROMPT =
+	`${SLIDING_PROMPT_OPEN_TAG}\n` +
+	`You are the orchestrator. You have batch_read, flow, web, and ask_user.\n` +
+	`You do NOT have bash or write. Delegate all implementation to flows.\n\n` +
+	`- Context: Answer directly if possible; otherwise, investigate first, then delegate.\n` +
+	`- Acts: [Route all git, bash, CLI, or terminal tasks to \`build\` flow, For major conflicts or misaligned goals use ask_user, For lengthy plans with many steps use ask_user to confirm main points before proceeding]\n` +
+	`- Mindset: Gather context before acting. Investigate, discuss, plan — then delegate.\n` +
+	`- Anti-patterns: [Never implement directly, Never ask what you can discover with tools, Never skip investigation]\n` +
+	`Note: Context is inherited automatically for child flow; write intents focusing only on new work.\n` +
+	`${SLIDING_PROMPT_CLOSE_TAG}`;
+
 const SLIDING_PROMPT_RE = new RegExp(
 	SLIDING_PROMPT_OPEN_TAG.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
 	"[\\s\\S]*?" +
@@ -181,7 +209,7 @@ export function stripSlidingPromptsFromMessages(messages: any[]): { messages: an
 export function makeSlidingPromptMessage(referenceMessage?: any): any {
 	return {
 		role: "system",
-		content: SLIDING_PROMPT,
+		content: _specModeActive ? SLIDING_PROMPT : IMPLEMENT_PROMPT,
 		timestamp: referenceMessage?.timestamp,
 	};
 }

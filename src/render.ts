@@ -396,15 +396,15 @@ function renderFlowCollapsed(
 	let rawMsg: string;
 	let useError = false;
 	if (r.exitCode === -1 && streamingText) {
-		rawMsg = streamingText;
+		rawMsg = stripAnsi(streamingText);
 	} else if (r.structuredOutput?.summary) {
-		rawMsg = r.structuredOutput.summary;
+		rawMsg = stripAnsi(r.structuredOutput.summary);
 	} else if (flowOutput) {
-		rawMsg = flowOutput;
+		rawMsg = stripAnsi(flowOutput);
 	} else if (streamingText) {
-		rawMsg = streamingText;
+		rawMsg = stripAnsi(streamingText);
 	} else if (error && r.errorMessage) {
-		rawMsg = r.errorMessage;
+		rawMsg = stripAnsi(r.errorMessage);
 		useError = true;
 	} else {
 		rawMsg = "[n/a]";
@@ -589,9 +589,9 @@ function renderActivityPanel(
 		let rawMsg: string;
 		let useError = false;
 		if (lastText) {
-			rawMsg = lastText;
+			rawMsg = stripAnsi(lastText);
 		} else if (error && r.errorMessage) {
-			rawMsg = r.errorMessage;
+			rawMsg = stripAnsi(r.errorMessage);
 			useError = true;
 		} else {
 			rawMsg = "[n/a]";

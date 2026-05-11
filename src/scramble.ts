@@ -127,6 +127,8 @@ interface TypewriterState {
 	completed: boolean;
 	/** Cached scramble chars for cursor zone (28% re-randomize). */
 	cursorChars: string[];
+	/** Last rendered visible text (tail view only, for overlap tracking). */
+	lastVisibleText?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -368,7 +370,22 @@ function createTypewriterState(speed: number): TypewriterState {
 		scrambleWidth: STREAM_SCRAMBLE_WIDTH,
 		completed: false,
 		cursorChars: [],
+		lastVisibleText: '',
 	};
+}
+
+/**
+ * Compute the longest suffix of `oldStr` that matches a prefix of `newStr`.
+ * Used for tail-view window sliding: when the visible text shifts, we want
+ * to know how many chars from the old view are still present at the start
+ * of the new view so revealedCount can be adjusted smoothly.
+ */
+function computeOverlapLen(oldStr: string, newStr: string): number {
+	const maxOverlap = Math.min(oldStr.length, newStr.length);
+	for (let i = maxOverlap; i > 0; i--) {
+		if (oldStr.endsWith(newStr.slice(0, i))) return i;
+	}
+	return 0;
 }
 
 export class ScrambleStateManager {
@@ -454,8 +471,11 @@ export class ScrambleStateManager {
 
 	/**
 	 * Stream msg: text with typewriter reveal.
-	 * Text grows incrementally (streaming). Cursor catches up at speed.
-	 * Budget controls the visible window (tailText applied).
+	 *
+	 * Tail-view semantics: only the last `budget` chars are visible. As text
+	 * grows the window slides. We track `revealedCount` relative to the
+	 * CURRENT visible text so that previously-visible resolved chars stay
+	 * resolved and only newly-entered chars are scrambled.
 	 */
 	streamMsg(id: string, fullText: string, now: number, isComplete: boolean, budget: number): string {
 		const state = this.getStreamState(id, 'msg');
@@ -464,24 +484,48 @@ export class ScrambleStateManager {
 			state.completed = true;
 		}
 
-		// Detect non-incremental change (text replaced entirely, not grown)
-		if (state.fullText && !fullText.startsWith(state.fullText.slice(0, Math.min(state.fullText.length, 10)))) {
-			state.fullText = fullText;
+		// Reset if a previously-completed flow is now running again (new flow started)
+		if (!isComplete && state.completed) {
+			state.completed = false;
 			state.revealedCount = 0;
-			state.lastRevealTime = now;
+			state.lastRevealTime = 0;
 			state.cursorChars = [];
-		} else {
-			state.fullText = fullText;
+			state.fullText = '';
+			state.lastVisibleText = '';
 		}
+
+		// Strip ANSI for stable comparison
+		const cleanText = stripAnsi(fullText);
+
+		// Compute old and new visible windows (tail text)
+		const oldVisibleText = state.lastVisibleText || '';
+		const newVisibleText = tailText(cleanText, budget);
+
+		if (oldVisibleText) {
+			// Find how much of the old visible text is still at the start of
+			// the new visible text. Chars that slid out of view reduce the
+			// revealed count so the visible window doesn't flash to pure noise.
+			const overlapLen = computeOverlapLen(oldVisibleText, newVisibleText);
+			const charsSlidOut = oldVisibleText.length - overlapLen;
+			state.revealedCount = Math.max(0, state.revealedCount - charsSlidOut);
+			if (charsSlidOut > 0) {
+				// Reset scramble cursor when the visible window shifts so stale
+				// scramble chars don't linger at wrong positions.
+				state.cursorChars = [];
+			}
+		}
+
+		state.fullText = cleanText;
+		state.lastVisibleText = newVisibleText;
 
 		// Advance cursor
 		if (state.completed) {
-			state.revealedCount = state.fullText.length;
+			state.revealedCount = newVisibleText.length;
 		} else if (state.lastRevealTime > 0) {
-			const elapsed = now - state.lastRevealTime;
+			const elapsed = Math.max(0, now - state.lastRevealTime);
 			const charsToReveal = Math.floor(elapsed / state.speed);
 			if (charsToReveal > 0) {
-				state.revealedCount = Math.min(state.revealedCount + charsToReveal, state.fullText.length);
+				state.revealedCount = Math.min(state.revealedCount + charsToReveal, newVisibleText.length);
 				state.lastRevealTime += charsToReveal * state.speed;
 			}
 		} else {
@@ -490,20 +534,11 @@ export class ScrambleStateManager {
 		}
 
 		// All revealed
-		if (state.revealedCount >= state.fullText.length) {
-			return tailText(state.fullText, budget);
+		if (state.revealedCount >= newVisibleText.length) {
+			return newVisibleText;
 		}
 
-		// Compute visible window (tail of full text)
-		const visibleStart = Math.max(0, state.fullText.length - budget);
-		const visibleText = state.fullText.slice(visibleStart);
-		const visibleRevealed = Math.max(0, state.revealedCount - visibleStart);
-
-		if (visibleRevealed >= visibleText.length) {
-			return visibleText;
-		}
-
-		return renderStreamText(visibleText, visibleRevealed, state.scrambleWidth, state.cursorChars);
+		return renderStreamText(newVisibleText, state.revealedCount, state.scrambleWidth, state.cursorChars);
 	}
 
 	/**
@@ -516,6 +551,15 @@ export class ScrambleStateManager {
 
 		if (isComplete && !state.completed) {
 			state.completed = true;
+		}
+
+		// Reset if a previously-completed flow is now running again (new flow started)
+		if (!isComplete && state.completed) {
+			state.completed = false;
+			state.revealedCount = 0;
+			state.lastRevealTime = 0;
+			state.cursorChars = [];
+			state.fullText = '';
 		}
 
 		// Strip ANSI for stable comparison (formatFlowToolCall adds color codes)
@@ -542,7 +586,7 @@ export class ScrambleStateManager {
 		if (state.completed) {
 			state.revealedCount = state.fullText.length;
 		} else if (state.lastRevealTime > 0) {
-			const elapsed = now - state.lastRevealTime;
+			const elapsed = Math.max(0, now - state.lastRevealTime);
 			const charsToReveal = Math.floor(elapsed / state.speed);
 			if (charsToReveal > 0) {
 				state.revealedCount = Math.min(state.revealedCount + charsToReveal, state.fullText.length);
@@ -631,7 +675,8 @@ export class ScrambleStateManager {
 
 	private isStreamAnimating(state: TypewriterState): boolean {
 		if (state.completed) return false;
-		return state.revealedCount < state.fullText.length;
+		const visibleText = state.lastVisibleText || state.fullText;
+		return state.revealedCount < visibleText.length;
 	}
 
 	hasActiveAnimations(id: string, now: number): boolean {
@@ -706,7 +751,7 @@ export class ScrambleStateManager {
 		const streamRecord = this.streamState.get(id);
 		if (streamRecord) {
 			streamRecord.msg.completed = true;
-			streamRecord.msg.revealedCount = streamRecord.msg.fullText.length;
+			streamRecord.msg.revealedCount = streamRecord.msg.lastVisibleText?.length ?? streamRecord.msg.fullText.length;
 			streamRecord.act.completed = true;
 			streamRecord.act.revealedCount = streamRecord.act.fullText.length;
 		}

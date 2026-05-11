@@ -20,6 +20,7 @@ import { mapFlowConcurrent, runFlow } from "./flow.js";
 import { getFlowSummaryText } from "./runner-events.js";
 import { normalizeFlowModeName, resolveFlowModelCandidates, selectFlowModelStrategy, type LoadedFlowModelConfigs, type FlowModelStrategy } from "./config.js";
 import { getAgentSessionTimeoutMs, resolveAgentSessionMode, type AgentSessionMode } from "./session-mode.js";
+import { setFlowComplete } from "./notify-state.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -383,6 +384,17 @@ export async function executeFlows(
 
 		return result;
 	});
+
+	// Record last flow completion for dynamic notifications
+	const lastResult = results[results.length - 1];
+	if (lastResult) {
+		setFlowComplete(
+			lastResult.type,
+			lastResult.acceptance,
+			results.length - 1,
+			results.length,
+		);
+	}
 
 	// Cache flow results
 	for (const result of results) {

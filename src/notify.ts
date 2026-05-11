@@ -11,6 +11,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { FLOW_DEPTH_ENV, parseNonNegativeInt } from "./depth.js";
+import { getNotifyState, resetNotifyState } from "./notify-state.js";
 
 type TerminalBackend = "auto" | "osc777" | "osc99" | "none";
 type DesktopBackend = "auto" | "macos" | "linux" | "windows-toast" | "none";
@@ -243,16 +244,41 @@ export function setupNotify(pi: ExtensionAPI) {
 	const currentDepth = parseNonNegativeInt(depthRaw) ?? 0;
 	if (currentDepth > 0) return;
 
+	// Reset notification context at the start of each turn
+	pi.on("turn_start", () => resetNotifyState());
+
 	pi.on("agent_end", async (_event, ctx) => {
 		const config = loadConfig(ctx.cwd);
 		if (!config.enabled) return;
 		if (config.onlyWhenInteractive && !ctx.hasUI) return;
 
+		// Defer one tick so tools that set notification state (e.g. ask_user)
+		// have time to register their context before we read it.
+		await new Promise((r) => setTimeout(r, 0));
+
+		const ns = getNotifyState();
+		let title = config.title;
+		let body = config.body;
+
+		if (ns.pendingDecision) {
+			title = `${config.title} — Decision Required`;
+			body = "Need your decision!";
+		} else if (ns.totalFlows > 0 && ns.lastFlowAcceptance) {
+			title = `${config.title} — ${ns.lastFlowName ?? "Flow"} Done`;
+			body = `${ns.lastFlowAcceptance} — finished.`;
+		} else if (ns.totalFlows > 0) {
+			title = `${config.title} — ${ns.lastFlowName ?? "Flow"} Done`;
+			body = `${ns.lastFlowName ?? "Flow"} finished.`;
+		} else {
+			title = config.title;
+			body = "Ready for next steps!";
+		}
+
 		const tasks: Array<Promise<unknown>> = [];
 
 		const terminalBackend = detectTerminalBackend(config);
 		if (config.channels.terminal) {
-			sendTerminalNotification(config.title, config.body, terminalBackend);
+			sendTerminalNotification(title, body, terminalBackend);
 		}
 
 		if (config.channels.desktop) {
@@ -268,7 +294,7 @@ export function setupNotify(pi: ExtensionAPI) {
 				config.desktop.backend === "auto" &&
 				isTerminalVisualNotificationSupported();
 			if (!skipDesktop) {
-				tasks.push(sendDesktopNotification(config.title, config.body, desktopBackend));
+				tasks.push(sendDesktopNotification(title, body, desktopBackend));
 			}
 		}
 

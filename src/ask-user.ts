@@ -9,6 +9,7 @@ import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
 import { Type, type TUnsafe } from "@sinclair/typebox";
 import { appendStrategicHintOnce } from "./tool-utils.js";
+import { setPendingDecision } from "./notify-state.js";
 import {
    Container,
    type Component,
@@ -1522,6 +1523,8 @@ export function createAskUserTool() {
       }),
 
       async execute(_toolCallId: string, params: AskParams, signal: AbortSignal | undefined, onUpdate: ((result: any) => void) | undefined, ctx: ExtensionContext) {
+         setPendingDecision();
+
          if (signal?.aborted) {
             return {
                content: [{ type: "text", text: "Cancelled" }],

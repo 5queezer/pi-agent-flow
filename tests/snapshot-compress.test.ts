@@ -49,13 +49,13 @@ describe("compressToolResults — batch", () => {
 				message: {
 					role: "tool",
 					toolCallId: "tc1",
-					content: "✓ 2 operations: 1 read, 1 bash\n\n--- src/file.ts (42 lines) ---\nline 1\nline 2\n\n--- bash [abc] exit 0 ---\n[Execution time: 0.5s (avg)]\noutput",
+					content: "✔ 2 operations: 1 read, 1 bash\n\n--- src/file.ts (42 lines) ---\nline 1\nline 2\n\n--- bash [abc] exit 0 ---\n[Execution time: 0.5s (avg)]\noutput",
 				},
 			},
 		]);
 
 		const result = compressToolResults(snapshot, new Map());
-		expect(result).toContain("✓ 2 operations: 1 read, 1 bash");
+		expect(result).toContain("✔ 2 operations: 1 read, 1 bash");
 		expect(result).toContain("--- src/file.ts (42 lines, content truncated) ---");
 		expect(result).not.toContain("line 1\nline 2");
 		expect(result).toContain("--- bash [abc] exit 0 ---");
@@ -77,7 +77,7 @@ describe("compressToolResults — batch", () => {
 				message: {
 					role: "tool",
 					toolCallId: "tc1",
-					content: "✓ 1 operation: 1 read\n\n--- src/file.ts context map ---\nTotal lines: 100\nUse targeted reads...",
+					content: "✔ 1 operation: 1 read\n\n--- src/file.ts context map ---\nTotal lines: 100\nUse targeted reads...",
 				},
 			},
 		]);
@@ -101,7 +101,7 @@ describe("compressToolResults — batch", () => {
 				message: {
 					role: "tool",
 					toolCallId: "tc1",
-					content: "✓ 1 operation: 1 edit\n\n--- edit: src/index.ts (2 blocks) ---",
+					content: "✔ 1 operation: 1 edit\n\n--- edit: src/index.ts (2 blocks) ---",
 				},
 			},
 		]);
@@ -124,7 +124,7 @@ describe("compressToolResults — batch", () => {
 				message: {
 					role: "tool",
 					toolCallId: "tc1",
-					content: "✓ 1 operation: 1 read\n\n--- README.md (10 lines) ---\n# Title\n\n---\n\nSome content after horizontal rule\n\n--- bash [abc] exit 0 ---\n[Execution time: 0.1s]\noutput",
+					content: "✔ 1 operation: 1 read\n\n--- README.md (10 lines) ---\n# Title\n\n---\n\nSome content after horizontal rule\n\n--- bash [abc] exit 0 ---\n[Execution time: 0.1s]\noutput",
 				},
 			},
 		]);

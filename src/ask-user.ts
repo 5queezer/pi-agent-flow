@@ -556,7 +556,7 @@ class MultiSelectList implements Component {
          const prefix = isSelected ? theme.fg("accent", "▶") : " ";
 
          if (this.isCommentToggleRow(i)) {
-            const checkbox = this.commentEnabled ? theme.fg("success", "[✓]") : theme.fg("dim", "[ ]");
+            const checkbox = this.commentEnabled ? theme.fg("success", "[✔]") : theme.fg("dim", "[ ]");
             const label = isSelected
                ? theme.fg("accent", theme.bold(COMMENT_TOGGLE_LABEL))
                : theme.fg("text", theme.bold(COMMENT_TOGGLE_LABEL));
@@ -575,7 +575,7 @@ class MultiSelectList implements Component {
          const option = this.options[i];
          if (!option) continue;
 
-         const checkbox = this.checked.has(i) ? theme.fg("success", "[✓]") : theme.fg("dim", "[ ]");
+         const checkbox = this.checked.has(i) ? theme.fg("success", "[✔]") : theme.fg("dim", "[ ]");
          const num = theme.fg("dim", `${i + 1}.`);
          const title = isSelected
             ? theme.fg("accent", theme.bold(option.title))
@@ -1730,7 +1730,7 @@ export function createAskUserTool() {
          const details = result.details as (AskToolDetails & { error?: string }) | undefined;
 
          if (details?.error) {
-            return new Text(theme.fg("error", `✗ ${details.error}`), 0, 0);
+            return new Text(theme.fg("error", `✖ ${details.error}`), 0, 0);
          }
 
          if (options.isPartial) {
@@ -1747,7 +1747,7 @@ export function createAskUserTool() {
          }
 
          const response = details.response;
-         let text = theme.fg("success", "✓ ");
+         let text = theme.fg("success", "✔ ");
          if (response.kind === "freeform") {
             text += theme.fg("muted", "(wrote) ");
          }

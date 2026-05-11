@@ -860,8 +860,8 @@ describe("expanded view rendering", () => {
 		const rendered = renderFlowResult({ content: [{ type: "text", text: "" }], details }, true, makeTheme(), undefined);
 		const text = extractText(rendered);
 		expect(text).toContain("debug");
-		expect(text).not.toContain("✓");
-		expect(text).not.toContain("✗");
+		expect(text).not.toContain("✔");
+		expect(text).not.toContain("✖");
 		expect(text).not.toContain("(user)");
 	});
 
@@ -945,8 +945,8 @@ describe("expanded view rendering", () => {
 		const rendered = renderFlowResult({ content: [{ type: "text", text: "" }], details }, true, makeTheme(), undefined);
 		const text = extractText(rendered);
 		expect(text).toContain("2 flows");
-		expect(text).not.toContain("✓");
-		expect(text).not.toContain("✗");
+		expect(text).not.toContain("✔");
+		expect(text).not.toContain("✖");
 	});
 
 	it("multi expanded per-flow uses formatFlowTypeName", () => {

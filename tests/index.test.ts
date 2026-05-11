@@ -1460,8 +1460,8 @@ describe("web tool integration", () => {
 		const modified = result[0];
 		expect(modified.systemPrompt).toContain("pi-web steering");
 		expect(modified.systemPrompt).toContain("fetch");
-		expect(modified.systemPrompt).toMatch(/<pi-flow-sliding-system\b/);
-		expect(modified.systemPrompt).toContain("spec-driven planning mode");
+		expect(modified.systemPrompt).not.toMatch(/<pi-flow-sliding-system\b/);
+		expect(modified.systemPrompt).not.toContain("spec-driven planning mode");
 	});
 
 	it("adds search steering when prompt looks like a web search and toolOptimize is false", async () => {
@@ -1479,8 +1479,8 @@ describe("web tool integration", () => {
 		const modified = result[0];
 		expect(modified.systemPrompt).toContain("pi-web steering");
 		expect(modified.systemPrompt).toContain("search");
-		expect(modified.systemPrompt).toMatch(/<pi-flow-sliding-system\b/);
-		expect(modified.systemPrompt).toContain("spec-driven planning mode");
+		expect(modified.systemPrompt).not.toMatch(/<pi-flow-sliding-system\b/);
+		expect(modified.systemPrompt).not.toContain("spec-driven planning mode");
 	});
 
 	it("does not add web steering when toolOptimize is true", async () => {
@@ -1496,11 +1496,11 @@ describe("web tool integration", () => {
 
 		const modified = result[0];
 		expect(modified.systemPrompt).not.toContain("pi-web steering");
-		expect(modified.systemPrompt).toMatch(/<pi-flow-sliding-system\b/);
-		expect(modified.systemPrompt).toContain("spec-driven planning mode");
+		expect(modified.systemPrompt).not.toMatch(/<pi-flow-sliding-system\b/);
+		expect(modified.systemPrompt).not.toContain("spec-driven planning mode");
 	});
 
-	it("appends sliding prompt and flows to systemPrompt unconditionally", async () => {
+	it("does not append sliding prompt to static systemPrompt; only context hook injects it", async () => {
 		const pi = createMockPi();
 		registerExtension(pi as any);
 
@@ -1512,9 +1512,9 @@ describe("web tool integration", () => {
 		});
 
 		const modified = result[0];
-		// Sliding prompt is always appended
-		expect(modified.systemPrompt).toMatch(/<pi-flow-sliding-system\b/);
-		expect(modified.systemPrompt).toContain("spec-driven planning mode");
+		// Sliding prompt is NOT in static systemPrompt — context hook injects it dynamically
+		expect(modified.systemPrompt).not.toMatch(/<pi-flow-sliding-system\b/);
+		expect(modified.systemPrompt).not.toContain("spec-driven planning mode");
 		// Bundled flows are always discovered, so flow instructions are injected
 		expect(modified.systemPrompt).toContain("## Flows");
 		expect(modified.systemPrompt).toContain("inherited context as background");

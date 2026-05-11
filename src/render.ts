@@ -24,7 +24,7 @@ import {
 } from "./types.js";
 import { formatBatchOpsSummary } from "./batch/render.js";
 import { scrambleManager } from "./scramble.js";
-import { formatCompactStats, formatCompactTokenPair, formatCountdown, formatFlowTypeName, italic, lowerFirstWord, truncateChars, tailText, getTruncationBudget, visibleLength } from "./render-utils.js";
+import { formatCompactStats, formatCompactTokenPair, formatCountdown, formatFlowTypeName, italic, lowerFirstWord, truncateChars, tailText, getTruncationBudget, visibleLength, stripAnsi } from "./render-utils.js";
 
 function shortenPath(p: string): string {
 	const home = os.homedir();
@@ -377,7 +377,7 @@ function renderFlowCollapsed(
 		const actStr = formatFlowToolCall(lastTool.name, lastTool.args, theme.fg.bind(theme));
 		const prefixStub = `├─ act: [${r.usage.toolCalls}] - `;
 		const budget = getTruncationBudget(visibleLength(prefixStub));
-		const actFullText = lowerFirstWord(actStr);
+		const actFullText = stripAnsi(lowerFirstWord(actStr));
 		let actContent: string;
 		if (scrambleManager.getMode() === 'stream') {
 			actContent = scrambleManager.streamAct(id, actFullText, now, isComplete, budget);
@@ -568,7 +568,7 @@ function renderActivityPanel(
 			const actStr = formatFlowToolCall(lastTool.name, lastTool.args, theme.fg.bind(theme));
 			const prefixStub = `${indent}├─ act: [${r.usage.toolCalls}] - `;
 			const budget = getTruncationBudget(visibleLength(prefixStub));
-			const actFullText = lowerFirstWord(actStr);
+			const actFullText = stripAnsi(lowerFirstWord(actStr));
 			let actContent: string;
 			if (scrambleManager.getMode() === 'stream') {
 				actContent = scrambleManager.streamAct(flowId, actFullText, now, flowComplete, budget);

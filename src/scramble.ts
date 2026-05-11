@@ -21,7 +21,7 @@
  */
 
 import type { UsageStats } from './types.js';
-import { tailText } from './render-utils.js';
+import { stripAnsi, tailText, truncateChars } from './render-utils.js';
 
 // ---------------------------------------------------------------------------
 // Character set — classic ASCII-safe scramble symbols
@@ -47,9 +47,9 @@ const CASCADE_FLASH_MAX_START = 5;
 const CASCADE_FLASH_MAX_LENGTH = 8;
 
 // Stream mode constants
-const STREAM_SPEED_MSG = 20;       // ms per char for msg: (~50 chars/sec)
-const STREAM_SPEED_ACT = 16;       // ms per char for act: (~60 chars/sec)
-const STREAM_SCRAMBLE_WIDTH = 3;   // scramble chars at cursor position
+const STREAM_SPEED_MSG = 35;       // ms per char for msg: (~29 chars/sec)
+const STREAM_SPEED_ACT = 25;       // ms per char for act: (~40 chars/sec)
+const STREAM_SCRAMBLE_WIDTH = 5;   // scramble chars at cursor position
 const STREAM_RERANDOMIZE_RATE = 0.28; // 28% chance to re-randomize (CodePen style)
 
 const DIM_ON = '\x1b[2m';
@@ -518,14 +518,24 @@ export class ScrambleStateManager {
 			state.completed = true;
 		}
 
+		// Strip ANSI for stable comparison (formatFlowToolCall adds color codes)
+		const cleanText = stripAnsi(fullText);
+
 		// Detect tool call change — reset if text differs
-		if (state.fullText && fullText !== state.fullText) {
-			state.fullText = fullText;
-			state.revealedCount = 0;
-			state.lastRevealTime = now;
-			state.cursorChars = [];
+		if (state.fullText && cleanText !== state.fullText) {
+			// Only reset if significantly different (different tool name)
+			const prefixChanged = cleanText.slice(0, 10) !== state.fullText.slice(0, 10);
+			if (prefixChanged) {
+				state.fullText = cleanText;
+				state.revealedCount = 0;
+				state.lastRevealTime = now;
+				state.cursorChars = [];
+			} else {
+				// Same tool, just params changed — update text, keep cursor
+				state.fullText = cleanText;
+			}
 		} else if (!state.fullText) {
-			state.fullText = fullText;
+			state.fullText = cleanText;
 		}
 
 		// Advance cursor
@@ -544,11 +554,11 @@ export class ScrambleStateManager {
 
 		// All revealed
 		if (state.revealedCount >= state.fullText.length) {
-			return fullText.length > budget ? fullText.slice(0, budget) : fullText;
+			return state.fullText.length > budget ? state.fullText.slice(0, budget) : state.fullText;
 		}
 
 		// Compute visible window (truncated, shows beginning for tool calls)
-		const visibleText = fullText.length > budget ? fullText.slice(0, budget) : fullText;
+		const visibleText = state.fullText.length > budget ? state.fullText.slice(0, budget) : state.fullText;
 		const visibleRevealed = Math.min(state.revealedCount, visibleText.length);
 
 		if (visibleRevealed >= visibleText.length) {

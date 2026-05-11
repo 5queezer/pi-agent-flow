@@ -241,8 +241,10 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// Sliding system prompt: insert as a separate system message immediately
-	// before the latest user message each turn. Strips from the static
-	// systemPrompt to avoid duplication, then inserts separately.
+	// before the latest user message each turn. The sliding prompt is never
+	// part of the static systemPrompt — it is injected dynamically here only.
+	// We strip any stray sliding prompt content from systemPrompt as a safety
+	// net, then insert the fresh prompt as a separate message.
 	// Skipped for child flows (depth > 0) — they have explicit <mission> directives.
 	pi.on("context", async (event) => {
 		if (currentDepth > 0) return undefined;
@@ -256,8 +258,22 @@ export default function (pi: ExtensionAPI) {
 			.filter((i: number) => i !== -1);
 
 		if (userIndices.length === 0) {
-			// No user message yet: keep sliding prompt in the static system prompt only.
-			return messagesChanged ? { messages } : undefined;
+			// No user message yet: strip any stray sliding text from systemPrompt
+			// (safety net for /new or early-session), but don't inject a new one —
+			// it will appear on the first user message.
+			let systemPrompt = event.systemPrompt;
+			let systemPromptChanged = false;
+			if (typeof systemPrompt === "string") {
+				const stripped = stripSlidingPromptText(systemPrompt);
+				if (stripped !== systemPrompt) {
+					systemPrompt = stripped;
+					systemPromptChanged = true;
+				}
+			}
+			const result: any = {};
+			if (messagesChanged) result.messages = messages;
+			if (systemPromptChanged) result.systemPrompt = systemPrompt;
+			return (messagesChanged || systemPromptChanged) ? result : undefined;
 		}
 
 		// Strip sliding from the static systemPrompt so it only appears once,

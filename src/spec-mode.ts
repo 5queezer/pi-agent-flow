@@ -11,11 +11,18 @@ import { isSpecModeActive, setSpecModeActive } from "./sliding-prompt.js";
  */
 export function setupSpecMode(pi: ExtensionAPI): void {
 	pi.registerCommand("spec", {
-		description: "Toggle spec-driven planning mode on/off.",
-		handler: async (_args: string, ctx: ExtensionCommandContext) => {
-			const next = !isSpecModeActive();
-			setSpecModeActive(next);
-			ctx.ui.notify?.(next ? "Spec mode activated" : "Spec mode deactivated", "info");
+		description: "Toggle spec-driven planning mode on/off, or pass a prompt to activate and start immediately.",
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
+			const trimmed = args.trim();
+			if (trimmed) {
+				setSpecModeActive(true);
+				pi.sendUserMessage(trimmed);
+				ctx.ui.notify?.("Spec mode activated", "info");
+			} else {
+				const next = !isSpecModeActive();
+				setSpecModeActive(next);
+				ctx.ui.notify?.(next ? "Spec mode activated" : "Spec mode deactivated", "info");
+			}
 		},
 	});
 }

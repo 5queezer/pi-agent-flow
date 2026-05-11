@@ -86,6 +86,31 @@ describe("setupSpecMode", () => {
 		expect(isSpecModeActive()).toBe(true);
 		expect(notifyCalls.some((n) => n.msg === "Spec mode activated")).toBe(true);
 	});
+
+	it("forwards a prompt and activates spec mode", async () => {
+		const pi = createMockPi();
+		setupSpecMode(pi);
+		const command = registeredCommands.get("spec")!;
+		const { ctx, notifyCalls } = createMockCtx();
+
+		setSpecModeActive(false);
+		expect(isSpecModeActive()).toBe(false);
+		await command.handler("design a caching layer", ctx);
+		expect(isSpecModeActive()).toBe(true);
+		expect(pi.sendUserMessage).toHaveBeenCalledWith("design a caching layer");
+		expect(notifyCalls.some((n) => n.msg === "Spec mode activated")).toBe(true);
+	});
+
+	it("trims whitespace from the forwarded prompt", async () => {
+		const pi = createMockPi();
+		setupSpecMode(pi);
+		const command = registeredCommands.get("spec")!;
+		const { ctx } = createMockCtx();
+
+		setSpecModeActive(false);
+		await command.handler("  build auth flow  ", ctx);
+		expect(pi.sendUserMessage).toHaveBeenCalledWith("build auth flow");
+	});
 });
 
 describe("makeSlidingPromptMessage mode switching", () => {

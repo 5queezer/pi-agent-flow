@@ -67,24 +67,18 @@ describe('buildQueue', () => {
 		}
 	});
 
-	it('sets start=0 end=0 for unchanged chars (from === to)', () => {
+	it('all chars get random start/end frames even when from === to', () => {
 		const queue = buildQueue('abc', 'axc');
-		// 'a' and 'c' are unchanged, 'b'→'x' is changed
-		expect(queue[0].start).toBe(0);
-		expect(queue[0].end).toBe(0);
-		expect(queue[2].start).toBe(0);
-		expect(queue[2].end).toBe(0);
-		// Middle char should have non-zero animation
-		expect(queue[1].start).toBeGreaterThanOrEqual(0);
-		expect(queue[1].end).toBeGreaterThan(0);
+		// All chars should have start/end frames (no zero optimization)
+		for (const item of queue) {
+			expect(item.start).toBeGreaterThanOrEqual(0);
+			expect(item.end).toBeGreaterThanOrEqual(item.start);
+		}
 	});
 
-	it('all chars get start=0 end=0 when old and new text are identical', () => {
+	it('queue length matches max of old/new text lengths', () => {
 		const queue = buildQueue('same', 'same');
-		for (const item of queue) {
-			expect(item.start).toBe(0);
-			expect(item.end).toBe(0);
-		}
+		expect(queue.length).toBe(4);
 	});
 });
 
@@ -142,14 +136,18 @@ describe('computeCascadeFrame', () => {
 		}
 	});
 
-	it('unchanged chars (from===to) resolve immediately at frame 0', () => {
-		// 'abc' → 'axc': only middle char changes
-		const queue = buildQueue('abc', 'axc');
+	it('pre-start frame shows scramble symbols not old text', () => {
+		// All chars change: at frame 0, everything should be scramble symbols (dim)
+		const queue = buildQueue('abcdef', 'xyz123');
 		const result = computeCascadeFrame(queue, 0);
+		// No old text letters should appear (only scramble chars and spaces)
 		const stripped = stripAnsi(result);
-		// First and last chars should already be resolved
-		expect(stripped[0]).toBe('a');
-		expect(stripped[2]).toBe('c');
+		const scrambleCharSet = '!<>-_\\/[]{}-=+*^?#________';
+		for (const ch of stripped) {
+			if (ch !== ' ') {
+				expect(scrambleCharSet).toContain(ch);
+			}
+		}
 	});
 
 	it('NO alphabetical or digit characters appear in scramble output during animation', () => {
@@ -299,17 +297,20 @@ describe('ScrambleStateManager (cascade mode)', () => {
 		expect(msgResult.label).toBe('msg:');
 	});
 
-	it('cooldown prevents rapid-fire cascades', () => {
+	it('cooldown prevents rapid-fire cascades but accumulates changes', () => {
 		const base = 2000000;
 		manager.updateMsg(TEST_ID, 'text one', base);
-		// First change — spawns cascade
+		// First change — spawns cascade, lastText = 'text two'
 		manager.updateMsg(TEST_ID, 'text two', base + 300);
-		// Within cooldown — change suppressed
+		// Within cooldown — lastText stays 'text two' (not updated)
 		manager.updateMsg(TEST_ID, 'text three', base + 400);
-		// After cooldown + cascade duration — no pending animation
-		const result = manager.updateMsg(TEST_ID, 'text three', base + 2000);
-		expect(result.isAnimating).toBe(false);
-		expect(stripAnsi(result.content)).toBe('text three');
+		// After cooldown — full change from 'text two' to 'text three' triggers cascade
+		const result = manager.updateMsg(TEST_ID, 'text three', base + 600);
+		expect(result.isAnimating).toBe(true);
+		// After cascade completes — no animation
+		const done = manager.updateMsg(TEST_ID, 'text three', base + 2000);
+		expect(done.isAnimating).toBe(false);
+		expect(stripAnsi(done.content)).toBe('text three');
 	});
 
 	// TPS flash in cascade mode

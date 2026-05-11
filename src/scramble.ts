@@ -147,14 +147,9 @@ export function buildQueue(
 	for (let i = 0; i < length; i++) {
 		const from = oldText[i] || '';
 		const to = newText[i] || '';
-		if (from === to) {
-			// Same char — no change needed, resolve immediately
-			queue.push({ from, to, start: 0, end: 0 });
-		} else {
-			const start = Math.floor(Math.random() * maxStart);
-			const end = start + Math.floor(Math.random() * maxLength);
-			queue.push({ from, to, start, end });
-		}
+		const start = Math.floor(Math.random() * maxStart);
+		const end = start + Math.floor(Math.random() * maxLength);
+		queue.push({ from, to, start, end });
 	}
 	return queue;
 }
@@ -181,16 +176,11 @@ export function computeCascadeFrame(queue: QueueItem[], frame: number): string {
 			}
 			output += `${DIM_ON}${item.char}${DIM_OFF}`;
 		} else {
-			// Before start frame: show scramble symbol instead of old text
-			// This ensures ONLY scramble chars (!<>-_\/[]{}-=+*^?#________) appear
-			// during animation — no letters/numbers from old text bleed through.
-			if (item.from === item.to) {
-				// Unchanged char — just show it (will resolve at frame 0 anyway)
-				output += item.to;
-			} else if (item.from === ' ') {
+			// Before start frame: show scramble symbol, not old text
+			// This ensures ONLY scramble chars appear during animation.
+			if (item.from === ' ') {
 				output += ' ';
 			} else {
-				// Char that WILL change — show scramble symbol, not old text
 				const ch = SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
 				output += `${DIM_ON}${ch}${DIM_OFF}`;
 			}
@@ -321,24 +311,27 @@ function processLine(
 
 	if (!textChanged) return;
 
-	// Track the old text BEFORE updating, so cascade can compare old vs new
+	// Track the old text for cascade comparison
 	const oldText = state.lastText;
 
-	// Always track the latest text so we don't re-trigger later
-	state.lastText = newText;
-
 	const cooledDown = now - state.lastAnimTime > MIN_RIPPLE_INTERVAL;
-	if (!cooledDown) return;
 
-	// Spawn animation
-	if (mode === 'cascade') {
-		state.queue = buildQueue(oldText, newText);
-		state.startTime = now;
+	if (cooledDown) {
+		// Spawn animation AND update lastText
+		state.lastText = newText;
+		state.lastAnimTime = now;
+
+		if (mode === 'cascade') {
+			state.queue = buildQueue(oldText, newText);
+			state.startTime = now;
+		} else {
+			const center = Math.floor(newText.length / 2);
+			state.ripples.push(spawnRipple(center, now, RIPPLE_DUR_DEFAULT, RIPPLE_SPREAD_DEFAULT));
+		}
 	} else {
-		const center = Math.floor(newText.length / 2);
-		state.ripples.push(spawnRipple(center, now, RIPPLE_DUR_DEFAULT, RIPPLE_SPREAD_DEFAULT));
+		// During cooldown: DON'T update lastText
+		// Keep old value so the full accumulated change is detected after cooldown expires
 	}
-	state.lastAnimTime = now;
 
 	// Expire old ripples (ripple mode only — cascade self-terminates)
 	if (mode === 'ripple') {

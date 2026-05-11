@@ -159,6 +159,8 @@ export function renderFlowResult(
 	const details = result.details as FlowDetails | undefined;
 	const streamingText = result.content?.[0]?.type === "text" ? result.content[0].text : undefined;
 
+	let container: Container | Text;
+
 	if (!details || details.results.length === 0) {
 		// Ghost Dashboard: render a placeholder status line during the zero state
 		const flowRequest = args?.flow?.[0];
@@ -174,16 +176,46 @@ export function renderFlowResult(
 				stderr: "",
 				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0, toolCalls: 0 },
 			};
-			return renderFlowCollapsed(ghostResult, flowStatusIcon(ghostResult, theme), false, streamingText || "", theme);
+			container = renderFlowCollapsed(ghostResult, flowStatusIcon(ghostResult, theme), false, streamingText || "", theme);
+		} else {
+			container = new Text(streamingText || "", 0, 0);
 		}
-		return new Text(streamingText || "", 0, 0);
+	} else if (details.results.length === 1) {
+		container = renderSingleFlowResult(details.results[0], expanded, theme, streamingText);
+	} else {
+		container = renderMultiFlowResult(details, expanded, theme);
 	}
 
-	if (details.results.length === 1) {
-		return renderSingleFlowResult(details.results[0], expanded, theme, streamingText);
+	// Scramble animation timer management — MUST run AFTER rendering so that
+	// ripples spawned during render are detected and the timer is started.
+	if (args?.invalidate && args?.state) {
+		const s = (args.state as any).__scramble = (args.state as any).__scramble || {};
+		const now = Date.now();
+		const hasActive = scrambleManager.hasAnyActiveRipples(now);
+
+		if (hasActive) {
+			if (!s.rippleTimer) {
+				s.rippleTimer = setInterval(() => args.invalidate!(), 50);
+			}
+			if (s.idleTimer) {
+				clearTimeout(s.idleTimer);
+				s.idleTimer = undefined;
+			}
+		} else {
+			if (s.rippleTimer) {
+				clearInterval(s.rippleTimer);
+				s.rippleTimer = undefined;
+			}
+			if (!s.idleTimer) {
+				s.idleTimer = setTimeout(() => {
+					s.idleTimer = undefined;
+					args.invalidate!();
+				}, 5000);
+			}
+		}
 	}
 
-	return renderMultiFlowResult(details, expanded, theme);
+	return container;
 }
 
 // ---------------------------------------------------------------------------
@@ -195,7 +227,9 @@ function renderSingleFlowResult(
 	expanded: boolean,
 	theme: FlowTheme,
 	streamingText?: string,
+	toolCallId?: string,
 ): Container | Text {
+	const id = toolCallId || "single";
 	const error = isFlowError(r);
 	const icon = flowStatusIcon(r, theme);
 	const displayItems = getFlowDisplayItems(r.messages);
@@ -204,7 +238,7 @@ function renderSingleFlowResult(
 	if (expanded) {
 		return renderFlowExpanded(r, icon, error, displayItems, flowOutput, theme);
 	}
-	return renderFlowCollapsed(r, icon, error, flowOutput, theme, streamingText);
+	return renderFlowCollapsed(r, icon, error, flowOutput, theme, streamingText, id);
 }
 
 function renderFlowExpanded(
@@ -307,13 +341,27 @@ function renderFlowCollapsed(
 	flowOutput: string,
 	theme: FlowTheme,
 	streamingText?: string,
+	toolCallId?: string,
 ): Container {
+	const id = toolCallId || "collapsed";
+	const now = Date.now();
 	const container = new Container();
 	const maxWidth = process.stdout.columns ?? 80;
 	const stats = formatCompactStats(r.usage, r.model, maxWidth, { skipTokens: true, skipContext: true, hideModel: true });
+
+	// Flash TPS value when it changes
+	const tpsMatch = stats.match(/tps:\s*(\S+)/);
+	let displayStats = stats;
+	if (tpsMatch) {
+		const scrambledTps = scrambleManager.updateTps(id, tpsMatch[1], now);
+		if (scrambledTps !== tpsMatch[1]) {
+			displayStats = stats.replace(tpsMatch[1], scrambledTps);
+		}
+	}
+
 	const typeName = formatCollapsedFlowHeaderTypeName(r.type);
 	const modelLabel = r.model ? r.model.replace(/^[^/]+\//, "").toLowerCase() : "";
-	let header = `${theme.fg("accent", theme.bold(typeName))}${theme.fg("dim", modelLabel ? ` - ${modelLabel} - ` : " - ")}${theme.fg("dim", stats)}`;
+	let header = `${theme.fg("accent", theme.bold(typeName))}${theme.fg("dim", modelLabel ? ` - ${modelLabel} - ` : " - ")}${theme.fg("dim", displayStats)}`;
 	if (error && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 	container.addChild(new TruncatedText(header, 0, 0));
 
@@ -321,14 +369,15 @@ function renderFlowCollapsed(
 	if (r.aim) {
 		const countdown = getLiveCountdown(r);
 		const treePrefix = "├─";
-		const prefixStub = countdown
-			? `${treePrefix} aim: [${countdown}] - `
+		const scrambledCountdown = countdown ? scrambleManager.updateCountdown(id, countdown, now) : undefined;
+		const prefixStub = scrambledCountdown
+			? `${treePrefix} aim: [${scrambledCountdown}] - `
 			: `${treePrefix} aim: `;
 		const budget = getTruncationBudget(visibleLength(prefixStub));
 		const displayAim = truncateChars(lowerFirstWord(r.aim), budget);
-		const { label, content } = scrambleManager.updateAim(r, displayAim, Date.now());
-		const aimPrefix = countdown
-			? `${treePrefix} ${label} [${countdown}] - `
+		const { label, content } = scrambleManager.updateAim(id, displayAim, now);
+		const aimPrefix = scrambledCountdown
+			? `${treePrefix} ${label} [${scrambledCountdown}] - `
 			: `${treePrefix} ${label} `;
 		container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(content))}`, 0, 0));
 	}
@@ -340,7 +389,7 @@ function renderFlowCollapsed(
 		const prefixStub = `├─ act: [${r.usage.toolCalls}] - `;
 		const budget = getTruncationBudget(visibleLength(prefixStub));
 		const displayAct = truncateChars(lowerFirstWord(actStr), budget);
-		const { label, content } = scrambleManager.updateAct(r, displayAct, r.usage.toolCalls, Date.now());
+		const { label, content } = scrambleManager.updateAct(id, displayAct, r.usage.toolCalls, r.usage, now);
 		const actPrefix = `├─ ${label} [${r.usage.toolCalls}] - `;
 		container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(content)}`, 0, 0));
 	}
@@ -369,7 +418,7 @@ function renderFlowCollapsed(
 	const needsTail = (r.exitCode === -1 && streamingText) || streamingText;
 	const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
 
-	const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(r, displayMsg, r.usage, Date.now());
+	const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(id, displayMsg, r.usage, now);
 	const msgPrefix = `└─ ${msgLabel} [${formatCompactTokenPair(r.usage)}] - `;
 	container.addChild(new TruncatedText(
 		`${theme.fg("dim", msgPrefix)}${theme.fg(useError ? "error" : "dim", italic(msgContent))}`,
@@ -387,7 +436,9 @@ function renderMultiFlowResult(
 	details: FlowDetails,
 	expanded: boolean,
 	theme: FlowTheme,
+	toolCallId?: string,
 ): Container | Text {
+	const baseId = toolCallId || "multi";
 	const results = details.results;
 	const successCount = results.filter((r) => isFlowSuccess(r)).length;
 	const failCount = results.filter((r) => isFlowError(r)).length;
@@ -396,7 +447,7 @@ function renderMultiFlowResult(
 	if (expanded) {
 		return renderMultiFlowExpanded(results, successCount, icon, theme);
 	}
-	return renderMultiFlowCollapsed(results, theme);
+	return renderMultiFlowCollapsed(results, theme, baseId);
 }
 
 function renderMultiFlowExpanded(
@@ -461,21 +512,36 @@ function renderMultiFlowExpanded(
 function renderActivityPanel(
 	results: SingleResult[],
 	theme: FlowTheme,
+	baseId?: string,
 ): Container {
+	const idPrefix = baseId || "panel";
 	const container = new Container();
 	const maxWidth = process.stdout.columns ?? 80;
+	const now = Date.now();
 
 	for (let i = 0; i < results.length; i++) {
 		const r = results[i];
 		const isLast = i === results.length - 1;
+		const flowId = `${idPrefix}#${i}`;
 		const stats = formatCompactStats(r.usage, r.model, maxWidth, { skipTokens: true, skipContext: true, hideModel: true });
+
+		// Flash TPS value when it changes
+		const tpsMatch = stats.match(/tps:\s*(\S+)/);
+		let displayStats = stats;
+		if (tpsMatch) {
+			const scrambledTps = scrambleManager.updateTps(flowId, tpsMatch[1], now);
+			if (scrambledTps !== tpsMatch[1]) {
+				displayStats = stats.replace(tpsMatch[1], scrambledTps);
+			}
+		}
+
 		const error = isFlowError(r);
 		const typeName = formatCollapsedFlowHeaderTypeName(r.type);
 
 		// Header line
 		const headerPrefix = isLast ? "└─" : "├─";
 		const modelLabel = r.model ? r.model.replace(/^[^/]+\//, "").toLowerCase() : "";
-		let headerLine = `${theme.fg("dim", headerPrefix)} ${theme.fg("accent", theme.bold(typeName))}${theme.fg("dim", modelLabel ? ` - ${modelLabel} - ` : " - ")}${theme.fg("dim", stats)}`;
+		let headerLine = `${theme.fg("dim", headerPrefix)} ${theme.fg("accent", theme.bold(typeName))}${theme.fg("dim", modelLabel ? ` - ${modelLabel} - ` : " - ")}${theme.fg("dim", displayStats)}`;
 		if (error && r.stopReason) {
 			headerLine += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 		}
@@ -488,14 +554,15 @@ function renderActivityPanel(
 		if (r.aim) {
 			const countdown = getLiveCountdown(r);
 			const treePrefix = indent + "├─";
-			const prefixStub = countdown
-				? `${treePrefix} aim: [${countdown}] - `
+			const scrambledCountdown = countdown ? scrambleManager.updateCountdown(flowId, countdown, now) : undefined;
+			const prefixStub = scrambledCountdown
+				? `${treePrefix} aim: [${scrambledCountdown}] - `
 				: `${treePrefix} aim: `;
 			const budget = getTruncationBudget(visibleLength(prefixStub));
 			const displayAim = truncateChars(lowerFirstWord(r.aim), budget);
-			const { label, content } = scrambleManager.updateAim(r, displayAim, Date.now());
-			const aimPrefix = countdown
-				? `${treePrefix} ${label} [${countdown}] - `
+			const { label, content } = scrambleManager.updateAim(flowId, displayAim, now);
+			const aimPrefix = scrambledCountdown
+				? `${treePrefix} ${label} [${scrambledCountdown}] - `
 				: `${treePrefix} ${label} `;
 			container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(content))}`, 0, 0));
 		}
@@ -507,7 +574,7 @@ function renderActivityPanel(
 			const prefixStub = `${indent}├─ act: [${r.usage.toolCalls}] - `;
 			const budget = getTruncationBudget(visibleLength(prefixStub));
 			const displayAct = truncateChars(lowerFirstWord(actStr), budget);
-			const { label, content } = scrambleManager.updateAct(r, displayAct, r.usage.toolCalls, Date.now());
+			const { label, content } = scrambleManager.updateAct(flowId, displayAct, r.usage.toolCalls, r.usage, now);
 			const actPrefix = `${indent}├─ ${label} [${r.usage.toolCalls}] - `;
 			container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(content)}`, 0, 0));
 		}
@@ -532,7 +599,7 @@ function renderActivityPanel(
 		const needsTail = Boolean(liveText || lastText);
 		const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
 
-		const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(r, displayMsg, r.usage, Date.now());
+		const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(flowId, displayMsg, r.usage, now);
 		const msgPrefix = `${indent}└─ ${msgLabel} [${formatCompactTokenPair(r.usage)}] - `;
 		container.addChild(new TruncatedText(
 			`${theme.fg("dim", msgPrefix)}${theme.fg(useError ? "error" : "dim", italic(msgContent))}`,
@@ -553,6 +620,7 @@ function renderActivityPanel(
 function renderMultiFlowCollapsed(
 	results: SingleResult[],
 	theme: FlowTheme,
+	baseId?: string,
 ): Container {
-	return renderActivityPanel(results, theme);
+	return renderActivityPanel(results, theme, baseId);
 }

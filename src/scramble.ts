@@ -1,5 +1,9 @@
 /**
  * Hermes-style radial ripple text scramble effect for terminal TUI.
+ *
+ * Adapts the Hermes website's Scramble component (radial wave propagation
+ * with box-drawing Unicode characters) for ANSI terminal output.
+ * Ripples spawn on text/KPI changes, with a 5s idle word flip for aim: lines.
  */
 
 import type { UsageStats } from './types.js';
@@ -15,6 +19,10 @@ const IDLE_FLIP_SPREAD = 2;
 const IDLE_FLIP_INTERVAL = 5000;
 const MIN_RIPPLE_INTERVAL = 200;
 const DEPTH_BAND_MAX = 3;
+const COUNTDOWN_FLASH_DUR = 150;
+const COUNTDOWN_FLASH_SPREAD = 0.5;
+const TPS_FLASH_DUR = 150;
+const TPS_FLASH_SPREAD = 0.5;
 
 interface Ripple {
 	pos: number;
@@ -41,6 +49,15 @@ export interface ScrambleResult {
 	isAnimating: boolean;
 }
 
+/**
+ * Single-value flash state for countdown/TPS — tracks previous value
+ * and one active ripple.
+ */
+interface ValueFlashState {
+	prev: string;
+	ripple: Ripple | null;
+}
+
 export function applyRipples(text: string, ripples: Ripple[], now: number): string {
 	if (!ripples.length) return text;
 	const len = text.length;
@@ -64,7 +81,7 @@ export function applyRipples(text: string, ripples: Ripple[], now: number): stri
 			const depth = radius - dist;
 			if (dist <= radius && depth > 0 && depth <= DEPTH_BAND_MAX) {
 				const charIdx = (3 * dist + Math.floor(elapsed / 40)) % SCRAMBLE_CHARS.length;
-				result += '[2m' + SCRAMBLE_CHARS[charIdx < 0 ? charIdx + SCRAMBLE_CHARS.length : charIdx] + '[22m';
+				result += '\x1b[2m' + SCRAMBLE_CHARS[charIdx < 0 ? charIdx + SCRAMBLE_CHARS.length : charIdx] + '\x1b[22m';
 				scrambled = true;
 				break;
 			}
@@ -104,7 +121,7 @@ function processLine(
 	newText: string,
 	newKpiHash: string,
 	now: number,
-	opts: { isAim: boolean; labelCenter?: number },
+	opts: { isAim: boolean; labelCenter?: number; noContentRipple?: boolean },
 ): void {
 	const textChanged = state.lastText !== newText;
 	const kpiChanged = state.lastKpiHash !== newKpiHash;
@@ -115,8 +132,11 @@ function processLine(
 		state.lastKpiHash = newKpiHash;
 		state.initialized = true;
 	} else if ((textChanged || kpiChanged) && cooledDown) {
-		const center = Math.floor(newText.length / 2);
-		state.ripples.push(spawnRipple(center, now, RIPPLE_DUR_DEFAULT, RIPPLE_SPREAD_DEFAULT));
+		// Only spawn content ripple if not suppressed (aim: skips content ripple)
+		if (!opts.noContentRipple) {
+			const center = Math.floor(newText.length / 2);
+			state.ripples.push(spawnRipple(center, now, RIPPLE_DUR_DEFAULT, RIPPLE_SPREAD_DEFAULT));
+		}
 		state.lastRippleTime = now;
 		const labelCenter = opts.labelCenter ?? 2;
 		state.labelRipples.push(spawnRipple(labelCenter, now, LABEL_FLASH_DUR, LABEL_FLASH_SPREAD));
@@ -152,6 +172,8 @@ function createLineState(now: number): LineState {
 
 export class ScrambleStateManager {
 	private cache = new Map<string, Record<LineKey, LineState>>();
+	private countdownState = new Map<string, ValueFlashState>();
+	private tpsState = new Map<string, ValueFlashState>();
 
 	private getState(id: string, key: LineKey, now: number): LineState {
 		let record = this.cache.get(id);
@@ -166,9 +188,13 @@ export class ScrambleStateManager {
 		return record[key];
 	}
 
+	/**
+	 * Update aim line.
+	 * NO content ripple on text change — only label flash + idle word flip.
+	 */
 	updateAim(id: string, text: string, now: number): ScrambleResult {
 		const state = this.getState(id, 'aim', now);
-		processLine(state, text, '', now, { isAim: true, labelCenter: 2 });
+		processLine(state, text, '', now, { isAim: true, labelCenter: 2, noContentRipple: true });
 		const label = applyRipples('aim:', state.labelRipples, now);
 		const content = applyRipples(text, state.ripples, now);
 		const isAnimating = state.ripples.length > 0 || state.labelRipples.length > 0;
@@ -195,6 +221,52 @@ export class ScrambleStateManager {
 		return { label, content, isAnimating };
 	}
 
+	/**
+	 * Flash the countdown value when it changes.
+	 * Returns the (possibly scrambled) countdown string.
+	 */
+	updateCountdown(id: string, countdown: string, now: number): string {
+		if (!countdown) return countdown;
+		let state = this.countdownState.get(id);
+		if (!state) {
+			state = { prev: countdown, ripple: null };
+			this.countdownState.set(id, state);
+			return countdown;
+		}
+		if (state.prev !== countdown) {
+			state.ripple = spawnRipple(Math.floor(countdown.length / 2), now, COUNTDOWN_FLASH_DUR, COUNTDOWN_FLASH_SPREAD);
+			state.prev = countdown;
+		}
+		if (state.ripple && now - state.ripple.time < state.ripple.dur) {
+			return applyRipples(countdown, [state.ripple], now);
+		}
+		state.ripple = null;
+		return countdown;
+	}
+
+	/**
+	 * Flash the TPS value when it changes.
+	 * Returns the (possibly scrambled) TPS string.
+	 */
+	updateTps(id: string, tpsText: string, now: number): string {
+		if (!tpsText || tpsText.trim() === '-') return tpsText;
+		let state = this.tpsState.get(id);
+		if (!state) {
+			state = { prev: tpsText, ripple: null };
+			this.tpsState.set(id, state);
+			return tpsText;
+		}
+		if (state.prev !== tpsText) {
+			state.ripple = spawnRipple(Math.floor(tpsText.length / 2), now, TPS_FLASH_DUR, TPS_FLASH_SPREAD);
+			state.prev = tpsText;
+		}
+		if (state.ripple && now - state.ripple.time < state.ripple.dur) {
+			return applyRipples(tpsText, [state.ripple], now);
+		}
+		state.ripple = null;
+		return tpsText;
+	}
+
 	hasActiveRipples(id: string, now: number): boolean {
 		const record = this.cache.get(id);
 		if (!record) return false;
@@ -208,6 +280,8 @@ export class ScrambleStateManager {
 
 	clear(): void {
 		this.cache.clear();
+		this.countdownState.clear();
+		this.tpsState.clear();
 	}
 
 	hasAnyActiveRipples(now: number): boolean {
@@ -217,6 +291,12 @@ export class ScrambleStateManager {
 				if (state.ripples.some((rp) => rp.time + rp.dur > now)) return true;
 				if (state.labelRipples.some((rp) => rp.time + rp.dur > now)) return true;
 			}
+		}
+		for (const state of this.countdownState.values()) {
+			if (state.ripple && state.ripple.time + state.ripple.dur > now) return true;
+		}
+		for (const state of this.tpsState.values()) {
+			if (state.ripple && state.ripple.time + state.ripple.dur > now) return true;
 		}
 		return false;
 	}

@@ -204,7 +204,7 @@ export class ScrambleStateManager {
 	updateAct(id: string, text: string, toolCalls: number, usage: UsageStats, now: number): ScrambleResult {
 		const state = this.getState(id, 'act', now);
 		const kpiHash = hashKpi(usage, toolCalls);
-		processLine(state, text, kpiHash, now, { isAim: false, labelCenter: 2 });
+		processLine(state, text, kpiHash, now, { isAim: false, labelCenter: 2, noContentRipple: true });
 		const label = applyRipples('act:', state.labelRipples, now);
 		const content = applyRipples(text, state.ripples, now);
 		const isAnimating = state.ripples.length > 0 || state.labelRipples.length > 0;

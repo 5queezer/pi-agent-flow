@@ -192,7 +192,7 @@ export function renderFlowResult(
 	if (args?.invalidate && args?.state) {
 		const s = (args.state as any).__scramble = (args.state as any).__scramble || {};
 		const now = Date.now();
-		const hasActive = scrambleManager.hasAnyActiveRipples(now);
+		const hasActive = scrambleManager.hasAnyActiveAnimations(now);
 
 		if (hasActive) {
 			// Schedule a single next frame — chained, not interval.

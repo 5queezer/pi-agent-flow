@@ -167,6 +167,26 @@ function detectSoundBackend(config: NotifyConfig): Exclude<SoundBackend, "auto">
 	return "none";
 }
 
+/**
+ * Check if the current terminal emulator is known to display visual
+ * notifications from OSC 777 or OSC 99 sequences.  When this is true and
+ * the terminal channel is active, we skip the auto-detected desktop
+ * channel to avoid double-notifying the user with the same content.
+ */
+function isTerminalVisualNotificationSupported(): boolean {
+	if (process.env.KITTY_WINDOW_ID) return true;
+	if (process.env.TERM_PROGRAM === "WarpTerminal") return true;
+	if (process.env.TERM_PROGRAM === "iTerm.app") return true;
+	if (process.env.TERM_PROGRAM === "WezTerm") return true;
+	if (process.env.TERM_PROGRAM === "ghostty") return true;
+	if (process.env.TERM_PROGRAM === "foot") return true;
+	if (process.env.TERM_PROGRAM === "konsole") return true;
+	if (process.env.TERM_PROGRAM === "terminology") return true;
+	if (process.env.TERM_PROGRAM === "contour") return true;
+	if (process.env.TERM?.startsWith("rxvt-unicode") || process.env.TERM?.startsWith("urxvt")) return true;
+	return false;
+}
+
 function sendTerminalNotification(title: string, body: string, backend: Exclude<TerminalBackend, "auto">): void {
 	if (backend === "osc99") {
 		notifyOSC99(title, body);
@@ -230,12 +250,26 @@ export function setupNotify(pi: ExtensionAPI) {
 
 		const tasks: Array<Promise<unknown>> = [];
 
+		const terminalBackend = detectTerminalBackend(config);
 		if (config.channels.terminal) {
-			sendTerminalNotification(config.title, config.body, detectTerminalBackend(config));
+			sendTerminalNotification(config.title, config.body, terminalBackend);
 		}
 
 		if (config.channels.desktop) {
-			tasks.push(sendDesktopNotification(config.title, config.body, detectDesktopBackend(config)));
+			const desktopBackend = detectDesktopBackend(config);
+			// Avoid double notifications: when the terminal channel is active and
+			// the emulator is known to show visual OSC notifications (e.g. Warp,
+			// iTerm2, kitty), skip the auto-detected desktop channel because the
+			// terminal already surfaces the same content to the OS notification
+			// framework.
+			const skipDesktop =
+				config.channels.terminal &&
+				terminalBackend !== "none" &&
+				config.desktop.backend === "auto" &&
+				isTerminalVisualNotificationSupported();
+			if (!skipDesktop) {
+				tasks.push(sendDesktopNotification(config.title, config.body, desktopBackend));
+			}
 		}
 
 		if (config.channels.bell) {

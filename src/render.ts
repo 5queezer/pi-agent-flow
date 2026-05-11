@@ -23,6 +23,7 @@ import {
 	isFlowSuccess,
 } from "./types.js";
 import { formatBatchOpsSummary } from "./batch/render.js";
+import { scrambleManager } from "./scramble.js";
 import { formatCompactStats, formatCompactTokenPair, formatCountdown, formatFlowTypeName, italic, lowerFirstWord, truncateChars, tailText, getTruncationBudget, visibleLength } from "./render-utils.js";
 
 function shortenPath(p: string): string {
@@ -132,16 +133,7 @@ function getLiveCountdown(r: SingleResult): string | undefined {
 	return formatCountdown(r.deadlineAtMs - Date.now());
 }
 
-function formatAimLinePrefix(treePrefix: string, r: SingleResult): string {
-	const countdown = getLiveCountdown(r);
-	const aimLabel = "aim:";
-	return countdown ? `${treePrefix} ${aimLabel} [${countdown}] - ` : `${treePrefix} ${aimLabel} `;
-}
 
-function formatMsgLinePrefix(treePrefix: string, r: SingleResult): string {
-	const msgLabel = "msg:";
-	return `${treePrefix} ${msgLabel} [${formatCompactTokenPair(r.usage)}] - `;
-}
 
 // ---------------------------------------------------------------------------
 // renderFlowCall — shown while the flow is being invoked
@@ -327,41 +319,62 @@ function renderFlowCollapsed(
 
 	// aim: line (short headline)
 	if (r.aim) {
-		const aimPrefix = formatAimLinePrefix("├─", r);
-		const dirContent = truncateChars(lowerFirstWord(r.aim), getTruncationBudget(visibleLength(aimPrefix)));
-		container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(dirContent))}`, 0, 0));
+		const countdown = getLiveCountdown(r);
+		const treePrefix = "├─";
+		const prefixStub = countdown
+			? `${treePrefix} aim: [${countdown}] - `
+			: `${treePrefix} aim: `;
+		const budget = getTruncationBudget(visibleLength(prefixStub));
+		const displayAim = truncateChars(lowerFirstWord(r.aim), budget);
+		const { label, content } = scrambleManager.updateAim(r, displayAim, Date.now());
+		const aimPrefix = countdown
+			? `${treePrefix} ${label} [${countdown}] - `
+			: `${treePrefix} ${label} `;
+		container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(content))}`, 0, 0));
 	}
 
 	// act: line (last tool call with count)
 	const lastTool = getLastToolCall(r.messages);
 	if (lastTool) {
 		const actStr = formatFlowToolCall(lastTool.name, lastTool.args, theme.fg.bind(theme));
-		const actPrefix = `├─ act: [${r.usage.toolCalls}] - `;
-		const actContent = truncateChars(lowerFirstWord(actStr), getTruncationBudget(visibleLength(actPrefix)));
-		container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(actContent)}`, 0, 0));
+		const prefixStub = `├─ act: [${r.usage.toolCalls}] - `;
+		const budget = getTruncationBudget(visibleLength(prefixStub));
+		const displayAct = truncateChars(lowerFirstWord(actStr), budget);
+		const { label, content } = scrambleManager.updateAct(r, displayAct, r.usage.toolCalls, Date.now());
+		const actPrefix = `├─ ${label} [${r.usage.toolCalls}] - `;
+		container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(content)}`, 0, 0));
 	}
 
 	// msg: line (last assistant text or streaming)
-	const msgPrefix = formatMsgLinePrefix("└─", r);
-	const msgBudget = getTruncationBudget(visibleLength(msgPrefix));
+	const msgPrefixStub = `└─ msg: [${formatCompactTokenPair(r.usage)}] - `;
+	const msgBudget = getTruncationBudget(visibleLength(msgPrefixStub));
+
+	let rawMsg: string;
+	let useError = false;
 	if (r.exitCode === -1 && streamingText) {
-		const logContent = tailText(streamingText, msgBudget);
-		container.addChild(new TruncatedText(`${theme.fg("dim", msgPrefix)}${theme.fg("dim", italic(logContent))}`, 0, 0));
+		rawMsg = streamingText;
 	} else if (r.structuredOutput?.summary) {
-		const logContent = truncateChars(r.structuredOutput.summary, msgBudget);
-		container.addChild(new TruncatedText(`${theme.fg("dim", msgPrefix)}${theme.fg("dim", italic(logContent))}`, 0, 0));
+		rawMsg = r.structuredOutput.summary;
 	} else if (flowOutput) {
-		const logContent = tailText(flowOutput, msgBudget);
-		container.addChild(new TruncatedText(`${theme.fg("dim", msgPrefix)}${theme.fg("dim", italic(logContent))}`, 0, 0));
+		rawMsg = flowOutput;
 	} else if (streamingText) {
-		const logContent = tailText(streamingText, msgBudget);
-		container.addChild(new TruncatedText(`${theme.fg("dim", msgPrefix)}${theme.fg("dim", italic(logContent))}`, 0, 0));
+		rawMsg = streamingText;
 	} else if (error && r.errorMessage) {
-		const logContent = truncateChars(r.errorMessage, msgBudget);
-		container.addChild(new TruncatedText(`${theme.fg("dim", msgPrefix)}${theme.fg("error", italic(logContent))}`, 0, 0));
+		rawMsg = r.errorMessage;
+		useError = true;
 	} else {
-		container.addChild(new TruncatedText(`${theme.fg("dim", msgPrefix)}${theme.fg("dim", italic("[n/a]"))}`, 0, 0));
+		rawMsg = "[n/a]";
 	}
+
+	const needsTail = (r.exitCode === -1 && streamingText) || streamingText;
+	const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
+
+	const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(r, displayMsg, r.usage, Date.now());
+	const msgPrefix = `└─ ${msgLabel} [${formatCompactTokenPair(r.usage)}] - `;
+	container.addChild(new TruncatedText(
+		`${theme.fg("dim", msgPrefix)}${theme.fg(useError ? "error" : "dim", italic(msgContent))}`,
+		0, 0,
+	));
 
 	return container;
 }
@@ -473,34 +486,58 @@ function renderActivityPanel(
 
 		// aim: line (short headline)
 		if (r.aim) {
-			const aimPrefix = formatAimLinePrefix(indent + "├─", r);
-			const dirContent = truncateChars(lowerFirstWord(r.aim), getTruncationBudget(visibleLength(aimPrefix)));
-			container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(dirContent))}`, 0, 0));
+			const countdown = getLiveCountdown(r);
+			const treePrefix = indent + "├─";
+			const prefixStub = countdown
+				? `${treePrefix} aim: [${countdown}] - `
+				: `${treePrefix} aim: `;
+			const budget = getTruncationBudget(visibleLength(prefixStub));
+			const displayAim = truncateChars(lowerFirstWord(r.aim), budget);
+			const { label, content } = scrambleManager.updateAim(r, displayAim, Date.now());
+			const aimPrefix = countdown
+				? `${treePrefix} ${label} [${countdown}] - `
+				: `${treePrefix} ${label} `;
+			container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(content))}`, 0, 0));
 		}
 
 		// act: line (last tool call with count)
 		const lastTool = getLastToolCall(r.messages);
 		if (lastTool) {
 			const actStr = formatFlowToolCall(lastTool.name, lastTool.args, theme.fg.bind(theme));
-			const actPrefix = `${indent}├─ act: [${r.usage.toolCalls}] - `;
-			const actContent = truncateChars(lowerFirstWord(actStr), getTruncationBudget(visibleLength(actPrefix)));
-			container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(actContent)}`, 0, 0));
+			const prefixStub = `${indent}├─ act: [${r.usage.toolCalls}] - `;
+			const budget = getTruncationBudget(visibleLength(prefixStub));
+			const displayAct = truncateChars(lowerFirstWord(actStr), budget);
+			const { label, content } = scrambleManager.updateAct(r, displayAct, r.usage.toolCalls, Date.now());
+			const actPrefix = `${indent}├─ ${label} [${r.usage.toolCalls}] - `;
+			container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(content)}`, 0, 0));
 		}
 
 		// msg: line (live streaming text or last assistant text)
-		const msgPrefix = formatMsgLinePrefix(indent + "└─", r);
-		const msgBudget = getTruncationBudget(visibleLength(msgPrefix));
+		const msgPrefixStub = `${indent}└─ msg: [${formatCompactTokenPair(r.usage)}] - `;
+		const msgBudget = getTruncationBudget(visibleLength(msgPrefixStub));
 		const liveText = r.exitCode === -1 ? r.streamingText : undefined;
 		const lastText = liveText || getLastAssistantText(r.messages);
+
+		let rawMsg: string;
+		let useError = false;
 		if (lastText) {
-			const logContent = tailText(lastText, msgBudget);
-			container.addChild(new TruncatedText(`${theme.fg("dim", msgPrefix)}${theme.fg("dim", italic(logContent))}`, 0, 0));
+			rawMsg = lastText;
 		} else if (error && r.errorMessage) {
-			const logContent = truncateChars(r.errorMessage, msgBudget);
-			container.addChild(new TruncatedText(`${theme.fg("dim", msgPrefix)}${theme.fg("error", italic(logContent))}`, 0, 0));
+			rawMsg = r.errorMessage;
+			useError = true;
 		} else {
-			container.addChild(new TruncatedText(`${theme.fg("dim", msgPrefix)}${theme.fg("dim", italic("[n/a]"))}`, 0, 0));
+			rawMsg = "[n/a]";
 		}
+
+		const needsTail = Boolean(liveText || lastText);
+		const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
+
+		const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(r, displayMsg, r.usage, Date.now());
+		const msgPrefix = `${indent}└─ ${msgLabel} [${formatCompactTokenPair(r.usage)}] - `;
+		container.addChild(new TruncatedText(
+			`${theme.fg("dim", msgPrefix)}${theme.fg(useError ? "error" : "dim", italic(msgContent))}`,
+			0, 0,
+		));
 
 		// Add blank line separator between flows (with continuation pipe)
 		if (!isLast) {

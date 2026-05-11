@@ -10,7 +10,6 @@ import {
 	ScrambleStateManager,
 	DEFAULT_MODE,
 } from '../src/scramble.js';
-import type { UsageStats } from '../src/types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -30,13 +29,6 @@ function hasDimAnsi(s: string): boolean {
 }
 
 const TEST_ID = 'test-id';
-
-function makeUsage(overrides: Partial<UsageStats> = {}): UsageStats {
-	return {
-		input: 100, output: 50, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 1, toolCalls: 1,
-		...overrides,
-	};
-}
 
 // ---------------------------------------------------------------------------
 // Cascade algorithm tests
@@ -86,15 +78,12 @@ describe('computeCascadeFrame', () => {
 
 	it('shows scramble chars during animation with dim ANSI', () => {
 		const queue = buildQueue('hello', 'world');
-		// Frame 20 — some chars should be scrambling
 		const result = computeCascadeFrame(queue, 20);
-		// At least some dim codes should be present (random, but likely)
 		expect(result.length).toBeGreaterThan(0);
 	});
 
 	it('preserves spaces (target char is space)', () => {
 		const queue = buildQueue('a b', 'x y');
-		// At max frame, spaces should be spaces
 		const maxEnd = Math.max(...queue.map(q => q.end));
 		const result = computeCascadeFrame(queue, maxEnd + 1);
 		expect(stripAnsi(result)).toBe('x y');
@@ -111,10 +100,8 @@ describe('computeCascadeFrame', () => {
 
 	it('handles empty from chars (new text longer)', () => {
 		const queue = buildQueue('', 'abc');
-		// Frame 0 — before any start, should show scramble chars for empty from
 		const result = computeCascadeFrame(queue, 0);
 		expect(result.length).toBeGreaterThan(0);
-		// At max end, should resolve
 		const maxEnd = Math.max(...queue.map(q => q.end));
 		const final = computeCascadeFrame(queue, maxEnd + 1);
 		expect(stripAnsi(final)).toBe('abc');
@@ -188,58 +175,65 @@ describe('ScrambleStateManager (cascade mode)', () => {
 		expect(DEFAULT_MODE).toBe('cascade');
 	});
 
-	it('updateAim does NOT spawn content animation on text change', () => {
+	it('updateAim never animates — content stays still', () => {
 		const base = 1000000;
 		manager.updateAim(TEST_ID, 'initial text', base);
 		const result = manager.updateAim(TEST_ID, 'changed text', base + 300);
-		expect(stripAnsi(result.content)).toBe('changed text');
+		expect(result.content).toBe('changed text');
 		expect(result.isAnimating).toBe(false);
+		expect(result.label).toBe('aim:');
 	});
 
-	it('updateAim does idle word flip after 5s', () => {
-		vi.spyOn(Math, 'random').mockReturnValue(0.5);
-		const base = 1000000;
-		manager.updateAim(TEST_ID, 'map the directory', base);
-		// 5s later, idle flip should spawn
-		const result = manager.updateAim(TEST_ID, 'map the directory', base + 5500);
-		expect(result.isAnimating).toBe(true);
-		vi.restoreAllMocks();
-	});
-
-	it('updateMsg spawns cascade on text change', () => {
+	it('updateAct spawns cascade on text change', () => {
 		const base = 2000000;
-		manager.updateMsg(TEST_ID, 'initial', makeUsage(), base);
-		const result = manager.updateMsg(TEST_ID, 'changed text', makeUsage({ input: 999 }), base + 300);
+		manager.updateAct(TEST_ID, 'read file.ts', base);
+		const result = manager.updateAct(TEST_ID, 'read other.ts', base + 300);
 		expect(result.isAnimating).toBe(true);
 		expect(hasDimAnsi(result.content)).toBe(true);
 	});
 
-	it('updateMsg cascade self-terminates', () => {
+	it('updateAct does NOT scramble when text is the same', () => {
 		const base = 2000000;
-		manager.updateMsg(TEST_ID, 'initial', makeUsage(), base);
-		manager.updateMsg(TEST_ID, 'changed text', makeUsage({ input: 999 }), base + 300);
-		// After max cascade duration (80 frames * 16ms = 1280ms), should be done
-		const result = manager.updateMsg(TEST_ID, 'changed text', makeUsage({ input: 999 }), base + 300 + 1500);
+		manager.updateAct(TEST_ID, 'same text', base);
+		const result = manager.updateAct(TEST_ID, 'same text', base + 300);
 		expect(result.isAnimating).toBe(false);
-		expect(stripAnsi(result.content)).toBe('changed text');
+		expect(stripAnsi(result.content)).toBe('same text');
 	});
 
-	it('updateAct does NOT spawn content animation', () => {
-		const now = Date.now();
-		const usage = makeUsage();
-		manager.updateAct(TEST_ID, 'read file.ts', 1, usage, now);
-		const result = manager.updateAct(TEST_ID, 'read file.ts', 2, usage, now + 300);
+	it('updateMsg spawns cascade on text change', () => {
+		const base = 2000000;
+		manager.updateMsg(TEST_ID, 'initial', base);
+		const result = manager.updateMsg(TEST_ID, 'changed text', base + 300);
+		expect(result.isAnimating).toBe(true);
+		expect(hasDimAnsi(result.content)).toBe(true);
+	});
+
+	it('updateMsg does NOT scramble when text is the same', () => {
+		const base = 2000000;
+		manager.updateMsg(TEST_ID, 'same text', base);
+		const result = manager.updateMsg(TEST_ID, 'same text', base + 300);
 		expect(result.isAnimating).toBe(false);
+		expect(stripAnsi(result.content)).toBe('same text');
+	});
+
+	it('updateMsg cascade self-terminates', () => {
+		const base = 2000000;
+		manager.updateMsg(TEST_ID, 'initial', base);
+		manager.updateMsg(TEST_ID, 'changed text', base + 300);
+		// After max cascade duration (80 frames * 16ms = 1280ms), should be done
+		const result = manager.updateMsg(TEST_ID, 'changed text', base + 300 + 1500);
+		expect(result.isAnimating).toBe(false);
+		expect(stripAnsi(result.content)).toBe('changed text');
 	});
 
 	it('label is always plain text', () => {
 		const now = Date.now();
 		manager.updateAim(TEST_ID, 'test', now);
-		manager.updateAct(TEST_ID, 'test', 1, makeUsage(), now);
-		manager.updateMsg(TEST_ID, 'test', makeUsage(), now);
+		manager.updateAct(TEST_ID, 'test', now);
+		manager.updateMsg(TEST_ID, 'test', now);
 		const aimResult = manager.updateAim(TEST_ID, 'changed', now + 300);
-		const actResult = manager.updateAct(TEST_ID, 'test', 2, makeUsage(), now + 300);
-		const msgResult = manager.updateMsg(TEST_ID, 'changed', makeUsage({ input: 999 }), now + 300);
+		const actResult = manager.updateAct(TEST_ID, 'changed', now + 300);
+		const msgResult = manager.updateMsg(TEST_ID, 'changed', now + 300);
 		expect(aimResult.label).toBe('aim:');
 		expect(actResult.label).toBe('act:');
 		expect(msgResult.label).toBe('msg:');
@@ -247,42 +241,15 @@ describe('ScrambleStateManager (cascade mode)', () => {
 
 	it('cooldown prevents rapid-fire cascades', () => {
 		const base = 2000000;
-		manager.updateMsg(TEST_ID, 'text one', makeUsage({ input: 100 }), base);
+		manager.updateMsg(TEST_ID, 'text one', base);
 		// First change — spawns cascade
-		manager.updateMsg(TEST_ID, 'text two', makeUsage({ input: 200 }), base + 300);
+		manager.updateMsg(TEST_ID, 'text two', base + 300);
 		// Within cooldown — change suppressed
-		manager.updateMsg(TEST_ID, 'text three', makeUsage({ input: 300 }), base + 400);
+		manager.updateMsg(TEST_ID, 'text three', base + 400);
 		// After cooldown + cascade duration — no pending animation
-		const result = manager.updateMsg(TEST_ID, 'text three', makeUsage({ input: 300 }), base + 2000);
+		const result = manager.updateMsg(TEST_ID, 'text three', base + 2000);
 		expect(result.isAnimating).toBe(false);
 		expect(stripAnsi(result.content)).toBe('text three');
-	});
-
-	// Countdown flash in cascade mode
-	describe('updateCountdown (cascade)', () => {
-		it('returns unchanged countdown on first call', () => {
-			const now = Date.now();
-			expect(manager.updateCountdown(TEST_ID, '02:30', now)).toBe('02:30');
-		});
-
-		it('flashes countdown when value changes', () => {
-			const base = 5000000;
-			manager.updateCountdown(TEST_ID, '02:30', base);
-			manager.updateCountdown(TEST_ID, '02:29', base + 100);
-			// Check during flash
-			const result = manager.updateCountdown(TEST_ID, '02:29', base + 120);
-			expect(hasDimAnsi(result)).toBe(true);
-		});
-
-		it('restores countdown after flash completes', () => {
-			const base = 5000000;
-			manager.updateCountdown(TEST_ID, '02:30', base);
-			manager.updateCountdown(TEST_ID, '02:29', base + 100);
-			// After max flash duration (13 frames * 16ms ≈ 208ms)
-			const result = manager.updateCountdown(TEST_ID, '02:29', base + 500);
-			expect(result).toBe('02:29');
-			expect(hasDimAnsi(result)).toBe(false);
-		});
 	});
 
 	// TPS flash in cascade mode
@@ -303,24 +270,32 @@ describe('ScrambleStateManager (cascade mode)', () => {
 		it('skips flash for dash placeholder', () => {
 			expect(manager.updateTps(TEST_ID, '-', Date.now())).toBe('-');
 		});
+
+		it('restores TPS after flash completes', () => {
+			const base = 6000000;
+			manager.updateTps(TEST_ID, '42.3', base);
+			manager.updateTps(TEST_ID, '51.7', base + 100);
+			const result = manager.updateTps(TEST_ID, '51.7', base + 500);
+			expect(result).toBe('51.7');
+			expect(hasDimAnsi(result)).toBe(false);
+		});
 	});
 
 	it('hasAnyActiveAnimations works for cascade', () => {
 		const base = 7000000;
-		manager.updateMsg(TEST_ID, 'init', makeUsage(), base);
+		manager.updateMsg(TEST_ID, 'init', base);
 		expect(manager.hasAnyActiveAnimations(base)).toBe(false);
-		manager.updateMsg(TEST_ID, 'changed', makeUsage({ input: 999 }), base + 300);
+		manager.updateMsg(TEST_ID, 'changed', base + 300);
 		expect(manager.hasAnyActiveAnimations(base + 300)).toBe(true);
 		expect(manager.hasAnyActiveAnimations(base + 300 + 1500)).toBe(false);
 	});
 
 	it('clear resets all state', () => {
 		const now = Date.now();
-		manager.updateCountdown(TEST_ID, '02:30', now);
 		manager.updateTps(TEST_ID, '42.3', now);
 		manager.clear();
-		const result = manager.updateCountdown(TEST_ID, '02:29', now + 100);
-		expect(result).toBe('02:29');
+		const result = manager.updateTps(TEST_ID, '51.7', now + 100);
+		expect(result).toBe('51.7');
 	});
 });
 
@@ -339,55 +314,42 @@ describe('ScrambleStateManager (ripple mode)', () => {
 
 	it('updateMsg spawns ripple on text change', () => {
 		const base = 2000000;
-		manager.updateMsg(TEST_ID, 'initial', makeUsage(), base);
-		// Spawn the ripple
-		manager.updateMsg(TEST_ID, 'changed', makeUsage({ input: 999 }), base + 300);
-		// Check a few ms into the ripple (it needs elapsed time to scramble)
-		const result = manager.updateMsg(TEST_ID, 'changed', makeUsage({ input: 999 }), base + 310);
+		manager.updateMsg(TEST_ID, 'initial', base);
+		manager.updateMsg(TEST_ID, 'changed', base + 300);
+		const result = manager.updateMsg(TEST_ID, 'changed', base + 310);
 		expect(result.isAnimating).toBe(true);
 		expect(hasDimAnsi(result.content)).toBe(true);
 	});
 
-	it('updateAim does NOT spawn content ripple on text change', () => {
+	it('updateAim never animates — content stays still', () => {
 		const base = 1000000;
 		manager.updateAim(TEST_ID, 'initial text', base);
 		const result = manager.updateAim(TEST_ID, 'changed text', base + 300);
-		expect(stripAnsi(result.content)).toBe('changed text');
+		expect(result.content).toBe('changed text');
 		expect(result.isAnimating).toBe(false);
 	});
 
-	it('updateAim idle word flip works in ripple mode', () => {
-		vi.spyOn(Math, 'random').mockReturnValue(0.5);
-		const base = 1000000;
-		manager.updateAim(TEST_ID, 'map the directory', base);
-		const result = manager.updateAim(TEST_ID, 'map the directory', base + 5500);
+	it('updateAct spawns ripple on text change', () => {
+		const base = 2000000;
+		manager.updateAct(TEST_ID, 'read file.ts', base);
+		const result = manager.updateAct(TEST_ID, 'read other.ts', base + 300);
 		expect(result.isAnimating).toBe(true);
-		vi.restoreAllMocks();
 	});
 
-	it('updateAct does NOT spawn content ripple', () => {
+	it('updateAct does NOT scramble when text is the same', () => {
 		const now = Date.now();
-		const usage = makeUsage();
-		manager.updateAct(TEST_ID, 'read file.ts', 1, usage, now);
-		const result = manager.updateAct(TEST_ID, 'read file.ts', 2, usage, now + 300);
-		expect(result.isAnimating).toBe(false);
-	});
-
-	it('same text and KPI twice does not trigger new ripple', () => {
-		const now = Date.now();
-		const usage = makeUsage();
-		manager.updateMsg(TEST_ID, 'same text', usage, now);
-		const result = manager.updateMsg(TEST_ID, 'same text', usage, now + 300);
+		manager.updateAct(TEST_ID, 'same text', now);
+		const result = manager.updateAct(TEST_ID, 'same text', now + 300);
 		expect(result.isAnimating).toBe(false);
 		expect(stripAnsi(result.content)).toBe('same text');
 	});
 
-	it('countdown flash works in ripple mode', () => {
-		const base = 5000000;
-		manager.updateCountdown(TEST_ID, '02:30', base);
-		manager.updateCountdown(TEST_ID, '02:29', base + 100);
-		const result = manager.updateCountdown(TEST_ID, '02:29', base + 105);
-		expect(hasDimAnsi(result)).toBe(true);
+	it('same text does not trigger new ripple', () => {
+		const now = Date.now();
+		manager.updateMsg(TEST_ID, 'same text', now);
+		const result = manager.updateMsg(TEST_ID, 'same text', now + 300);
+		expect(result.isAnimating).toBe(false);
+		expect(stripAnsi(result.content)).toBe('same text');
 	});
 
 	it('TPS flash works in ripple mode', () => {
@@ -400,9 +362,9 @@ describe('ScrambleStateManager (ripple mode)', () => {
 
 	it('hasAnyActiveAnimations works for ripple', () => {
 		const base = 7000000;
-		manager.updateMsg(TEST_ID, 'init', makeUsage(), base);
+		manager.updateMsg(TEST_ID, 'init', base);
 		expect(manager.hasAnyActiveAnimations(base)).toBe(false);
-		manager.updateMsg(TEST_ID, 'changed', makeUsage({ input: 999 }), base + 300);
+		manager.updateMsg(TEST_ID, 'changed', base + 300);
 		expect(manager.hasAnyActiveAnimations(base + 300)).toBe(true);
 		expect(manager.hasAnyActiveAnimations(base + 300 + 1000)).toBe(false);
 	});
@@ -416,13 +378,11 @@ describe('ScrambleStateManager mode switching', () => {
 	it('setMode clears all state', () => {
 		const manager = new ScrambleStateManager();
 		const base = 1000000;
-		manager.updateMsg(TEST_ID, 'initial', makeUsage(), base);
-		manager.updateMsg(TEST_ID, 'changed', makeUsage({ input: 999 }), base + 300);
-		// Switch mode — should clear everything
+		manager.updateMsg(TEST_ID, 'initial', base);
+		manager.updateMsg(TEST_ID, 'changed', base + 300);
 		manager.setMode('ripple');
 		expect(manager.getMode()).toBe('ripple');
-		// First call after switch should not animate
-		const result = manager.updateMsg(TEST_ID, 'new text', makeUsage(), base + 500);
+		const result = manager.updateMsg(TEST_ID, 'new text', base + 500);
 		expect(result.isAnimating).toBe(false);
 	});
 

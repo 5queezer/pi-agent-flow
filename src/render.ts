@@ -372,21 +372,16 @@ function renderFlowCollapsed(
 	if (error && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 	container.addChild(new TruncatedText(header, 0, 0));
 
-	// aim: line (short headline)
+	// aim: line — no animation, content stays still
 	if (r.aim) {
 		const countdown = getLiveCountdown(r);
 		const treePrefix = "├─";
-		const scrambledCountdown = countdown ? scrambleManager.updateCountdown(id, countdown, now) : undefined;
-		const prefixStub = scrambledCountdown
-			? `${treePrefix} aim: [${scrambledCountdown}] - `
+		const aimPrefix = countdown
+			? `${treePrefix} aim: [${countdown}] - `
 			: `${treePrefix} aim: `;
-		const budget = getTruncationBudget(visibleLength(prefixStub));
+		const budget = getTruncationBudget(visibleLength(aimPrefix));
 		const displayAim = truncateChars(lowerFirstWord(r.aim), budget);
-		const { label, content } = scrambleManager.updateAim(id, displayAim, now);
-		const aimPrefix = scrambledCountdown
-			? `${treePrefix} ${label} [${scrambledCountdown}] - `
-			: `${treePrefix} ${label} `;
-		container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(content))}`, 0, 0));
+		container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(displayAim))}`, 0, 0));
 	}
 
 	// act: line (last tool call with count)
@@ -396,7 +391,7 @@ function renderFlowCollapsed(
 		const prefixStub = `├─ act: [${r.usage.toolCalls}] - `;
 		const budget = getTruncationBudget(visibleLength(prefixStub));
 		const displayAct = truncateChars(lowerFirstWord(actStr), budget);
-		const { label, content } = scrambleManager.updateAct(id, displayAct, r.usage.toolCalls, r.usage, now);
+		const { label, content } = scrambleManager.updateAct(id, displayAct, now);
 		const actPrefix = `├─ ${label} [${r.usage.toolCalls}] - `;
 		container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(content)}`, 0, 0));
 	}
@@ -425,7 +420,7 @@ function renderFlowCollapsed(
 	const needsTail = (r.exitCode === -1 && streamingText) || streamingText;
 	const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
 
-	const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(id, displayMsg, r.usage, now);
+	const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(id, displayMsg, now);
 	const msgPrefix = `└─ ${msgLabel} [${formatCompactTokenPair(r.usage)}] - `;
 	container.addChild(new TruncatedText(
 		`${theme.fg("dim", msgPrefix)}${theme.fg(useError ? "error" : "dim", italic(msgContent))}`,
@@ -557,21 +552,16 @@ function renderActivityPanel(
 		// Continuation indent for sub-lines
 		const indent = isLast ? "   " : "│  ";
 
-		// aim: line (short headline)
+		// aim: line — no animation, content stays still
 		if (r.aim) {
 			const countdown = getLiveCountdown(r);
 			const treePrefix = indent + "├─";
-			const scrambledCountdown = countdown ? scrambleManager.updateCountdown(flowId, countdown, now) : undefined;
-			const prefixStub = scrambledCountdown
-				? `${treePrefix} aim: [${scrambledCountdown}] - `
+			const aimPrefix = countdown
+				? `${treePrefix} aim: [${countdown}] - `
 				: `${treePrefix} aim: `;
-			const budget = getTruncationBudget(visibleLength(prefixStub));
+			const budget = getTruncationBudget(visibleLength(aimPrefix));
 			const displayAim = truncateChars(lowerFirstWord(r.aim), budget);
-			const { label, content } = scrambleManager.updateAim(flowId, displayAim, now);
-			const aimPrefix = scrambledCountdown
-				? `${treePrefix} ${label} [${scrambledCountdown}] - `
-				: `${treePrefix} ${label} `;
-			container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(content))}`, 0, 0));
+			container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(displayAim))}`, 0, 0));
 		}
 
 		// act: line (last tool call with count)
@@ -581,7 +571,7 @@ function renderActivityPanel(
 			const prefixStub = `${indent}├─ act: [${r.usage.toolCalls}] - `;
 			const budget = getTruncationBudget(visibleLength(prefixStub));
 			const displayAct = truncateChars(lowerFirstWord(actStr), budget);
-			const { label, content } = scrambleManager.updateAct(flowId, displayAct, r.usage.toolCalls, r.usage, now);
+			const { label, content } = scrambleManager.updateAct(flowId, displayAct, now);
 			const actPrefix = `${indent}├─ ${label} [${r.usage.toolCalls}] - `;
 			container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(content)}`, 0, 0));
 		}
@@ -606,7 +596,7 @@ function renderActivityPanel(
 		const needsTail = Boolean(liveText || lastText);
 		const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
 
-		const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(flowId, displayMsg, r.usage, now);
+		const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(flowId, displayMsg, now);
 		const msgPrefix = `${indent}└─ ${msgLabel} [${formatCompactTokenPair(r.usage)}] - `;
 		container.addChild(new TruncatedText(
 			`${theme.fg("dim", msgPrefix)}${theme.fg(useError ? "error" : "dim", italic(msgContent))}`,

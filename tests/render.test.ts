@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
 	formatFixedTokens,
 	formatFlowTypeName,
@@ -13,6 +13,7 @@ import {
 	stripAnsi,
 } from "../src/render-utils.js";
 import { renderFlowResult } from "../src/render.js";
+import { scrambleManager } from "../src/scramble.js";
 import { emptyFlowUsage, type SingleResult, type FlowDetails } from "../src/types.js";
 import type { Text, Container, TruncatedText } from "@mariozechner/pi-tui";
 
@@ -32,6 +33,11 @@ function extractText(node: Text | Container | TruncatedText): string {
 // ---------------------------------------------------------------------------
 // visibleLength
 // ---------------------------------------------------------------------------
+
+// Reset scramble state between render tests so ripple animations don't leak across test boundaries.
+beforeEach(() => {
+	scrambleManager.clear();
+});
 
 describe("visibleLength", () => {
 	it("plain text → length unchanged", () => {

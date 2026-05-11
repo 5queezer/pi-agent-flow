@@ -38,6 +38,7 @@ function createMockPi() {
 		getFlag: vi.fn((name: string) => flags[name]),
 		setFlag: (name: string, value: unknown) => { flags[name] = value; },
 		emit: vi.fn(),
+		registerCommand: vi.fn(),
 		trigger: (event: string, ...args: any[]) =>
 			Promise.all((handlers[event] || []).map((h) => h(...args))),
 		getTool: (name: string) => tools.find((t) => t.name === name),

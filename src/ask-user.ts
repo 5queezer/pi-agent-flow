@@ -1458,7 +1458,7 @@ export function createAskUserTool() {
       name: "ask_user",
       label: "Ask User",
       description:
-         "Ask the user a question with optional multiple-choice answers. Use this to gather information interactively. Ask exactly one focused question per call. Before calling, gather context with tools (read/web/ref) and pass a short summary via the context field.",
+         "Ask the user a question with optional multiple-choice answers. Use this to gather information interactively. Ask exactly one focused question per call. Before calling, gather context with tools (read/web/ref) and pass a short summary via the context field. When presenting options, mark your recommended choice with [preferred] and place it first. Base your recommendation on evidence gathered from tools or investigation.",
       promptSnippet:
          "Ask the user one focused question with optional multiple-choice answers to gather information interactively",
       promptGuidelines: [

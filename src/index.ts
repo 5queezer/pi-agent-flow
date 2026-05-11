@@ -23,6 +23,7 @@ import {
 import { createBatchTool, createBatchReadTool, BashProcessTracker, createBatchBashPollTool } from "./batch.js";
 import { createWebTool } from "./web-tool.js";
 import { createAskUserTool } from "./ask-user.js";
+import { setupSpecMode } from "./spec-mode.js";
 import {
 	stripSlidingPromptText,
 	stripSlidingPromptsFromMessages,
@@ -435,5 +436,8 @@ export default function (pi: ExtensionAPI) {
 		// Also handle the 'exit' event, which fires when the host calls process.exit().
 		process.on("exit", shutdown);
 	}
+
+	// Register the /spec command (self-contained, no oh-pi dependency)
+	setupSpecMode(pi);
 
 }

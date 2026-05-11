@@ -147,9 +147,14 @@ export function buildQueue(
 	for (let i = 0; i < length; i++) {
 		const from = oldText[i] || '';
 		const to = newText[i] || '';
-		const start = Math.floor(Math.random() * maxStart);
-		const end = start + Math.floor(Math.random() * maxLength);
-		queue.push({ from, to, start, end });
+		if (from === to) {
+			// Same char — no change needed, resolve immediately
+			queue.push({ from, to, start: 0, end: 0 });
+		} else {
+			const start = Math.floor(Math.random() * maxStart);
+			const end = start + Math.floor(Math.random() * maxLength);
+			queue.push({ from, to, start, end });
+		}
 	}
 	return queue;
 }
@@ -176,14 +181,18 @@ export function computeCascadeFrame(queue: QueueItem[], frame: number): string {
 			}
 			output += `${DIM_ON}${item.char}${DIM_OFF}`;
 		} else {
-			// Before start frame: show old char (or empty = scramble placeholder)
-			if (item.from === '') {
-				const ch = SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
-				output += `${DIM_ON}${ch}${DIM_OFF}`;
+			// Before start frame: show scramble symbol instead of old text
+			// This ensures ONLY scramble chars (!<>-_\/[]{}-=+*^?#________) appear
+			// during animation — no letters/numbers from old text bleed through.
+			if (item.from === item.to) {
+				// Unchanged char — just show it (will resolve at frame 0 anyway)
+				output += item.to;
 			} else if (item.from === ' ') {
 				output += ' ';
 			} else {
-				output += item.from;
+				// Char that WILL change — show scramble symbol, not old text
+				const ch = SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+				output += `${DIM_ON}${ch}${DIM_OFF}`;
 			}
 		}
 	}

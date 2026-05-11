@@ -66,6 +66,26 @@ describe('buildQueue', () => {
 			expect(item.end).toBeGreaterThanOrEqual(item.start);
 		}
 	});
+
+	it('sets start=0 end=0 for unchanged chars (from === to)', () => {
+		const queue = buildQueue('abc', 'axc');
+		// 'a' and 'c' are unchanged, 'b'→'x' is changed
+		expect(queue[0].start).toBe(0);
+		expect(queue[0].end).toBe(0);
+		expect(queue[2].start).toBe(0);
+		expect(queue[2].end).toBe(0);
+		// Middle char should have non-zero animation
+		expect(queue[1].start).toBeGreaterThanOrEqual(0);
+		expect(queue[1].end).toBeGreaterThan(0);
+	});
+
+	it('all chars get start=0 end=0 when old and new text are identical', () => {
+		const queue = buildQueue('same', 'same');
+		for (const item of queue) {
+			expect(item.start).toBe(0);
+			expect(item.end).toBe(0);
+		}
+	});
 });
 
 describe('computeCascadeFrame', () => {
@@ -105,6 +125,46 @@ describe('computeCascadeFrame', () => {
 		const maxEnd = Math.max(...queue.map(q => q.end));
 		const final = computeCascadeFrame(queue, maxEnd + 1);
 		expect(stripAnsi(final)).toBe('abc');
+	});
+
+	it('shows scramble symbols (not old text) before start frame for changing chars', () => {
+		// 'abc' → 'xyz': all chars change, so pre-start should show scramble symbols
+		const queue = buildQueue('abc', 'xyz');
+		const result = computeCascadeFrame(queue, 0);
+		// At frame 0, no chars should have resolved yet (all end > 0)
+		// Strip ANSI and check that no letters from old text appear
+		const stripped = stripAnsi(result);
+		const scrambleCharSet = '!<>-_\\/[]{}-=+*^?#________';
+		for (const ch of stripped) {
+			if (ch !== ' ') {
+				expect(scrambleCharSet).toContain(ch);
+			}
+		}
+	});
+
+	it('unchanged chars (from===to) resolve immediately at frame 0', () => {
+		// 'abc' → 'axc': only middle char changes
+		const queue = buildQueue('abc', 'axc');
+		const result = computeCascadeFrame(queue, 0);
+		const stripped = stripAnsi(result);
+		// First and last chars should already be resolved
+		expect(stripped[0]).toBe('a');
+		expect(stripped[2]).toBe('c');
+	});
+
+	it('NO alphabetical or digit characters appear in scramble output during animation', () => {
+		const queue = buildQueue('hello world', 'goodbye world');
+		// Test multiple frames to ensure scramble chars never show letters/digits
+		const scrambleCharSet = '!<>-_\\/[]{}-=+*^?#________';
+		for (let frame = 0; frame < 10; frame++) {
+			const result = computeCascadeFrame(queue, frame);
+			const stripped = stripAnsi(result);
+			for (const ch of stripped) {
+				if (ch !== ' ') {
+					expect(scrambleCharSet).toContain(ch);
+				}
+			}
+		}
 	});
 });
 

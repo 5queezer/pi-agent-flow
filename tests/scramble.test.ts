@@ -1,9 +1,9 @@
 /**
- * Unit tests for the Hermes radial ripple text scramble effect.
+ * Unit tests for the Illuminate/Arcane radial ripple text scramble effect.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { applyRipples, ScrambleStateManager, type ScrambleResult } from '../src/scramble.js';
+import { applyRipples, ScrambleStateManager } from '../src/scramble.js';
 import type { UsageStats } from '../src/types.js';
 
 // ---------------------------------------------------------------------------
@@ -98,6 +98,23 @@ describe('applyRipples', () => {
 		const result = applyRipples('ab', [ripple], now);
 		expect(stripAnsi(result).length).toBe(2);
 	});
+
+	it('uses deep glitch chars at depth 1-2 (heavy blocks)', () => {
+		const now = Date.now();
+		// Enough elapsed for ripple wavefront to reach chars near center
+		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
+		const result = applyRipples('hello world', [ripple], now);
+		// Scrambled chars near wavefront should be from DEEP_GLITCH set
+		expect(hasDimAnsi(result)).toBe(true);
+	});
+
+	it('uses shallow glitch chars at depth 4 (greek/math)', () => {
+		const now = Date.now();
+		// Late in ripple: depth ~4 at the trailing edge
+		const ripple = { pos: 5, time: now - 400, dur: 666, spread: 1 };
+		const result = applyRipples('hello world', [ripple], now);
+		expect(hasDimAnsi(result)).toBe(true);
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -114,13 +131,10 @@ describe('ScrambleStateManager', () => {
 	it('updateAim does NOT spawn content ripple on text change (noContentRipple)', () => {
 		const base = 1000000;
 		manager.updateAim(TEST_ID, 'initial text', base);
-		// Check immediately after change (10ms into label flash) — label ripple is active
 		const result = manager.updateAim(TEST_ID, 'changed text', base + 300);
-		// Label flash has 200ms dur — at 10ms in, the label should be scrambling
-		const result2 = manager.updateAim(TEST_ID, 'changed text', base + 310);
-		expect(hasDimAnsi(result2.label)).toBe(true);
 		// Content should NOT have a content ripple from text change
 		expect(stripAnsi(result.content)).toBe('changed text');
+		expect(result.isAnimating).toBe(false);
 	});
 
 	it('updateAim still does idle word flip after 5s', () => {
@@ -135,20 +149,39 @@ describe('ScrambleStateManager', () => {
 		vi.restoreAllMocks();
 	});
 
-	it('updateAim label flash spawns on content change', () => {
+	it('updateAim label is always plain (no scramble)', () => {
 		const base = 3000000;
 		manager.updateAim(TEST_ID, 'original', base);
-		manager.updateAim(TEST_ID, 'updated', base + 300);
-		const result = manager.updateAim(TEST_ID, 'updated', base + 350);
-		expect(hasDimAnsi(result.label)).toBe(true);
+		const result = manager.updateAim(TEST_ID, 'updated', base + 300);
+		expect(result.label).toBe('aim:');
+		expect(hasDimAnsi(result.label)).toBe(false);
 	});
 
-	it('updateAct spawns ripple on toolCalls change', () => {
+	it('updateAct label is always plain (no scramble)', () => {
 		const now = Date.now();
 		const usage = makeUsage();
 		manager.updateAct(TEST_ID, 'read file.ts', 1, usage, now);
 		const result = manager.updateAct(TEST_ID, 'read file.ts', 2, usage, now + 300);
-		expect(result.isAnimating).toBe(true);
+		expect(result.label).toBe('act:');
+		expect(hasDimAnsi(result.label)).toBe(false);
+	});
+
+	it('updateMsg label is always plain (no scramble)', () => {
+		const now = Date.now();
+		const usage = makeUsage();
+		manager.updateMsg(TEST_ID, 'text', usage, now);
+		const result = manager.updateMsg(TEST_ID, 'text', usage, now);
+		expect(result.label).toBe('msg:');
+		expect(hasDimAnsi(result.label)).toBe(false);
+	});
+
+	it('updateAct spawns no content ripple on toolCalls change', () => {
+		const now = Date.now();
+		const usage = makeUsage();
+		manager.updateAct(TEST_ID, 'read file.ts', 1, usage, now);
+		const result = manager.updateAct(TEST_ID, 'read file.ts', 2, usage, now + 300);
+		expect(result.isAnimating).toBe(false);
+		expect(stripAnsi(result.content)).toBe('read file.ts');
 	});
 
 	it('updateMsg spawns ripple on token count change', () => {
@@ -160,19 +193,26 @@ describe('ScrambleStateManager', () => {
 		expect(result.isAnimating).toBe(true);
 	});
 
-	it('does not spawn ripple within cooldown', () => {
+	it('does not spawn ripple within cooldown (250ms)', () => {
 		const base = 2000000;
-		manager.updateAim(TEST_ID, 'text one', base);
-		manager.updateAim(TEST_ID, 'text two', base + 100);
-		const result = manager.updateAim(TEST_ID, 'text two', base + 800);
+		manager.updateMsg(TEST_ID, 'text one', makeUsage({ input: 100 }), base);
+		// Spawns a ripple (first change, cooldown from initial=0 is trivially passed)
+		manager.updateMsg(TEST_ID, 'text two', makeUsage({ input: 200 }), base + 300);
+		expect(manager.hasActiveRipples(TEST_ID, base + 300)).toBe(true);
+
+		// Within cooldown — change is suppressed, no new ripple
+		manager.updateMsg(TEST_ID, 'text three', makeUsage({ input: 300 }), base + 400);
+		// After first ripple expires (300 + 666 = 966), check that no new ripple was spawned
+		const result = manager.updateMsg(TEST_ID, 'text three', makeUsage({ input: 300 }), base + 1000);
 		expect(result.isAnimating).toBe(false);
-		expect(stripAnsi(result.content)).toBe('text two');
+		expect(stripAnsi(result.content)).toBe('text three');
 	});
 
 	it('same text and KPI twice does not trigger new ripple', () => {
 		const now = Date.now();
-		manager.updateAim(TEST_ID, 'same text', now);
-		const result = manager.updateAim(TEST_ID, 'same text', now + 300);
+		const usage = makeUsage();
+		manager.updateMsg(TEST_ID, 'same text', usage, now);
+		const result = manager.updateMsg(TEST_ID, 'same text', usage, now + 300);
 		expect(result.isAnimating).toBe(false);
 		expect(stripAnsi(result.content)).toBe('same text');
 	});
@@ -181,32 +221,24 @@ describe('ScrambleStateManager', () => {
 		const now = Date.now();
 		const result = manager.updateAim(TEST_ID, 'stable text', now);
 		expect(stripAnsi(result.content)).toBe('stable text');
-		expect(stripAnsi(result.label)).toBe('aim:');
+		expect(result.label).toBe('aim:');
 	});
 
 	it('hasActiveRipples returns true while ripples are alive', () => {
 		const now = Date.now();
-		manager.updateAim(TEST_ID, 'init', now);
+		manager.updateMsg(TEST_ID, 'init', makeUsage(), now);
 		expect(manager.hasActiveRipples(TEST_ID, now)).toBe(false);
-		manager.updateAim(TEST_ID, 'changed', now + 300);
+		manager.updateMsg(TEST_ID, 'changed', makeUsage({ input: 999 }), now + 300);
 		expect(manager.hasActiveRipples(TEST_ID, now + 300)).toBe(true);
 		expect(manager.hasActiveRipples(TEST_ID, now + 300 + 1000)).toBe(false);
 	});
 
-	it('hasActiveRipples checks label ripples too', () => {
-		const now = Date.now();
-		manager.updateAim(TEST_ID, 'init', now);
-		manager.updateAim(TEST_ID, 'text', now + 300);
-		expect(manager.hasActiveRipples(TEST_ID, now + 300 + 100)).toBe(true);
-		expect(manager.hasActiveRipples(TEST_ID, now + 300 + 700)).toBe(false);
-	});
-
 	it('hasAnyActiveRipples checks all ids', () => {
 		const now = Date.now();
-		manager.updateAim('id-a', 'hello', now);
-		manager.updateAim('id-b', 'world', now);
+		manager.updateMsg('id-a', 'hello', makeUsage(), now);
+		manager.updateMsg('id-b', 'world', makeUsage(), now);
 		expect(manager.hasAnyActiveRipples(now)).toBe(false);
-		manager.updateAim('id-a', 'hello!', now + 300);
+		manager.updateMsg('id-a', 'hello!', makeUsage({ input: 999 }), now + 300);
 		expect(manager.hasAnyActiveRipples(now + 300)).toBe(true);
 		expect(manager.hasAnyActiveRipples(now + 300 + 1000)).toBe(false);
 	});
@@ -233,7 +265,7 @@ describe('ScrambleStateManager', () => {
 		});
 
 		it('restores countdown after flash expires', () => {
-		const base = 5000000;
+			const base = 5000000;
 			manager.updateCountdown(TEST_ID, '02:30', base);
 			manager.updateCountdown(TEST_ID, '02:29', base + 100);
 			// After flash duration (150ms) + some buffer

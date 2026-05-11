@@ -188,14 +188,21 @@ export function renderFlowResult(
 
 	// Scramble animation timer management — MUST run AFTER rendering so that
 	// ripples spawned during render are detected and the timer is started.
+	// Uses chained setTimeout (not setInterval) to avoid TUI ghost frames.
 	if (args?.invalidate && args?.state) {
 		const s = (args.state as any).__scramble = (args.state as any).__scramble || {};
 		const now = Date.now();
 		const hasActive = scrambleManager.hasAnyActiveRipples(now);
 
 		if (hasActive) {
+			// Schedule a single next frame — chained, not interval.
+			// The invalidate() call triggers a re-render, which checks
+			// hasAnyActiveRipples again and schedules the next frame.
 			if (!s.rippleTimer) {
-				s.rippleTimer = setInterval(() => args.invalidate!(), 50);
+				s.rippleTimer = setTimeout(() => {
+					s.rippleTimer = undefined;
+					args.invalidate!();
+				}, 50);
 			}
 			if (s.idleTimer) {
 				clearTimeout(s.idleTimer);
@@ -203,7 +210,7 @@ export function renderFlowResult(
 			}
 		} else {
 			if (s.rippleTimer) {
-				clearInterval(s.rippleTimer);
+				clearTimeout(s.rippleTimer);
 				s.rippleTimer = undefined;
 			}
 			if (!s.idleTimer) {

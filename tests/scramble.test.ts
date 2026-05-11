@@ -1,5 +1,5 @@
 /**
- * Unit tests for the Illuminate/Arcane radial ripple text scramble effect.
+ * Unit tests for the radial ripple text scramble effect.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -99,18 +99,22 @@ describe('applyRipples', () => {
 		expect(stripAnsi(result).length).toBe(2);
 	});
 
-	it('uses deep glitch chars at depth 1-2 (heavy blocks)', () => {
+	it('scrambles with ASCII-safe characters only', () => {
 		const now = Date.now();
-		// Enough elapsed for ripple wavefront to reach chars near center
 		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
 		const result = applyRipples('hello world', [ripple], now);
-		// Scrambled chars near wavefront should be from DEEP_GLITCH set
+		// Scrambled chars should all be ASCII-safe (no Unicode blocks/katakana/greek)
+		const stripped = stripAnsi(result);
+		for (const ch of stripped) {
+			if (ch !== ' ') {
+				expect(ch.charCodeAt(0)).toBeLessThan(128);
+			}
+		}
 		expect(hasDimAnsi(result)).toBe(true);
 	});
 
-	it('uses shallow glitch chars at depth 4 (greek/math)', () => {
+	it('uses classic SCRAMBLE_CHARS pool for all depths', () => {
 		const now = Date.now();
-		// Late in ripple: depth ~4 at the trailing edge
 		const ripple = { pos: 5, time: now - 400, dur: 666, spread: 1 };
 		const result = applyRipples('hello world', [ripple], now);
 		expect(hasDimAnsi(result)).toBe(true);

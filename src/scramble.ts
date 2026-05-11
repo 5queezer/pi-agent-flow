@@ -1,29 +1,19 @@
 /**
- * Illuminate/Arcane radial ripple text scramble effect for terminal TUI.
+ * Radial ripple text scramble effect for terminal TUI.
  *
  * Adapts the Hermes website's Scramble component (radial wave propagation)
- * with layered character sets that create a cascading reveal:
- *   Depth 1-2: Heavy blocks and occult symbols (peak glitch)
- *   Depth 3:   Japanese half-width katakana (cyberpunk matrix layer)
- *   Depth 4:   Greek/math symbols settling into recognizable shapes (cooling down)
- *
- * Ripples spawn on text/KPI changes, with a 5s idle word flip for aim: lines.
+ * with classic ASCII-safe character set. Ripples spawn on text/KPI changes,
+ * with a 5s idle word flip for aim: lines.
  */
 
 import type { UsageStats } from './types.js';
 
 // ---------------------------------------------------------------------------
-// Character sets — Illuminate/Arcane theme, broken down by glitch depth
+// Character set — classic ASCII-safe scramble symbols
 // ---------------------------------------------------------------------------
 
-/** Depth 1-2: The most alien, occult, and heavy blocks (Peak Glitch) */
-const DEEP_GLITCH = '𐕣𖤐█▓▒░║│¦|∆∇Λ';
-
-/** Depth 3: Fast-moving Japanese half-width katakana (The Cyberpunk Matrix layer) */
-const MID_GLITCH = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ';
-
-/** Depth 4: Greek and math symbols settling into recognizable shapes (Cooling down) */
-const SHALLOW_GLITCH = 'ΦΨΩαβγδεζηθικλμνξοπρστυφχψω><+*·-~01';
+/** Scramble character pool — all ASCII-safe for maximum terminal compatibility */
+const SCRAMBLE_CHARS = '!<>-_\\/[]{}-=+*^?#________';
 
 // ---------------------------------------------------------------------------
 // Timing constants
@@ -35,7 +25,7 @@ const IDLE_FLIP_DUR = 300;       // ms — quick idle word flip
 const IDLE_FLIP_SPREAD = 2;      // localized ripple
 const IDLE_FLIP_INTERVAL = 5000; // ms — time between idle flips
 const MIN_RIPPLE_INTERVAL = 250; // ms — cooldown to let the neon bloom settle
-const DEPTH_BAND_MAX = 4;        // Illuminate: 0-4 depth band for cascading reveal
+const DEPTH_BAND_MAX = 3;          // Classic: 0-3 depth band
 const COUNTDOWN_FLASH_DUR = 150;  // ms — countdown value flash
 const COUNTDOWN_FLASH_SPREAD = 0.5;
 const TPS_FLASH_DUR = 150;       // ms — TPS value flash
@@ -99,25 +89,6 @@ interface ValueFlashState {
 // ---------------------------------------------------------------------------
 
 /**
- * Select a scramble character based on depth from the wavefront.
- * Depth 1-2: heavy blocks and occult symbols (peak glitch)
- * Depth 3:   katakana (cyberpunk matrix layer)
- * Depth 4+:  Greek/math symbols (cooling down)
- */
-function selectScrambleChar(depth: number, dist: number, elapsed: number): string {
-	let charSet: string;
-	if (depth <= 2) {
-		charSet = DEEP_GLITCH;
-	} else if (depth <= 3) {
-		charSet = MID_GLITCH;
-	} else {
-		charSet = SHALLOW_GLITCH;
-	}
-	const idx = (3 * dist + Math.floor(elapsed / 40)) % charSet.length;
-	return charSet[idx < 0 ? idx + charSet.length : idx];
-}
-
-/**
  * Apply all active ripples to text at time `now`.
  * Returns a string where scramble chars are wrapped in dim ANSI codes.
  * Spaces are preserved untouched (Hermes behavior).
@@ -129,7 +100,7 @@ function selectScrambleChar(depth: number, dist: number, elapsed: number): strin
  *     dist    = abs(idx - pos)
  *     depth   = radius - dist
  *     if (dist <= radius && depth > 0 && depth <= DEPTH_BAND_MAX):
- *       char = selectScrambleChar(depth, dist, elapsed)
+ *       char = SCRAMBLE_CHARS[(3*dist + floor(elapsed/40)) % len]
  */
 export function applyRipples(text: string, ripples: Ripple[], now: number): string {
 	if (!ripples.length) return text;
@@ -162,7 +133,8 @@ export function applyRipples(text: string, ripples: Ripple[], now: number): stri
 			const depth = radius - dist;
 
 			if (dist <= radius && depth > 0 && depth <= DEPTH_BAND_MAX) {
-				const char = selectScrambleChar(depth, dist, elapsed);
+				const charIdx = (3 * dist + Math.floor(elapsed / 40)) % SCRAMBLE_CHARS.length;
+				const char = SCRAMBLE_CHARS[charIdx < 0 ? charIdx + SCRAMBLE_CHARS.length : charIdx];
 				result += `${DIM_ON}${char}${DIM_OFF}`;
 				scrambled = true;
 				break; // first matching ripple wins

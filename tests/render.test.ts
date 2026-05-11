@@ -36,6 +36,7 @@ function extractText(node: Text | Container | TruncatedText): string {
 
 // Reset scramble state between render tests so ripple animations don't leak across test boundaries.
 beforeEach(() => {
+	scrambleManager.setMode('cascade');
 	scrambleManager.clear();
 });
 

@@ -377,11 +377,16 @@ function renderFlowCollapsed(
 		const actStr = formatFlowToolCall(lastTool.name, lastTool.args, theme.fg.bind(theme));
 		const prefixStub = `├─ act: [${r.usage.toolCalls}] - `;
 		const budget = getTruncationBudget(visibleLength(prefixStub));
-		const displayAct = truncateChars(lowerFirstWord(actStr), budget);
-		const isComplete = r.exitCode !== -1;
-		const { label, content } = scrambleManager.updateAct(id, displayAct, now, isComplete);
-		const actPrefix = `├─ ${label} [${r.usage.toolCalls}] - `;
-		container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(content)}`, 0, 0));
+		const actFullText = lowerFirstWord(actStr);
+		let actContent: string;
+		if (scrambleManager.getMode() === 'stream') {
+			actContent = scrambleManager.streamAct(id, actFullText, now, isComplete, budget);
+		} else {
+			const displayAct = truncateChars(actFullText, budget);
+			actContent = scrambleManager.updateAct(id, displayAct, now, isComplete).content;
+		}
+		const actPrefix = `├─ act: [${r.usage.toolCalls}] - `;
+		container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(actContent)}`, 0, 0));
 	}
 
 	// msg: line (last assistant text or streaming)
@@ -405,11 +410,15 @@ function renderFlowCollapsed(
 		rawMsg = "[n/a]";
 	}
 
-	const needsTail = (r.exitCode === -1 && streamingText) || streamingText;
-	const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
-
-	const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(id, displayMsg, now, isComplete);
-	const msgPrefix = `└─ ${msgLabel} [${formatCompactTokenPair(r.usage)}] - `;
+	let msgContent: string;
+	if (scrambleManager.getMode() === 'stream') {
+		msgContent = scrambleManager.streamMsg(id, rawMsg, now, isComplete, msgBudget);
+	} else {
+		const needsTail = (r.exitCode === -1 && streamingText) || streamingText;
+		const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
+		msgContent = scrambleManager.updateMsg(id, displayMsg, now, isComplete).content;
+	}
+	const msgPrefix = `└─ msg: [${formatCompactTokenPair(r.usage)}] - `;
 	container.addChild(new TruncatedText(
 		`${theme.fg("dim", msgPrefix)}${theme.fg(useError ? "error" : "dim", italic(msgContent))}`,
 		0, 0,
@@ -559,10 +568,16 @@ function renderActivityPanel(
 			const actStr = formatFlowToolCall(lastTool.name, lastTool.args, theme.fg.bind(theme));
 			const prefixStub = `${indent}├─ act: [${r.usage.toolCalls}] - `;
 			const budget = getTruncationBudget(visibleLength(prefixStub));
-			const displayAct = truncateChars(lowerFirstWord(actStr), budget);
-			const { label, content } = scrambleManager.updateAct(flowId, displayAct, now, flowComplete);
-			const actPrefix = `${indent}├─ ${label} [${r.usage.toolCalls}] - `;
-			container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(content)}`, 0, 0));
+			const actFullText = lowerFirstWord(actStr);
+			let actContent: string;
+			if (scrambleManager.getMode() === 'stream') {
+				actContent = scrambleManager.streamAct(flowId, actFullText, now, flowComplete, budget);
+			} else {
+				const displayAct = truncateChars(actFullText, budget);
+				actContent = scrambleManager.updateAct(flowId, displayAct, now, flowComplete).content;
+			}
+			const actPrefix = `${indent}├─ act: [${r.usage.toolCalls}] - `;
+			container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(actContent)}`, 0, 0));
 		}
 
 		// msg: line (live streaming text or last assistant text)
@@ -582,11 +597,15 @@ function renderActivityPanel(
 			rawMsg = "[n/a]";
 		}
 
-		const needsTail = Boolean(liveText || lastText);
-		const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
-
-		const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(flowId, displayMsg, now, flowComplete);
-		const msgPrefix = `${indent}└─ ${msgLabel} [${formatCompactTokenPair(r.usage)}] - `;
+		let msgContent: string;
+		if (scrambleManager.getMode() === 'stream') {
+			msgContent = scrambleManager.streamMsg(flowId, rawMsg, now, flowComplete, msgBudget);
+		} else {
+			const needsTail = Boolean(liveText || lastText);
+			const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
+			msgContent = scrambleManager.updateMsg(flowId, displayMsg, now, flowComplete).content;
+		}
+		const msgPrefix = `${indent}└─ msg: [${formatCompactTokenPair(r.usage)}] - `;
 		container.addChild(new TruncatedText(
 			`${theme.fg("dim", msgPrefix)}${theme.fg(useError ? "error" : "dim", italic(msgContent))}`,
 			0, 0,

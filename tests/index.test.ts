@@ -554,7 +554,7 @@ describe("flow tool execute", () => {
 			expect((modified[1] as any).content[0].text).toBe("ok");
 			expect((modified[2] as any).role).toBe("system");
 			expect((modified[2] as any).content).toMatch(/<pi-flow-sliding-system\b/);
-			expect((modified[2] as any).content).toContain("The flow code:");
+			expect((modified[2] as any).content).toContain("spec-driven planning mode");
 			expect((modified[3] as any).content).toBe("second prompt");
 		});
 
@@ -574,7 +574,7 @@ describe("flow tool execute", () => {
 
 			expect((modified[2] as any).role).toBe("system");
 			expect((modified[2] as any).content).toMatch(/<pi-flow-sliding-system\b/);
-			expect((modified[2] as any).content).toContain("The flow code:");
+			expect((modified[2] as any).content).toContain("spec-driven planning mode");
 			expect((modified[3] as any).content).toBe("second prompt");
 		});
 
@@ -1461,7 +1461,7 @@ describe("web tool integration", () => {
 		expect(modified.systemPrompt).toContain("pi-web steering");
 		expect(modified.systemPrompt).toContain("fetch");
 		expect(modified.systemPrompt).toMatch(/<pi-flow-sliding-system\b/);
-		expect(modified.systemPrompt).toContain("The flow code:");
+		expect(modified.systemPrompt).toContain("spec-driven planning mode");
 	});
 
 	it("adds search steering when prompt looks like a web search and toolOptimize is false", async () => {
@@ -1480,7 +1480,7 @@ describe("web tool integration", () => {
 		expect(modified.systemPrompt).toContain("pi-web steering");
 		expect(modified.systemPrompt).toContain("search");
 		expect(modified.systemPrompt).toMatch(/<pi-flow-sliding-system\b/);
-		expect(modified.systemPrompt).toContain("The flow code:");
+		expect(modified.systemPrompt).toContain("spec-driven planning mode");
 	});
 
 	it("does not add web steering when toolOptimize is true", async () => {
@@ -1497,7 +1497,7 @@ describe("web tool integration", () => {
 		const modified = result[0];
 		expect(modified.systemPrompt).not.toContain("pi-web steering");
 		expect(modified.systemPrompt).toMatch(/<pi-flow-sliding-system\b/);
-		expect(modified.systemPrompt).toContain("The flow code:");
+		expect(modified.systemPrompt).toContain("spec-driven planning mode");
 	});
 
 	it("appends sliding prompt and flows to systemPrompt unconditionally", async () => {
@@ -1514,7 +1514,7 @@ describe("web tool integration", () => {
 		const modified = result[0];
 		// Sliding prompt is always appended
 		expect(modified.systemPrompt).toMatch(/<pi-flow-sliding-system\b/);
-		expect(modified.systemPrompt).toContain("The flow code:");
+		expect(modified.systemPrompt).toContain("spec-driven planning mode");
 		// Bundled flows are always discovered, so flow instructions are injected
 		expect(modified.systemPrompt).toContain("## Flows");
 		expect(modified.systemPrompt).toContain("inherited context as background");

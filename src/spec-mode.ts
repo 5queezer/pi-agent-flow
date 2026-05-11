@@ -101,16 +101,13 @@ export function setupSpecMode(pi: ExtensionAPI): void {
 			}
 
 			// Enter
-			if (!trimmed) {
-				ctx.ui.notify?.("Usage: /spec {description of what to build}", "warning");
-				return;
-			}
-
 			active = true;
 			userPrompt = trimmed;
 			ctx.ui.notify?.("Spec mode activated", "info");
-			// Auto-trigger agent turn so before_agent_start injection fires
-			pi.sendUserMessage(trimmed);
+			// Auto-trigger agent turn only when user provided a description
+			if (trimmed) {
+				pi.sendUserMessage(trimmed);
+			}
 		},
 	});
 
@@ -119,9 +116,12 @@ export function setupSpecMode(pi: ExtensionAPI): void {
 		if (!active) return;
 		const prompt = SPEC_PROMPT;
 		active = false; // One-shot: inject once, then deactivate
+		const content = userPrompt
+			? `${prompt}\n\nUser's request: ${userPrompt}`
+			: prompt;
 		return {
 			message: {
-				content: `${prompt}\n\nUser's request: ${userPrompt}`,
+				content,
 				customType: SPEC_CONTEXT_TYPE,
 				display: false,
 			},

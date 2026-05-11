@@ -135,7 +135,7 @@ describe("setupSpecMode", () => {
 		expect(exitCtx.notifyCalls.some((n) => n.msg === "Spec mode deactivated.")).toBe(true);
 	});
 
-it("shows usage warning when no description is provided", async () => {
+it("activates spec mode without auto-trigger when no description is provided", async () => {
 		const pi = createMockPi();
 		setupSpecMode(pi);
 
@@ -143,9 +143,38 @@ it("shows usage warning when no description is provided", async () => {
 		const { ctx, notifyCalls } = createMockCtx();
 		await command.handler("", ctx);
 
-		expect(notifyCalls.some((n) => n.msg.includes("Usage: /spec"))).toBe(true);
-		// Should NOT trigger agent turn for empty input
+		// Should activate (not show usage warning)
+		expect(notifyCalls.some((n) => n.msg === "Spec mode activated")).toBe(true);
+		// Should NOT auto-trigger agent turn — user types next
 		expect(pi.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it("injects bare spec prompt when activated without args", async () => {
+		const pi = createMockPi();
+		const handlers: Record<string, Function[]> = {};
+		(pi.on as any).mockImplementation((event: string, handler: Function) => {
+			if (!handlers[event]) handlers[event] = [];
+			handlers[event].push(handler);
+		});
+
+		setupSpecMode(pi);
+
+		const command = registeredCommands.get("spec")!;
+		const { ctx, notifyCalls } = createMockCtx();
+		await command.handler("", ctx);
+
+		// Should activate
+		expect(notifyCalls.some((n) => n.msg === "Spec mode activated")).toBe(true);
+		expect(pi.sendUserMessage).not.toHaveBeenCalled();
+
+		// Trigger before_agent_start — should inject prompt WITHOUT "User's request:"
+		const beforeStartHandlers = handlers["before_agent_start"]!;
+		const specHandler = beforeStartHandlers[beforeStartHandlers.length - 1];
+		const result = await specHandler({});
+
+		expect(result).toBeDefined();
+		expect(result.message.content).toContain("[SPEC MODE ACTIVE]");
+		expect(result.message.content).not.toContain("User's request:");
 	});
 
 	it("deactivates silently when no UI is available", async () => {

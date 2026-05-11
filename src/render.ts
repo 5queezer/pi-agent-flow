@@ -341,11 +341,13 @@ function renderFlowCollapsed(
 	const maxWidth = process.stdout.columns ?? 80;
 	const stats = formatCompactStats(r.usage, r.model, maxWidth, { skipTokens: true, skipContext: true, hideModel: true });
 
+	const isComplete = r.exitCode !== -1;
+
 	// Flash TPS value when it changes
 	const tpsMatch = stats.match(/tps:\s*(\S+)/);
 	let displayStats = stats;
 	if (tpsMatch) {
-		const scrambledTps = scrambleManager.updateTps(id, tpsMatch[1], now);
+		const scrambledTps = scrambleManager.updateTps(id, tpsMatch[1], now, isComplete);
 		if (scrambledTps !== tpsMatch[1]) {
 			displayStats = stats.replace(tpsMatch[1], scrambledTps);
 		}
@@ -376,7 +378,8 @@ function renderFlowCollapsed(
 		const prefixStub = `├─ act: [${r.usage.toolCalls}] - `;
 		const budget = getTruncationBudget(visibleLength(prefixStub));
 		const displayAct = truncateChars(lowerFirstWord(actStr), budget);
-		const { label, content } = scrambleManager.updateAct(id, displayAct, now);
+		const isComplete = r.exitCode !== -1;
+		const { label, content } = scrambleManager.updateAct(id, displayAct, now, isComplete);
 		const actPrefix = `├─ ${label} [${r.usage.toolCalls}] - `;
 		container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(content)}`, 0, 0));
 	}
@@ -405,7 +408,7 @@ function renderFlowCollapsed(
 	const needsTail = (r.exitCode === -1 && streamingText) || streamingText;
 	const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
 
-	const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(id, displayMsg, now);
+	const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(id, displayMsg, now, isComplete);
 	const msgPrefix = `└─ ${msgLabel} [${formatCompactTokenPair(r.usage)}] - `;
 	container.addChild(new TruncatedText(
 		`${theme.fg("dim", msgPrefix)}${theme.fg(useError ? "error" : "dim", italic(msgContent))}`,
@@ -514,9 +517,10 @@ function renderActivityPanel(
 
 		// Flash TPS value when it changes
 		const tpsMatch = stats.match(/tps:\s*(\S+)/);
+		const flowComplete = r.exitCode !== -1;
 		let displayStats = stats;
 		if (tpsMatch) {
-			const scrambledTps = scrambleManager.updateTps(flowId, tpsMatch[1], now);
+			const scrambledTps = scrambleManager.updateTps(flowId, tpsMatch[1], now, flowComplete);
 			if (scrambledTps !== tpsMatch[1]) {
 				displayStats = stats.replace(tpsMatch[1], scrambledTps);
 			}
@@ -556,7 +560,7 @@ function renderActivityPanel(
 			const prefixStub = `${indent}├─ act: [${r.usage.toolCalls}] - `;
 			const budget = getTruncationBudget(visibleLength(prefixStub));
 			const displayAct = truncateChars(lowerFirstWord(actStr), budget);
-			const { label, content } = scrambleManager.updateAct(flowId, displayAct, now);
+			const { label, content } = scrambleManager.updateAct(flowId, displayAct, now, flowComplete);
 			const actPrefix = `${indent}├─ ${label} [${r.usage.toolCalls}] - `;
 			container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(content)}`, 0, 0));
 		}
@@ -581,7 +585,7 @@ function renderActivityPanel(
 		const needsTail = Boolean(liveText || lastText);
 		const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
 
-		const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(flowId, displayMsg, now);
+		const { label: msgLabel, content: msgContent } = scrambleManager.updateMsg(flowId, displayMsg, now, flowComplete);
 		const msgPrefix = `${indent}└─ ${msgLabel} [${formatCompactTokenPair(r.usage)}] - `;
 		container.addChild(new TruncatedText(
 			`${theme.fg("dim", msgPrefix)}${theme.fg(useError ? "error" : "dim", italic(msgContent))}`,

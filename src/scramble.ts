@@ -100,6 +100,8 @@ interface LineState {
 	lastAnimTime: number;
 	/** Whether the first call has initialized the state (to avoid false change on first set). */
 	initialized: boolean;
+	/** Flow has completed — no further animations will spawn. */
+	completed: boolean;
 }
 
 type LineKey = 'aim' | 'act' | 'msg';
@@ -121,6 +123,8 @@ interface ValueFlashState {
 	/** Cascade mode flash */
 	queue: QueueItem[];
 	startTime: number;
+	/** Flow has completed — no further animations will spawn. */
+	completed: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +298,9 @@ function processLine(
 	now: number,
 	mode: ScrambleMode,
 ): void {
+	// If the flow is done, stop all animations
+	if (state.completed) return;
+
 	const textChanged = state.lastText !== newText;
 
 	if (!state.initialized) {
@@ -342,11 +349,12 @@ function createLineState(): LineState {
 		ripples: [],
 		lastAnimTime: 0,
 		initialized: false,
+		completed: false,
 	};
 }
 
 function createValueFlashState(): ValueFlashState {
-	return { prev: '', ripple: null, queue: [], startTime: 0 };
+	return { prev: '', ripple: null, queue: [], startTime: 0, completed: false };
 }
 
 export class ScrambleStateManager {
@@ -389,9 +397,18 @@ export class ScrambleStateManager {
 
 	/**
 	 * Update act line. Scramble on text change only.
+	 * When isComplete is true, marks the flow as done — no further animations.
 	 */
-	updateAct(id: string, text: string, now: number): ScrambleResult {
+	updateAct(id: string, text: string, now: number, isComplete: boolean = false): ScrambleResult {
 		const state = this.getState(id, 'act', now);
+		if (isComplete) {
+			state.completed = true;
+			state.queue = [];
+			state.ripples = [];
+		}
+		if (state.completed) {
+			return { label: 'act:', content: text, isAnimating: false };
+		}
 		processLine(state, text, now, this.mode);
 
 		const label = 'act:';
@@ -403,9 +420,18 @@ export class ScrambleStateManager {
 
 	/**
 	 * Update msg line. Scramble on text change only.
+	 * When isComplete is true, marks the flow as done — no further animations.
 	 */
-	updateMsg(id: string, text: string, now: number): ScrambleResult {
+	updateMsg(id: string, text: string, now: number, isComplete: boolean = false): ScrambleResult {
 		const state = this.getState(id, 'msg', now);
+		if (isComplete) {
+			state.completed = true;
+			state.queue = [];
+			state.ripples = [];
+		}
+		if (state.completed) {
+			return { label: 'msg:', content: text, isAnimating: false };
+		}
 		processLine(state, text, now, this.mode);
 
 		const label = 'msg:';
@@ -418,16 +444,22 @@ export class ScrambleStateManager {
 	/**
 	 * Flash the TPS value when it changes.
 	 * Returns the (possibly scrambled) TPS string.
+	 * When isComplete is true, marks the TPS flash as done.
 	 */
-	updateTps(id: string, tpsText: string, now: number): string {
+	updateTps(id: string, tpsText: string, now: number, isComplete: boolean = false): string {
 		if (!tpsText || tpsText.trim() === '-') return tpsText;
 		let state = this.tpsState.get(id);
 		if (!state) {
 			state = createValueFlashState();
 			state.prev = tpsText;
 			this.tpsState.set(id, state);
-			return tpsText;
 		}
+		if (isComplete) {
+			state.completed = true;
+			state.queue = [];
+			state.ripple = null;
+		}
+		if (state.completed) return tpsText;
 		if (state.prev !== tpsText) {
 			if (this.mode === 'cascade') {
 				state.queue = buildQueue(state.prev, tpsText, CASCADE_FLASH_MAX_START, CASCADE_FLASH_MAX_LENGTH);
@@ -460,6 +492,7 @@ export class ScrambleStateManager {
 	 * Check whether a given line has any active animations at `now`.
 	 */
 	private isLineAnimating(state: LineState, now: number): boolean {
+		if (state.completed) return false;
 		if (this.mode === 'cascade') {
 			if (!state.queue.length) return false;
 			const frame = Math.floor((now - state.startTime) / CASCADE_FRAME_MS);
@@ -487,6 +520,24 @@ export class ScrambleStateManager {
 		this.tpsState.clear();
 	}
 
+	/** Mark a flow as complete — no further animations will spawn. */
+	completeFlow(id: string): void {
+		const record = this.cache.get(id);
+		if (record) {
+			for (const key of ['aim', 'act', 'msg'] as LineKey[]) {
+				record[key].completed = true;
+				record[key].queue = [];
+				record[key].ripples = [];
+			}
+		}
+		const tpsState = this.tpsState.get(id);
+		if (tpsState) {
+			tpsState.completed = true;
+			tpsState.queue = [];
+			tpsState.ripple = null;
+		}
+	}
+
 	/** Check if ANY flow result has active animations (for timer management). */
 	hasAnyActiveAnimations(now: number): boolean {
 		for (const record of this.cache.values()) {
@@ -494,8 +545,9 @@ export class ScrambleStateManager {
 				if (this.isLineAnimating(record[key], now)) return true;
 			}
 		}
-		// Check TPS flash states
+		// Check TPS flash states (skip completed)
 		for (const state of this.tpsState.values()) {
+			if (state.completed) continue;
 			if (this.mode === 'cascade') {
 				if (state.queue.length) {
 					const frame = Math.floor((now - state.startTime) / CASCADE_FRAME_MS);

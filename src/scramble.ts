@@ -54,12 +54,22 @@ export function makeAnimationSeed(text: string, timestamp: number): number {
 	return ((h ^ timestamp) >>> 0);
 }
 
+const hashNoiseCache = new Map<number, number>();
+const MAX_HASH_CACHE_SIZE = 4096;
+
 export function hashNoise(seed: number, charIndex: number, tick: number, depth: number): number {
+	const key = (((seed * 31 + charIndex) * 31 + tick) * 7 + depth) >>> 0;
+	const cached = hashNoiseCache.get(key);
+	if (cached !== undefined) return cached;
 	let h = Math.imul(seed ^ charIndex, 0x45d9f3b);
 	h = Math.imul(h ^ tick, 0x45d9f3b);
 	h = Math.imul(h ^ depth, 0x45d9f3b);
 	h ^= h >>> 16;
-	return (h >>> 0) / 0xFFFFFFFF;
+	const result = (h >>> 0) / 0xFFFFFFFF;
+	if (hashNoiseCache.size < MAX_HASH_CACHE_SIZE) {
+		hashNoiseCache.set(key, result);
+	}
+	return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -616,12 +626,15 @@ export function applyRipples(
 			const depth = radii[i] - dist;
 			if (depth > 0) {
 				const fade = 1 - smoothstep(DEPTH_BAND_MAX - 1, DEPTH_BAND_MAX + 2, depth);
-				if (fade > 0 && depth > maxDepth) {
-					maxDepth = Math.min(depth, DEPTH_BAND_MAX);
-					bestElapsed = now - activeRipples[i].time;
-					bestDist = dist;
-					bestDur = activeRipples[i].dur;
-					bestIdx = i;
+				if (fade > 0) {
+					const cappedDepth = Math.min(depth, DEPTH_BAND_MAX);
+					if (cappedDepth > maxDepth || (cappedDepth === maxDepth && activeRipples[i].time > activeRipples[bestIdx]?.time)) {
+						maxDepth = cappedDepth;
+						bestElapsed = now - activeRipples[i].time;
+						bestDist = dist;
+						bestDur = activeRipples[i].dur;
+						bestIdx = i;
+					}
 				}
 			}
 		}

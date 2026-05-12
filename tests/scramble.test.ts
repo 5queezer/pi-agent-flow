@@ -1154,6 +1154,17 @@ describe('applyRipples — multi-ripple depth blending', () => {
 		expect(hasDimAnsi(result)).toBe(true);
 		expect(stripAnsi(result).length).toBe('hello world here'.length);
 	});
+
+	it('newer ripple wins when depths are equal', () => {
+		const now = Date.now();
+		// Two ripples at same position with same spread but different spawn times
+		const older = { pos: 5, time: now - 200, dur: 666, spread: 1, seed: 11111 };
+		const newer = { pos: 5, time: now - 50, dur: 666, spread: 1, seed: 22222 };
+		const result = applyRipples('abcdefghij', [older, newer], now);
+		// Should scramble (newer wins at equal depth)
+		expect(hasDimAnsi(result)).toBe(true);
+		expect(stripAnsi(result).length).toBe('abcdefghij'.length);
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -1336,6 +1347,15 @@ describe('hashNoise', () => {
 			expect(n).toBeGreaterThanOrEqual(0);
 			expect(n).toBeLessThan(1);
 		}
+	});
+
+	it('cached values match uncached values', () => {
+		// First call populates cache, second call returns cached value
+		const n1 = hashNoise(99999, 7, 3, 2);
+		const n2 = hashNoise(99999, 7, 3, 2);
+		expect(n1).toBe(n2);
+		expect(n1).toBeGreaterThanOrEqual(0);
+		expect(n1).toBeLessThan(1);
 	});
 });
 

@@ -748,8 +748,8 @@ describe('ScrambleStateManager (ripple mode)', () => {
 		// First call creates ripple — still active at t+300ms
 		const during = manager.updateMsg(TEST_ID, 'same text', now + 300);
 		expect(during.isAnimating).toBe(true);
-		// After ripple expires (dur=1200ms), plain text
-		const done = manager.updateMsg(TEST_ID, 'same text', now + 1300);
+		// After ripple expires (dur scaled to 1400ms for 9-char text) and afterglow ends at 1550ms, plain text
+		const done = manager.updateMsg(TEST_ID, 'same text', now + 1600);
 		expect(done.isAnimating).toBe(false);
 		expect(stripAnsi(done.content)).toBe('same text');
 	});
@@ -767,10 +767,10 @@ describe('ScrambleStateManager (ripple mode)', () => {
 		manager.updateMsg(TEST_ID, 'init', base);
 		// First call creates ripple animation
 		expect(manager.hasAnyActiveAnimations(base)).toBe(true);
-		expect(manager.hasAnyActiveAnimations(base + 1300)).toBe(false);
+		expect(manager.hasAnyActiveAnimations(base + 1800)).toBe(false);
 		manager.updateMsg(TEST_ID, 'changed', base + 300);
 		expect(manager.hasAnyActiveAnimations(base + 300)).toBe(true);
-		expect(manager.hasAnyActiveAnimations(base + 300 + 1300)).toBe(false);
+		expect(manager.hasAnyActiveAnimations(base + 300 + 1800)).toBe(false);
 	});
 });
 
@@ -838,7 +838,7 @@ describe('selectScrambleChar', () => {
 });
 
 describe('applyRipples — eased ripple expansion', () => {
-	it('easeOutCubic produces larger early radius than linear', () => {
+	it('easeOutQuart produces larger early radius than linear', () => {
 		const now = Date.now();
 		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
 		// With eased expansion, radius at 15% progress is larger than linear
@@ -1480,8 +1480,8 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 		manager.updateText('id-1', 'header', 'scout - [↑ 0.11M]', base, false, true);
 		// Minor digit change (>50% overlap) should NOT spawn a new ripple
 		manager.updateText('id-1', 'header', 'scout - [↑ 0.12M]', base + 50, false, true);
-		// Old ripple expires at base+1200; if a new ripple had spawned at base+50 it would expire at base+1250
-		expect(manager.hasAnyActiveAnimations(base + 1300)).toBe(false);
+		// Old ripple expires at base+1200; afterglow ends at base+1350
+		expect(manager.hasAnyActiveAnimations(base + 1400)).toBe(false);
 	});
 
 	it('staticLine minor-mutation guard suppresses re-flash beyond cooldown', () => {
@@ -1491,8 +1491,8 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 		manager.updateText('id-1', 'header', 'scout - lite - tps: 12', base, false, true);
 		// Minor trailing-digit change within cooldown (300ms < 500ms) should NOT spawn a new ripple
 		manager.updateText('id-1', 'header', 'scout - lite - tps: 15', base + 300, false, true);
-		// Initial ripple expires at base+1200; no new ripple means inactive by base+1300
-		expect(manager.hasActiveAnimations('id-1', base + 1300)).toBe(false);
+		// Initial ripple expires at base+1200; afterglow ends at base+1350
+		expect(manager.hasActiveAnimations('id-1', base + 1400)).toBe(false);
 	});
 
 	it('staticLine still flashes on major rewrite beyond cooldown', () => {

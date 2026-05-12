@@ -10,6 +10,13 @@ import {
 	renderStreamText,
 	ScrambleStateManager,
 	DEFAULT_MODE,
+	selectScrambleChar,
+	CYAN_GLOW,
+	PURPLE_GLOW,
+	GOLD_GLOW,
+	WHITE_GLOW,
+	BOLD_ON,
+	ILLUMINATE_CONFIGS,
 } from '../src/scramble.js';
 
 // ---------------------------------------------------------------------------
@@ -133,8 +140,8 @@ describe('ScrambleStateManager (stream mode)', () => {
 		manager.setMode('stream');
 	});
 
-	it('defaults to ripple mode', () => {
-		expect(DEFAULT_MODE).toBe('ripple');
+	it('defaults to illuminate mode', () => {
+		expect(DEFAULT_MODE).toBe('illuminate');
 	});
 
 	it('updateAim never animates', () => {
@@ -743,9 +750,9 @@ describe('ScrambleStateManager (ripple mode)', () => {
 // ---------------------------------------------------------------------------
 
 describe('ScrambleStateManager mode switching', () => {
-	it('defaults to ripple mode', () => {
+	it('defaults to illuminate mode', () => {
 		const manager = new ScrambleStateManager();
-		expect(manager.getMode()).toBe('ripple');
+		expect(manager.getMode()).toBe('illuminate');
 	});
 
 	it('setMode clears all state', () => {
@@ -759,14 +766,153 @@ describe('ScrambleStateManager mode switching', () => {
 		expect(result.isAnimating).toBe(false); // first call just initializes
 	});
 
-	it('can switch between all three modes', () => {
+	it('can switch between all four modes', () => {
 		const manager = new ScrambleStateManager();
-		expect(manager.getMode()).toBe('ripple');
+		expect(manager.getMode()).toBe('illuminate');
 		manager.setMode('cascade');
 		expect(manager.getMode()).toBe('cascade');
 		manager.setMode('stream');
 		expect(manager.getMode()).toBe('stream');
 		manager.setMode('ripple');
 		expect(manager.getMode()).toBe('ripple');
+		manager.setMode('illuminate');
+		expect(manager.getMode()).toBe('illuminate');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Illuminate mode tests
+// ---------------------------------------------------------------------------
+
+describe('selectScrambleChar', () => {
+	it('returns deep glitch chars for depth 1–2', () => {
+		const deepChars = '𐕣𖤐█▓▒░║│¦|∆∇Λ';
+		for (let d = 1; d <= 2; d++) {
+			const c = selectScrambleChar(d, 0, 0);
+			expect(deepChars).toContain(c);
+		}
+	});
+
+	it('returns mid glitch chars for depth 3', () => {
+		const midChars = 'ΦΨΩαβγδεζηθικλμνξοπρστυφχψω';
+		const c = selectScrambleChar(3, 0, 0);
+		expect(midChars).toContain(c);
+	});
+
+	it('returns shallow glitch chars for depth 4+', () => {
+		const shallowChars = '><+*·-~01¦|║│░▒▓';
+		for (let d = 4; d <= 6; d++) {
+			const c = selectScrambleChar(d, 0, 0);
+			expect(shallowChars).toContain(c);
+		}
+	});
+});
+
+describe('applyRipples with illuminate config', () => {
+	it('applies ANSI truecolor codes when config provided', () => {
+		const now = Date.now();
+		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
+		const config = ILLUMINATE_CONFIGS.actLabel;
+		const result = applyRipples('hello world', [ripple], now, config);
+		expect(result).toContain(PURPLE_GLOW);
+		expect(result).toContain(BOLD_ON);
+	});
+
+	it('uses dynamic color (cyan) for config.color === dynamic at moderate depth', () => {
+		const now = Date.now();
+		// elapsed=200 gives depth ~1.5 which maps to cyan in dynamic mode
+		const ripple = { pos: 5, time: now - 200, dur: 850, spread: 1.5 };
+		const config = ILLUMINATE_CONFIGS.msgContent;
+		const result = applyRipples('abcdefghij', [ripple], now, config);
+		expect(result).toContain(CYAN_GLOW);
+	});
+
+	it('falls back to DIM when no config', () => {
+		const now = Date.now();
+		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
+		const result = applyRipples('hello world', [ripple], now);
+		expect(result).toContain(DIM_ON);
+		expect(result).toContain(DIM_OFF);
+	});
+});
+
+describe('ScrambleStateManager (illuminate mode)', () => {
+	let manager: ScrambleStateManager;
+
+	beforeEach(() => {
+		manager = new ScrambleStateManager();
+		manager.setMode('illuminate');
+		expect(manager.getMode()).toBe('illuminate');
+	});
+
+	it('updateMsg buffers phrases and flushes at boundaries', () => {
+		const base = 2000000;
+		manager.updateMsg(TEST_ID, 'Hello world', base);
+		// Same text — no flush
+		const same = manager.updateMsg(TEST_ID, 'Hello world', base + 100);
+		expect(same.content).toBe('Hello world');
+		// New text with phrase boundary — triggers flush
+		manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 300);
+		// Ripple is active for 850ms — verify animation is detected
+		expect(manager.hasAnyActiveAnimations(base + 400)).toBe(true);
+		// Content should show scramble chars once ripple has expanded
+		const result = manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 600);
+		expect(result.content).toContain(CYAN_GLOW);
+	});
+
+	it('updateMsg does not flush before phrase boundary', () => {
+		const base = 2000000;
+		manager.updateMsg(TEST_ID, 'Hello', base);
+		// Small change without boundary — should keep old display
+		const result = manager.updateMsg(TEST_ID, 'Hello wor', base + 300);
+		expect(result.content).toBeDefined();
+	});
+
+	it('updateMsg flushes after max buffer time even without boundary', () => {
+		const base = 2000000;
+		manager.updateMsg(TEST_ID, 'Hello', base);
+		// Wait longer than MAX_PHRASE_BUFFER_TIME (500ms)
+		const result = manager.updateMsg(TEST_ID, 'Hello world how are', base + 600);
+		expect(result.isAnimating).toBe(true);
+	});
+
+	it('updateAct uses illuminate config (purple glow)', () => {
+		const base = 2000000;
+		manager.updateAct(TEST_ID, 'read file.ts', base);
+		// Trigger change, then check when ripple wavefront is within text
+		manager.updateAct(TEST_ID, 'write other.ts', base + 300);
+		const result = manager.updateAct(TEST_ID, 'write other.ts', base + 400);
+		expect(manager.hasAnyActiveAnimations(base + 400)).toBe(true);
+		expect(result.content).toContain(PURPLE_GLOW);
+	});
+
+	it('TPS hysteresis prevents flash on tiny changes', () => {
+		const base = 6000000;
+		manager.updateTps(TEST_ID, '42.3', base);
+		// Small change (< 15%) should NOT trigger flash in illuminate mode
+		const result = manager.updateTps(TEST_ID, '43.1', base + 100);
+		// Should return plain text without scramble ANSI
+		expect(result).toBe('43.1');
+	});
+
+	it('TPS flash triggers on large change (> 15%)', () => {
+		const base = 6000000;
+		manager.updateTps(TEST_ID, '42.3', base);
+		// Large change (> 15%) triggers flash
+		manager.updateTps(TEST_ID, '55.0', base + 100);
+		// Verify ripple is active
+		expect(manager.hasAnyActiveAnimations(base + 150)).toBe(true);
+		// TPS text is short (4 chars) so ripple expands past it quickly;
+		// verify at an early time when wavefront is still within text
+		const result = manager.updateTps(TEST_ID, '55.0', base + 110);
+		expect(result).toContain(GOLD_GLOW);
+	});
+
+	it('hasAnyActiveAnimations works for illuminate', () => {
+		const base = 7000000;
+		manager.updateMsg(TEST_ID, 'init', base);
+		expect(manager.hasAnyActiveAnimations(base)).toBe(false);
+		manager.updateMsg(TEST_ID, 'changed text here.', base + 300);
+		expect(manager.hasAnyActiveAnimations(base + 300)).toBe(true);
 	});
 });

@@ -1,7 +1,7 @@
 /**
- * Tri-mode text scramble effect for terminal TUI.
+ * Quad-mode text scramble effect for terminal TUI.
  *
- * Mode 1 — STREAM (default): Typewriter-style progressive reveal.
+ * Mode 1 — STREAM: Typewriter-style progressive reveal.
  *   Buffer the full text, reveal character-by-character with a scramble
  *   cursor at the writing position. Works naturally with streaming text —
  *   the cursor follows the stream, creating a "typing" effect.
@@ -13,22 +13,81 @@
  * Mode 3 — RIPPLE: Hermes radial wave propagation.
  *   Wave expands from a center point. Characters resolve behind the wavefront.
  *
+ * Mode 4 — ILLUMINATE: Neon glow ripple with depth-based esoteric char sets,
+ *   ANSI truecolor, phrase-chunked msg streaming, and TPS hysteresis.
+ *   Per-target color configs (cyan aim, purple act, gold TPS, etc.).
+ *
  * Line behavior (all modes):
  *   aim: — content stays still, no animation ever
- *   act: — stream/cascade/scramble on text change
- *   msg: — stream/cascade/scramble on text change
- *   tps: — flash on value change (cascade/ripple only)
+ *   act: — stream/cascade/ripple/illuminate on text change
+ *   msg: — stream/cascade/ripple/illuminate on text change
+ *   tps: — flash on value change (cascade/ripple/illuminate only)
  */
 
 import type { UsageStats } from './types.js';
 import { stripAnsi, tailText, truncateChars } from './render-utils.js';
 
 // ---------------------------------------------------------------------------
-// Character set — classic ASCII-safe scramble symbols
+// Character sets — depth-based esoteric scramble symbols (illuminate mode)
 // ---------------------------------------------------------------------------
 
-/** Scramble character pool — all ASCII-safe for maximum terminal compatibility */
+/** Deep glitch: block elements and runes for inner ripple depths (1–2) */
+const DEEP_GLITCH = '𐕣𖤐█▓▒░║│¦|∆∇Λ';
+/** Mid glitch: Greek alphabet for mid ripple depths (3) */
+const MID_GLITCH = 'ΦΨΩαβγδεζηθικλμνξοπρστυφχψω';
+/** Shallow glitch: math and geometric symbols for outer ripple depths (4+) */
+const SHALLOW_GLITCH = '><+*·-~01¦|║│░▒▓';
+/** Classic ASCII-safe set for stream/cascade/ripple fallback */
 const SCRAMBLE_CHARS = '!<>-_\\/[]{}-=+*^?#________';
+
+function selectScrambleChar(depth: number, dist: number, elapsed: number): string {
+	const tick = Math.floor(elapsed / 40);
+	if (depth <= 2) {
+		const idx = (3 * dist + tick) % DEEP_GLITCH.length;
+		return DEEP_GLITCH[idx < 0 ? idx + DEEP_GLITCH.length : idx];
+	} else if (depth === 3) {
+		const idx = (5 * dist + tick) % MID_GLITCH.length;
+		return MID_GLITCH[idx < 0 ? idx + MID_GLITCH.length : idx];
+	} else {
+		const idx = (7 * dist + tick) % SHALLOW_GLITCH.length;
+		return SHALLOW_GLITCH[idx < 0 ? idx + SHALLOW_GLITCH.length : idx];
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ANSI truecolor neon glow constants (illuminate mode)
+// ---------------------------------------------------------------------------
+
+const CYAN_GLOW = '\x1b[38;2;0;255;204m';
+const PURPLE_GLOW = '\x1b[38;2;191;0;255m';
+const PINK_GLOW = '\x1b[38;2;255;0;85m';
+const GOLD_GLOW = '\x1b[38;2;255;204;0m';
+const WHITE_GLOW = '\x1b[38;2;255;255;255m';
+const RESET_COLOR = '\x1b[39m';
+const BOLD_ON = '\x1b[1m';
+const BOLD_OFF = '\x1b[22m';
+
+const DIM_ON = '\x1b[2m';
+const DIM_OFF = '\x1b[22m';
+
+// ---------------------------------------------------------------------------
+// Illuminate per-target effect configs
+// ---------------------------------------------------------------------------
+
+interface IlluminateConfig {
+	color: string;
+	duration: number;
+	spread: number;
+	glowIntensity: 'high' | 'medium' | 'low' | 'variable';
+}
+
+const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
+	aimLabel: { color: CYAN_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
+	actLabel: { color: PURPLE_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
+	msgLabel: { color: CYAN_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
+	msgContent: { color: 'dynamic', duration: 850, spread: 1.5, glowIntensity: 'variable' },
+	tps: { color: GOLD_GLOW, duration: 120, spread: 0.5, glowIntensity: 'medium' },
+};
 
 // ---------------------------------------------------------------------------
 // Timing constants
@@ -37,7 +96,7 @@ const SCRAMBLE_CHARS = '!<>-_\\/[]{}-=+*^?#________';
 const RIPPLE_DUR_DEFAULT = 666;
 const RIPPLE_SPREAD_DEFAULT = 1;
 const MIN_RIPPLE_INTERVAL = 250;
-const DEPTH_BAND_MAX = 3;
+const DEPTH_BAND_MAX = 4;
 const TPS_FLASH_DUR = 150;
 const TPS_FLASH_SPREAD = 0.5;
 const CASCADE_FRAME_MS = 16;
@@ -46,22 +105,32 @@ const CASCADE_MAX_LENGTH = 40;
 const CASCADE_FLASH_MAX_START = 5;
 const CASCADE_FLASH_MAX_LENGTH = 8;
 
+// Illuminate phrase buffering
+const MAX_PHRASE_BUFFER_TIME = 500;
+const MIN_PHRASE_LENGTH = 15;
+
+// TPS hysteresis
+const TPS_HYSTERESIS_PCT = 0.15;
+const TPS_HYSTERESIS_MS = 2000;
+
 // Stream mode constants
 const STREAM_SPEED_MSG = 35;       // ms per char for msg: (~29 chars/sec)
 const STREAM_SPEED_ACT = 25;       // ms per char for act: (~40 chars/sec)
 const STREAM_SCRAMBLE_WIDTH = 5;   // scramble chars at cursor position
 const STREAM_RERANDOMIZE_RATE = 0.28; // 28% chance to re-randomize (CodePen style)
 
-const DIM_ON = '\x1b[2m';
-const DIM_OFF = '\x1b[22m';
-
 // ---------------------------------------------------------------------------
 // Mode type
 // ---------------------------------------------------------------------------
 
-export type ScrambleMode = 'stream' | 'cascade' | 'ripple';
+export type ScrambleMode = 'stream' | 'cascade' | 'ripple' | 'illuminate';
 
-export const DEFAULT_MODE: ScrambleMode = 'ripple';
+export { selectScrambleChar };
+export { ILLUMINATE_CONFIGS };
+export type { IlluminateConfig };
+export { CYAN_GLOW, PURPLE_GLOW, PINK_GLOW, GOLD_GLOW, WHITE_GLOW, BOLD_ON, BOLD_OFF, RESET_COLOR };
+
+export const DEFAULT_MODE: ScrambleMode = 'illuminate';
 
 // ---------------------------------------------------------------------------
 // Types — shared
@@ -90,6 +159,48 @@ interface LineState {
 	lastAnimTime: number;
 	initialized: boolean;
 	completed: boolean;
+	// Illuminate phrase buffering (msg: only)
+	phraseBuffer: string;
+	displayedText: string;
+	lastFlushTime: number;
+}
+
+/** Phrase boundary detection for illuminate msg: streaming */
+function findPhraseBoundary(text: string, minLen: number = MIN_PHRASE_LENGTH): number {
+	// Sentence boundaries — flush regardless of length
+	const sentenceBoundaries = ['. ', '! ', '? ', '\n'];
+	for (const b of sentenceBoundaries) {
+		const idx = text.lastIndexOf(b);
+		if (idx >= 0) return idx + b.length;
+	}
+	// Other boundaries require min length
+	if (text.length < minLen) return -1;
+	const otherBoundaries = ['— ', '– '];
+	for (const b of otherBoundaries) {
+		const idx = text.lastIndexOf(b);
+		if (idx >= 0) return idx + b.length;
+	}
+	// Fallback: word boundary (space)
+	const spaceIdx = text.indexOf(' ', minLen);
+	if (spaceIdx >= 0) return spaceIdx + 1;
+	return -1;
+}
+
+function shouldFlushPhrase(text: string, displayed: string, lastFlushTime: number, now: number): boolean {
+	if (text === displayed) return false;
+	// If text is completely different (not incremental), flush immediately
+	if (!text.startsWith(displayed) && !displayed.startsWith(text)) return true;
+	// Check buffer timeout
+	if (now - lastFlushTime > MAX_PHRASE_BUFFER_TIME) return true;
+	// Find new content added since displayed
+	let newContent = '';
+	if (text.startsWith(displayed)) {
+		newContent = text.slice(displayed.length);
+	} else {
+		newContent = text;
+	}
+	const boundaryPos = findPhraseBoundary(newContent);
+	return boundaryPos >= 0;
 }
 
 type LineKey = 'aim' | 'act' | 'msg';
@@ -261,20 +372,50 @@ function isCascadeComplete(queue: QueueItem[], frame: number): boolean {
 // Pure algorithm: RIPPLE (Hermes radial wave)
 // ---------------------------------------------------------------------------
 
-export function applyRipples(text: string, ripples: Ripple[], now: number): string {
+/** Build the ANSI prefix for a scramble char based on illuminate config */
+function illuminatePrefix(depth: number, elapsed: number, dur: number, config: IlluminateConfig): string {
+	if (config.color === 'dynamic') {
+		const progress = elapsed / dur;
+		if (depth >= 3 && progress < 0.3) return BOLD_ON + WHITE_GLOW;
+		if (depth >= 2 && progress < 0.5) return WHITE_GLOW;
+		if (depth >= 1 && progress < 0.7) return CYAN_GLOW;
+		return DIM_ON + CYAN_GLOW;
+	}
+	const base = config.color;
+	if (config.glowIntensity === 'high') return BOLD_ON + base;
+	if (config.glowIntensity === 'medium') return base;
+	return DIM_ON + base;
+}
+
+export function applyRipples(
+	text: string,
+	ripples: Ripple[],
+	now: number,
+	config?: IlluminateConfig,
+): string {
 	if (!ripples.length) return text;
 	const len = text.length;
 	if (len === 0) return text;
 	const active = ripples.filter((r) => now - r.time < r.dur);
 	if (!active.length) return text;
 	let result = '';
+	let inColor = false;
+	let currentPrefix = '';
 	for (let idx = 0; idx < len; idx++) {
 		const origChar = text[idx];
 		if (origChar === ' ') {
+			if (inColor) {
+				result += BOLD_OFF + RESET_COLOR + DIM_OFF;
+				inColor = false;
+				currentPrefix = '';
+			}
 			result += origChar;
 			continue;
 		}
 		let scrambled = false;
+		let scrambleDepth = 0;
+		let scrambleElapsed = 0;
+		let scrambleDist = 0;
 		for (const ripple of active) {
 			const elapsed = now - ripple.time;
 			if (elapsed < 0) continue;
@@ -283,27 +424,65 @@ export function applyRipples(text: string, ripples: Ripple[], now: number): stri
 			const dist = Math.abs(idx - ripple.pos);
 			const depth = radius - dist;
 			if (dist <= radius && depth > 0 && depth <= DEPTH_BAND_MAX) {
-				const charIdx = (3 * dist + Math.floor(elapsed / 40)) % SCRAMBLE_CHARS.length;
-				const char = SCRAMBLE_CHARS[charIdx < 0 ? charIdx + SCRAMBLE_CHARS.length : charIdx];
-				result += `${DIM_ON}${char}${DIM_OFF}`;
+				scrambleDepth = depth;
+				scrambleElapsed = elapsed;
+				scrambleDist = dist;
 				scrambled = true;
 				break;
 			}
 		}
-		if (!scrambled) result += origChar;
+		if (scrambled) {
+			const char = selectScrambleChar(scrambleDepth, scrambleDist, scrambleElapsed);
+			if (config) {
+				const prefix = illuminatePrefix(scrambleDepth, scrambleElapsed, active[0].dur, config);
+				if (!inColor || currentPrefix !== prefix) {
+					if (inColor) result += BOLD_OFF + RESET_COLOR + DIM_OFF;
+					result += prefix;
+					inColor = true;
+					currentPrefix = prefix;
+				}
+				result += char;
+			} else {
+				if (!inColor) {
+					result += DIM_ON;
+					inColor = true;
+					currentPrefix = DIM_ON;
+				}
+				result += char;
+			}
+		} else {
+			if (inColor) {
+				result += BOLD_OFF + RESET_COLOR + DIM_OFF;
+				inColor = false;
+				currentPrefix = '';
+			}
+			result += origChar;
+		}
+	}
+	if (inColor) {
+		result += BOLD_OFF + RESET_COLOR + DIM_OFF;
 	}
 	return result;
 }
 
-function spawnRipple(pos: number, now: number, dur: number = RIPPLE_DUR_DEFAULT, spread: number = RIPPLE_SPREAD_DEFAULT): Ripple {
+function spawnRipple(
+	pos: number,
+	now: number,
+	dur: number = RIPPLE_DUR_DEFAULT,
+	spread: number = RIPPLE_SPREAD_DEFAULT,
+): Ripple {
 	return { pos, time: now, dur, spread };
 }
 
+function spawnIlluminateRipple(pos: number, now: number, config: IlluminateConfig): Ripple {
+	return { pos, time: now, dur: config.duration, spread: config.spread };
+}
+
 // ---------------------------------------------------------------------------
-// Unified apply function (cascade/ripple)
+// Unified apply function (cascade/ripple/illuminate)
 // ---------------------------------------------------------------------------
 
-function applyScramble(text: string, state: LineState, now: number, mode: ScrambleMode): string {
+function applyScramble(text: string, state: LineState, now: number, mode: ScrambleMode, lineKey?: LineKey): string {
 	if (mode === 'cascade') {
 		if (!state.queue.length) return text;
 		const frame = Math.floor((now - state.startTime) / CASCADE_FRAME_MS);
@@ -312,6 +491,14 @@ function applyScramble(text: string, state: LineState, now: number, mode: Scramb
 			return text;
 		}
 		return computeCascadeFrame(state.queue, frame);
+	} else if (mode === 'illuminate') {
+		const displayText = state.displayedText || text;
+		const config = lineKey === 'msg'
+			? ILLUMINATE_CONFIGS.msgContent
+			: lineKey === 'act'
+				? ILLUMINATE_CONFIGS.actLabel
+				: undefined;
+		return applyRipples(displayText, state.ripples, now, config);
 	} else {
 		return applyRipples(text, state.ripples, now);
 	}
@@ -326,8 +513,61 @@ function processLine(
 	newText: string,
 	now: number,
 	mode: ScrambleMode,
+	lineKey?: LineKey,
 ): void {
 	if (state.completed) return;
+	
+	// Illuminate mode: phrase buffering for msg:
+	if (mode === 'illuminate') {
+		if (!state.initialized) {
+			state.lastText = newText;
+			state.displayedText = newText;
+			state.lastFlushTime = now;
+			state.initialized = true;
+			return;
+		}
+		if (state.lastText === newText) {
+			// Clean expired ripples even when text hasn't changed
+			state.ripples = state.ripples.filter((r) => now - r.time < r.dur);
+			return;
+		}
+		const cooledDown = now - state.lastAnimTime > MIN_RIPPLE_INTERVAL;
+		if (!cooledDown) {
+			state.lastText = newText;
+			state.ripples = state.ripples.filter((r) => now - r.time < r.dur);
+			return;
+		}
+		// Phrase buffering: only flush at boundaries or timeout
+		if (lineKey === 'msg') {
+			if (shouldFlushPhrase(newText, state.displayedText, state.lastFlushTime, now)) {
+				state.displayedText = newText;
+				state.lastText = newText;
+				state.lastFlushTime = now;
+				state.lastAnimTime = now;
+				const center = Math.floor(newText.length / 2);
+				state.ripples.push(spawnIlluminateRipple(center, now, ILLUMINATE_CONFIGS.msgContent));
+			} else {
+				// Text changed but no flush yet — update lastText for tracking
+				state.lastText = newText;
+			}
+		} else {
+			// act: and aim: — immediate update with config
+			state.displayedText = newText;
+			state.lastText = newText;
+			state.lastFlushTime = now;
+			state.lastAnimTime = now;
+			const config = lineKey === 'act' ? ILLUMINATE_CONFIGS.actLabel : undefined;
+			if (config) {
+				state.ripples.push(spawnIlluminateRipple(Math.floor(newText.length / 2), now, config));
+			} else {
+				state.ripples.push(spawnRipple(Math.floor(newText.length / 2), now));
+			}
+		}
+		state.ripples = state.ripples.filter((r) => now - r.time < r.dur);
+		return;
+	}
+	
+	// Standard modes (stream/cascade/ripple)
 	const textChanged = state.lastText !== newText;
 	if (!state.initialized) {
 		state.lastText = newText;
@@ -366,6 +606,9 @@ function createLineState(): LineState {
 		lastAnimTime: 0,
 		initialized: false,
 		completed: false,
+		phraseBuffer: '',
+		displayedText: '',
+		lastFlushTime: 0,
 	};
 }
 
@@ -453,8 +696,8 @@ export class ScrambleStateManager {
 			state.ripples = [];
 		}
 		if (state.completed) return { label: 'act:', content: text, isAnimating: false };
-		processLine(state, text, now, this.mode);
-		const content = applyScramble(text, state, now, this.mode);
+		processLine(state, text, now, this.mode, 'act');
+		const content = applyScramble(text, state, now, this.mode, 'act');
 		const isAnimating = this.isLineAnimating(state, now);
 		return { label: 'act:', content, isAnimating };
 	}
@@ -471,8 +714,8 @@ export class ScrambleStateManager {
 			state.ripples = [];
 		}
 		if (state.completed) return { label: 'msg:', content: text, isAnimating: false };
-		processLine(state, text, now, this.mode);
-		const content = applyScramble(text, state, now, this.mode);
+		processLine(state, text, now, this.mode, 'msg');
+		const content = applyScramble(text, state, now, this.mode, 'msg');
 		const isAnimating = this.isLineAnimating(state, now);
 		return { label: 'msg:', content, isAnimating };
 	}
@@ -643,11 +886,27 @@ export class ScrambleStateManager {
 		}
 		if (state.completed) return tpsText;
 		if (state.prev !== tpsText) {
-			if (this.mode === 'cascade') {
-				state.queue = buildQueue(state.prev, tpsText, CASCADE_FLASH_MAX_START, CASCADE_FLASH_MAX_LENGTH);
-				state.startTime = now;
-			} else {
-				state.ripple = spawnRipple(Math.floor(tpsText.length / 2), now, TPS_FLASH_DUR, TPS_FLASH_SPREAD);
+			// Hysteresis: only flash on significant change or after settle time
+			let shouldFlash = true;
+			if (this.mode === 'illuminate') {
+				const prevVal = parseFloat(state.prev);
+				const newVal = parseFloat(tpsText);
+				if (!isNaN(prevVal) && !isNaN(newVal) && prevVal !== 0) {
+					const deltaPct = Math.abs(newVal - prevVal) / prevVal;
+					const timeSinceLast = now - (state.startTime || 0);
+					shouldFlash = deltaPct > TPS_HYSTERESIS_PCT || timeSinceLast > TPS_HYSTERESIS_MS;
+				}
+			}
+			if (shouldFlash) {
+				if (this.mode === 'cascade') {
+					state.queue = buildQueue(state.prev, tpsText, CASCADE_FLASH_MAX_START, CASCADE_FLASH_MAX_LENGTH);
+					state.startTime = now;
+				} else if (this.mode === 'illuminate') {
+					state.ripple = spawnIlluminateRipple(Math.floor(tpsText.length / 2), now, ILLUMINATE_CONFIGS.tps);
+					state.startTime = now;
+				} else {
+					state.ripple = spawnRipple(Math.floor(tpsText.length / 2), now, TPS_FLASH_DUR, TPS_FLASH_SPREAD);
+				}
 			}
 			state.prev = tpsText;
 		}
@@ -660,6 +919,12 @@ export class ScrambleStateManager {
 				}
 				return computeCascadeFrame(state.queue, frame);
 			}
+			return tpsText;
+		} else if (this.mode === 'illuminate') {
+			if (state.ripple && now - state.ripple.time < state.ripple.dur) {
+				return applyRipples(tpsText, [state.ripple], now, ILLUMINATE_CONFIGS.tps);
+			}
+			state.ripple = null;
 			return tpsText;
 		} else {
 			if (state.ripple && now - state.ripple.time < state.ripple.dur) {
@@ -701,7 +966,7 @@ export class ScrambleStateManager {
 			}
 			return false;
 		}
-		// Cascade/ripple
+		// Cascade/ripple/illuminate
 		const record = this.cache.get(id);
 		if (!record) return false;
 		for (const key of ['aim', 'act', 'msg'] as LineKey[]) {
@@ -719,7 +984,7 @@ export class ScrambleStateManager {
 			}
 			return false;
 		}
-		// Cascade/ripple
+		// Cascade/ripple/illuminate
 		for (const record of this.cache.values()) {
 			for (const key of ['aim', 'act', 'msg'] as LineKey[]) {
 				if (this.isLineAnimating(record[key], now)) return true;
@@ -752,6 +1017,9 @@ export class ScrambleStateManager {
 				record[key].completed = true;
 				record[key].queue = [];
 				record[key].ripples = [];
+				record[key].phraseBuffer = '';
+				record[key].displayedText = '';
+				record[key].lastFlushTime = 0;
 			}
 		}
 		const tpsState = this.tpsState.get(id);

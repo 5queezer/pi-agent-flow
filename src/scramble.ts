@@ -734,6 +734,63 @@ function randomizedCenter(length: number, jitterRatio = 0.2, rng?: FastRNG): num
 	return base + offset;
 }
 
+/**
+ * Find sentence-start character positions in text.
+ * Returns positions of the first non-space character after sentence
+ * delimiters (. ! ? ... \n) plus position 0. If fewer than 2
+ * positions are found, falls back to positions at ~30-char intervals.
+ */
+export function findSentenceStarts(text: string): number[] {
+	const starts: number[] = [];
+	if (text.length === 0) return starts;
+	starts.push(0);
+
+	const delimiters = ['. ', '! ', '? ', '... ', '\n'];
+	let i = 0;
+	while (i < text.length) {
+		let found = false;
+		for (const d of delimiters) {
+			if (text.slice(i, i + d.length) === d) {
+				let pos = i + d.length;
+				while (pos < text.length && text[pos] === ' ') pos++;
+				if (pos < text.length && pos !== starts[starts.length - 1]) {
+					starts.push(pos);
+				}
+				i = pos;
+				found = true;
+				break;
+			}
+		}
+		if (!found) i++;
+	}
+
+	// Fallback: if too few sentence starts, add positions at ~30-char intervals
+	if (starts.length < 2 && text.length > 30) {
+		const stride = Math.max(30, Math.floor(text.length / 3));
+		let pos = stride;
+		while (pos < text.length) {
+			while (pos < text.length && text[pos] === ' ') pos++;
+			if (pos < text.length && !starts.includes(pos)) {
+				starts.push(pos);
+			}
+			pos += stride;
+		}
+	}
+
+	return starts;
+}
+
+/**
+ * Pick a random sentence-start position. Falls back to `randomizedCenter`
+ * when the text has no sentence boundaries.
+ */
+export function randomSentenceStart(text: string, rng?: FastRNG): number {
+	const starts = findSentenceStarts(text);
+	if (starts.length === 0) return randomizedCenter(text.length);
+	const idx = rng ? rng.nextInt(starts.length) : Math.floor(Math.random() * starts.length);
+	return starts[idx];
+}
+
 // ---------------------------------------------------------------------------
 // Unified apply function (cascade/ripple/illuminate)
 // ---------------------------------------------------------------------------
@@ -1342,15 +1399,17 @@ export class ScrambleStateManager {
 				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
 					state.lastAnimTime = now;
 					if (this.mode === 'cascade') {
-						state.queue = buildQueue('', visibleText);
-						state.startTime = now;
-						state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+						if (!this.isLineAnimating(state, now)) {
+							state.queue = buildQueue('', visibleText);
+							state.startTime = now;
+							state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+						}
 					} else if (this.mode === 'illuminate') {
-						state.ripples = [];
-						state.ripples.push(spawnIlluminateRipple(randomizedCenter(visibleText.length), now, ILLUMINATE_CONFIGS.msgContent));
+						state.ripples = state.ripples.filter(r => now - r.time < r.dur);
+						state.ripples.push(spawnIlluminateRipple(randomSentenceStart(visibleText), now, ILLUMINATE_CONFIGS.msgContent));
 					} else {
-						state.ripples = [];
-						state.ripples.push(spawnRipple(randomizedCenter(visibleText.length), now));
+						state.ripples = state.ripples.filter(r => now - r.time < r.dur);
+						state.ripples.push(spawnRipple(randomSentenceStart(visibleText), now));
 					}
 				}
 			} else if (!this.isLineAnimating(state, now)) {

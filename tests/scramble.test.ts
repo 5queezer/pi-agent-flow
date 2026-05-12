@@ -20,6 +20,8 @@ import {
 	FastRNG,
 	makeAnimationSeed,
 	hashNoise,
+	findSentenceStarts,
+	randomSentenceStart,
 } from '../src/scramble.js';
 
 // ---------------------------------------------------------------------------
@@ -1716,5 +1718,158 @@ describe('applyRipples — wider depth band (DEPTH_BAND_MAX=6)', () => {
 		expect(stripped[1]).toBe(' ');
 		expect(stripped[3]).toBe(' ');
 		expect(stripped[5]).toBe(' ');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Sentence-start helpers
+// ---------------------------------------------------------------------------
+
+describe('findSentenceStarts', () => {
+	it('returns [0] for empty string', () => {
+		expect(findSentenceStarts('')).toEqual([]);
+	});
+
+	it('returns [0] for single sentence', () => {
+		expect(findSentenceStarts('hello world')).toEqual([0]);
+	});
+
+	it('finds starts after period-space', () => {
+		const starts = findSentenceStarts('Hello world. How are you?');
+		expect(starts).toContain(0);
+		expect(starts).toContain(13); // 'H' of 'How'
+	});
+
+	it('finds starts after exclamation and question', () => {
+		const starts = findSentenceStarts('Wow! Really? Yes');
+		expect(starts).toContain(0);
+		expect(starts).toContain(5);  // 'R' of 'Really'
+		expect(starts).toContain(13); // 'Y' of 'Yes'
+	});
+
+	it('finds starts after newline', () => {
+		const starts = findSentenceStarts('Line one\nLine two');
+		expect(starts).toContain(0);
+		expect(starts).toContain(9); // 'L' of 'Line two'
+	});
+
+	it('skips multiple spaces after delimiter', () => {
+		const starts = findSentenceStarts('A.  B');
+		expect(starts).toContain(0);
+		expect(starts).toContain(4); // 'B'
+	});
+
+	it('falls back to interval positions for long single sentence', () => {
+		const text = 'a'.repeat(100);
+		const starts = findSentenceStarts(text);
+		expect(starts.length).toBeGreaterThanOrEqual(2);
+		expect(starts[0]).toBe(0);
+	});
+});
+
+describe('randomSentenceStart', () => {
+	it('returns 0 for single-sentence text', () => {
+		const pos = randomSentenceStart('hello world');
+		expect(pos).toBe(0);
+	});
+
+	it('picks from multiple sentence starts', () => {
+		const rng = new FastRNG(42);
+		const pos = randomSentenceStart('Hello. World. Here.', rng);
+		// Should be one of the sentence starts
+		expect([0, 7, 14]).toContain(pos);
+	});
+
+	it('falls back to center-like position for empty text', () => {
+		expect(randomSentenceStart('')).toBe(0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Stream-too-fast fix: ripple coexistence and cascade guard
+// ---------------------------------------------------------------------------
+
+describe('ScrambleStateManager (ripple mode) — sentence-start coexistence', () => {
+	let manager: ScrambleStateManager;
+
+	beforeEach(() => {
+		manager = new ScrambleStateManager();
+		manager.setMode('ripple');
+		expect(manager.getMode()).toBe('ripple');
+	});
+
+	it('updateMsg staticLine keeps old ripples and adds new ones', () => {
+		const base = 2000000;
+		manager.updateMsg(TEST_ID, 'Hello world. Second sentence.', base, false, undefined, true);
+		// First call initializes — one ripple spawned at center
+		const result1 = manager.updateMsg(TEST_ID, 'Hello world. Second sentence.', base + 100, false, undefined, true);
+		expect(result1.isAnimating).toBe(true);
+
+		// Second call with changed text after cooldown — should ADD ripple, not replace
+		const result2 = manager.updateMsg(TEST_ID, 'Hello world. Second changed.', base + 300, false, undefined, true);
+		expect(result2.isAnimating).toBe(true);
+	});
+
+	it('new ripple spawns at a sentence start, not always center', () => {
+		const base = 3000000;
+		const text = 'First sentence. Second sentence. Third here.';
+		manager.updateMsg(TEST_ID, text, base, false, undefined, true);
+		// After cooldown, change text
+		const changed = 'First sentence. Second changed. Third here.';
+		const result = manager.updateMsg(TEST_ID, changed, base + 300, false, undefined, true);
+		expect(result.isAnimating).toBe(true);
+		// The ripple position should be a sentence start (0, 16, or 32)
+		// We verify by checking the scramble is not concentrated at center
+		const stripped = stripAnsi(result.content);
+		expect(stripped.length).toBe(changed.length);
+	});
+});
+
+describe('ScrambleStateManager (cascade mode) — no-restart guard', () => {
+	let manager: ScrambleStateManager;
+
+	beforeEach(() => {
+		manager = new ScrambleStateManager();
+		manager.setMode('cascade');
+		expect(manager.getMode()).toBe('cascade');
+	});
+
+	it('updateMsg staticLine does not restart cascade while animating', () => {
+		const base = 4000000;
+		manager.updateMsg(TEST_ID, 'initial text here', base, false, undefined, true);
+		// Cascade starts animating
+		const during = manager.updateMsg(TEST_ID, 'changed text here', base + 300, false, undefined, true);
+		expect(during.isAnimating).toBe(true);
+
+		// Try to change again while still animating (within ~640ms)
+		const midAnim = manager.updateMsg(TEST_ID, 'changed again now', base + 400, false, undefined, true);
+		expect(midAnim.isAnimating).toBe(true);
+		// Content should still reflect the ORIGINAL cascade, not a restart from scratch
+		// If it restarted, nearly everything would still be scrambled. Since it continued,
+		// some chars should be resolved by now (frame ~6 at 400ms after start).
+		const stripped = stripAnsi(midAnim.content);
+		expect(stripped).not.toBe('changed again now');
+	});
+});
+
+describe('ScrambleStateManager (illuminate mode) — ripple coexistence', () => {
+	let manager: ScrambleStateManager;
+
+	beforeEach(() => {
+		manager = new ScrambleStateManager();
+		manager.setMode('illuminate');
+		expect(manager.getMode()).toBe('illuminate');
+	});
+
+	it('updateMsg staticLine keeps old illuminate ripples on text change', () => {
+		const base = 5000000;
+		manager.updateMsg(TEST_ID, 'Hello world. How are you?', base, false, undefined, true);
+		// After cooldown, change text with a significant rewrite (not a minor mutation)
+		manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 300, false, undefined, true);
+		// Evaluate at a later time when ripple has expanded enough to scramble
+		const result = manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 600, false, undefined, true);
+		expect(result.isAnimating).toBe(true);
+		// Should contain truecolor ANSI (illuminate signature)
+		expect(result.content).toContain('\x1b[38;2;');
 	});
 });

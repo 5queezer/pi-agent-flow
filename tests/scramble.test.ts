@@ -815,7 +815,7 @@ describe('ScrambleStateManager mode switching', () => {
 
 describe('selectScrambleChar', () => {
 	it('returns deep glitch chars for depth 1–2', () => {
-		const deepChars = '><+*·-~!#$%^&=@?';
+		const deepChars = '><+*·-~!#$%^&=@?⠐⠠⠰⡀⣀⣤⣶⣷';
 		for (let d = 1; d <= 2; d++) {
 			const c = selectScrambleChar(d, 0, 0);
 			expect(deepChars).toContain(c);
@@ -823,13 +823,13 @@ describe('selectScrambleChar', () => {
 	});
 
 	it('returns mid glitch chars for depth 3', () => {
-		const midChars = 'abcdefghijklmnopqrstuvwxyz';
+		const midChars = 'abcdefghijklmnopqrstuvwxyz╔╗╚╝║═╠╣╦╩╬◇◈△▽○●◎';
 		const c = selectScrambleChar(3, 0, 0);
 		expect(midChars).toContain(c);
 	});
 
 	it('returns shallow glitch chars for depth 4+', () => {
-		const shallowChars = '0123456789\\/[]{}|';
+		const shallowChars = '0123456789\\/[]{}|░▒▓┌┐└┘├┤┬┴┼';
 		for (let d = 4; d <= 6; d++) {
 			const c = selectScrambleChar(d, 0, 0);
 			expect(shallowChars).toContain(c);
@@ -1462,7 +1462,7 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 		expect(manager.hasAnyActiveAnimations(base + 55)).toBe(true); // first flash active
 		const second = manager.updateTps('id-1', '43.0', base + 300, false, true);
 		expect(second).toBe('43.0'); // no re-flash
-		expect(manager.hasAnyActiveAnimations(base + 310)).toBe(false);
+		expect(manager.hasAnyActiveAnimations(base + 400)).toBe(false); // accounts for afterglow window
 	});
 
 	it('updateTps non-staticLine flashes on significant value change', () => {
@@ -1658,15 +1658,15 @@ describe('selectScrambleChar with seed', () => {
 
 describe('selectScrambleChar — smooth glitch blending', () => {
 	it('returns deep glitch chars at shallow depth (1.0)', () => {
-		const deepChars = '><+*·-~!#$%^&=@?';
+		const deepChars = '><+*·-~!#$%^&=@?⠐⠠⠰⡀⣀⣤⣶⣷';
 		const c = selectScrambleChar(1, 0, 0, 12345);
 		expect(deepChars).toContain(c);
 	});
 
 	it('returns mid or shallow glitch chars at blend depth (3.0)', () => {
 		// At depth 3.0 we are in the mid→shallow blend zone [2.5, 3.5]
-		const midChars = 'abcdefghijklmnopqrstuvwxyz';
-		const shallowChars = '0123456789\\/[]{}|';
+		const midChars = 'abcdefghijklmnopqrstuvwxyz╔╗╚╝║═╠╣╦╩╬◇◈△▽○●◎';
+		const shallowChars = '0123456789\\/[]{}|░▒▓┌┐└┘├┤┬┴┼';
 		const c = selectScrambleChar(3, 0, 0, 12345);
 		const isMid = midChars.includes(c);
 		const isShallow = shallowChars.includes(c);
@@ -1686,8 +1686,8 @@ describe('selectScrambleChar — smooth glitch blending', () => {
 		for (let seed = 0; seed < 50; seed++) {
 			results.add(selectScrambleChar(2, seed, 0, seed));
 		}
-		const deepChars = '><+*·-~!#$%^&=@?';
-		const midChars = 'abcdefghijklmnopqrstuvwxyz';
+		const deepChars = '><+*·-~!#$%^&=@?⠐⠠⠰⡀⣀⣤⣶⣷';
+		const midChars = 'abcdefghijklmnopqrstuvwxyz╔╗╚╝║═╠╣╦╩╬◇◈△▽○●◎';
 		let deepCount = 0;
 		let midCount = 0;
 		for (const c of results) {
@@ -1703,8 +1703,8 @@ describe('selectScrambleChar — smooth glitch blending', () => {
 		for (let seed = 0; seed < 50; seed++) {
 			results.add(selectScrambleChar(3, seed, 0, seed));
 		}
-		const midChars = 'abcdefghijklmnopqrstuvwxyz';
-		const shallowChars = '0123456789\\/[]{}|';
+		const midChars = 'abcdefghijklmnopqrstuvwxyz╔╗╚╝║═╠╣╦╩╬◇◈△▽○●◎';
+		const shallowChars = '0123456789\\/[]{}|░▒▓┌┐└┘├┤┬┴┼';
 		let midCount = 0;
 		let shallowCount = 0;
 		for (const c of results) {

@@ -161,7 +161,7 @@ const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
 	aimLabel: { color: CYAN_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
 	actLabel: { color: PURPLE_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
 	msgLabel: { color: MINT_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
-	msgContent: { color: 'dynamic', duration: 1200, spread: 0.5, glowIntensity: 'variable', initialTimeOffset: 50 },
+	msgContent: { color: 'dynamic', duration: 1200, spread: 0.8, glowIntensity: 'variable', initialTimeOffset: 50 },
 	tps: { color: ORANGE_GLOW, duration: 120, spread: 0.5, glowIntensity: 'medium' },
 };
 
@@ -175,8 +175,8 @@ const MIN_RIPPLE_INTERVAL = 1300;
 const DEPTH_BAND_MAX = 10;
 const TPS_FLASH_DUR = 150;
 const TPS_FLASH_SPREAD = 0.5;
-const AFTERGLOW_MS = 150;
-const PULSE_WINDOW_MS = 3000;
+const AFTERGLOW_MS = 350;
+const PULSE_WINDOW_MS = 4500;
 const PULSE_CYCLE_MS = 2500;
 const CASCADE_FRAME_MS = 16;
 const CASCADE_MAX_START = 40;
@@ -194,8 +194,8 @@ const MIN_PHRASE_LENGTH = 60;
 const MSG_CHUNK_DRAIN_MS = 350;
 
 // TPS hysteresis
-const SECONDARY_RIPPLE_DELAY_MS = 180;
-const SECONDARY_RIPPLE_STRENGTH = 0.5;
+const SECONDARY_RIPPLE_DELAY_MS = 120;
+const SECONDARY_RIPPLE_STRENGTH = 0.65;
 
 // TPS hysteresis
 const TPS_HYSTERESIS_PCT = 0.15;
@@ -214,8 +214,8 @@ const STREAM_RERANDOMIZE_RATE = 0.28; // 28% chance to re-randomize (CodePen sty
 
 /** Ease-out cubic: organic deceleration for ripple expansion.
  *  Blended 80% linear + 20% ease-out to keep scramble band intact on short texts. */
-function easeOutQuart(t: number): number {
-	return 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+function easeOutCubic(t: number): number {
+	return 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 }
 
 /** Smoothstep interpolation for smooth color band transitions */
@@ -526,8 +526,8 @@ export function buildQueue(
 		const baseStart = easeOutQuad(t) * maxStart * 0.55;
 		const jitter = useRng.next() * maxStart * 0.45;
 		const start = Math.floor(baseStart + jitter);
-		// Asymmetric end: late chars resolve more slowly using easeOutQuart
-		const endEase = easeOutQuart(1 - t);
+		// Asymmetric end: late chars resolve more slowly using easeOutCubic
+		const endEase = easeOutCubic(1 - t);
 		const end = start + Math.floor((0.5 + 0.5 * endEase) * useRng.next() * maxLength);
 		queue.push({ from, to, start, end });
 	}
@@ -585,55 +585,76 @@ function illuminatePrefix(depth: number, elapsed: number, dur: number, config: I
 		// heat = how deep in the ripple (0..1), life = how early in animation (1..0)
 		const heat = Math.min(1, depth / DEPTH_BAND_MAX);
 		const life = 1 - progress;
-		const intensity = heat * life;
+		const intensity = heat * life * (1 - 0.25 * heat);
 
-		// 8-zone continuous truecolor gradient: cyan → mint → purple → orange → white
+		// 12-zone continuous truecolor gradient: cyan → mint → purple → orange → white
+		// with interpolated sub-zones for liquid, band-free transitions
 		let r: number, g: number, b: number;
-		if (intensity < 0.15) {
-			const t = smoothstep(0, 0.15, intensity);
-			r = lerp(0, 100, t);
-			g = lerp(230, 255, t);
-			b = lerp(220, 180, t);
-		} else if (intensity < 0.30) {
-			const t = smoothstep(0.15, 0.30, intensity);
-			r = lerp(100, 170, t);
-			g = lerp(255, 80, t);
-			b = lerp(180, 255, t);
-		} else if (intensity < 0.45) {
-			const t = smoothstep(0.30, 0.45, intensity);
-			r = lerp(170, 255, t);
-			g = lerp(80, 160, t);
-			b = lerp(255, 40, t);
-		} else if (intensity < 0.58) {
-			const t = smoothstep(0.45, 0.58, intensity);
+		if (intensity < 0.10) {
+			const t = smoothstep(0, 0.10, intensity);
+			r = lerp(0, 60, t);
+			g = lerp(230, 245, t);
+			b = lerp(220, 200, t);
+		} else if (intensity < 0.20) {
+			const t = smoothstep(0.10, 0.20, intensity);
+			r = lerp(60, 100, t);
+			g = lerp(245, 255, t);
+			b = lerp(200, 180, t);
+		} else if (intensity < 0.28) {
+			const t = smoothstep(0.20, 0.28, intensity);
+			r = lerp(100, 140, t);
+			g = lerp(255, 180, t);
+			b = lerp(180, 220, t);
+		} else if (intensity < 0.36) {
+			const t = smoothstep(0.28, 0.36, intensity);
+			r = lerp(140, 170, t);
+			g = lerp(180, 80, t);
+			b = lerp(220, 255, t);
+		} else if (intensity < 0.44) {
+			const t = smoothstep(0.36, 0.44, intensity);
+			r = lerp(170, 215, t);
+			g = lerp(80, 130, t);
+			b = lerp(255, 150, t);
+		} else if (intensity < 0.52) {
+			const t = smoothstep(0.44, 0.52, intensity);
+			r = lerp(215, 255, t);
+			g = lerp(130, 160, t);
+			b = lerp(150, 40, t);
+		} else if (intensity < 0.60) {
+			const t = smoothstep(0.52, 0.60, intensity);
 			r = lerp(255, 255, t);
 			g = lerp(160, 230, t);
 			b = lerp(40, 180, t);
 		} else if (intensity < 0.70) {
-			const t = smoothstep(0.58, 0.70, intensity);
+			const t = smoothstep(0.60, 0.70, intensity);
 			r = lerp(255, 180, t);
 			g = lerp(230, 255, t);
 			b = lerp(180, 240, t);
-		} else if (intensity < 0.82) {
-			const t = smoothstep(0.70, 0.82, intensity);
+		} else if (intensity < 0.78) {
+			const t = smoothstep(0.70, 0.78, intensity);
 			r = lerp(180, 240, t);
 			g = 255;
 			b = lerp(240, 250, t);
-		} else if (intensity < 0.93) {
-			const t = smoothstep(0.82, 0.93, intensity);
+		} else if (intensity < 0.86) {
+			const t = smoothstep(0.78, 0.86, intensity);
 			r = lerp(240, 250, t);
 			g = 255;
 			b = lerp(250, 252, t);
-		} else {
-			const t = smoothstep(0.93, 1.0, intensity);
-			r = lerp(250, 255, t);
+		} else if (intensity < 0.94) {
+			const t = smoothstep(0.86, 0.94, intensity);
+			r = lerp(250, 252, t);
 			g = 255;
-			b = lerp(252, 255, t);
+			b = lerp(252, 254, t);
+		} else {
+			const t = smoothstep(0.94, 1.0, intensity);
+			r = lerp(252, 255, t);
+			g = 255;
+			b = lerp(254, 255, t);
 		}
 
 		// Interference boost: overlapping ripples push color towards white (constructive)
 		const effectiveCombined = combinedDepth ?? depth;
-		const interferenceBoost = Math.max(0, (effectiveCombined - DEPTH_BAND_MAX) / DEPTH_BAND_MAX);
+		const interferenceBoost = Math.max(0, (effectiveCombined - DEPTH_BAND_MAX * 0.6) / DEPTH_BAND_MAX);
 		if (interferenceBoost > 0) {
 			r = Math.min(255, Math.round(r + interferenceBoost * (255 - r)));
 			g = Math.min(255, Math.round(g + interferenceBoost * (255 - g)));
@@ -682,7 +703,7 @@ export function applyRipples(
 		const r = activeRipples[i];
 		const elapsed = Math.min(1, (now - r.time) / r.dur);
 		const maxDist = Math.max(r.pos, len - r.pos - 1);
-		radii[i] = easeOutQuart(elapsed) * maxDist * r.spread;
+		radii[i] = easeOutCubic(elapsed) * maxDist * r.spread;
 		leftBounds[i] = Math.max(0, Math.floor(r.pos - radii[i]));
 		rightBounds[i] = Math.min(len - 1, Math.ceil(r.pos + radii[i]));
 	}
@@ -742,13 +763,14 @@ export function applyRipples(
 		// Cap combined depth to avoid overflow in color computation
 		combinedDepth = Math.min(combinedDepth, DEPTH_BAND_MAX * 2);
 
-		// Check recently-expired ripples for trailing afterglow
+		// Check recently-expired ripples for trailing afterglow (primary + secondary layers)
 		if (maxDepth === 0) {
 			for (let i = 0; i < afterglowCount; i++) {
 				const dist = Math.abs(idx - afterglowData[i].pos);
 				if (dist < afterglowData[i].maxReach) {
-					const ag = 1 - afterglowData[i].timeSinceExpiry / AFTERGLOW_MS;
-					afterglowIntensity = Math.max(afterglowIntensity, ag);
+					const primaryAg = 1 - Math.min(1, afterglowData[i].timeSinceExpiry / 200);
+					const secondaryAg = 0.4 * (1 - Math.min(1, afterglowData[i].timeSinceExpiry / AFTERGLOW_MS));
+					afterglowIntensity = Math.max(afterglowIntensity, primaryAg, secondaryAg);
 				}
 			}
 		}
@@ -961,7 +983,7 @@ function computePulseIntensity(state: LineState, now: number): number | undefine
 	if (state.lastRippleEndTime > 0) {
 		const timeSinceEnd = now - state.lastRippleEndTime;
 		if (timeSinceEnd < PULSE_WINDOW_MS) {
-			return 0.5 + 0.5 * Math.sin(timeSinceEnd / PULSE_CYCLE_MS * Math.PI * 2);
+			return 0.5 + 0.3 * Math.sin(timeSinceEnd / PULSE_CYCLE_MS * Math.PI * 2);
 		}
 		state.lastRippleEndTime = 0;
 	}

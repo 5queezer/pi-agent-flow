@@ -749,8 +749,8 @@ describe('ScrambleStateManager (ripple mode)', () => {
 		// First call creates ripple — still active at t+300ms
 		const during = manager.updateMsg(TEST_ID, 'same text', now + 300);
 		expect(during.isAnimating).toBe(true);
-		// After ripple expires (dur scaled to 1400ms for 9-char text) and afterglow ends at 1550ms, plain text
-		const done = manager.updateMsg(TEST_ID, 'same text', now + 1600);
+		// After ripple expires (dur scaled to 1400ms for 9-char text) and afterglow ends at 1750ms, plain text
+		const done = manager.updateMsg(TEST_ID, 'same text', now + 1800);
 		expect(done.isAnimating).toBe(false);
 		expect(stripAnsi(done.content)).toBe('same text');
 	});
@@ -768,10 +768,10 @@ describe('ScrambleStateManager (ripple mode)', () => {
 		manager.updateMsg(TEST_ID, 'init', base);
 		// First call creates ripple animation
 		expect(manager.hasAnyActiveAnimations(base)).toBe(true);
-		expect(manager.hasAnyActiveAnimations(base + 1800)).toBe(false);
+		expect(manager.hasAnyActiveAnimations(base + 2000)).toBe(false);
 		manager.updateMsg(TEST_ID, 'changed', base + 300);
 		expect(manager.hasAnyActiveAnimations(base + 300)).toBe(true);
-		expect(manager.hasAnyActiveAnimations(base + 300 + 1800)).toBe(false);
+		expect(manager.hasAnyActiveAnimations(base + 300 + 2000)).toBe(false);
 	});
 });
 
@@ -1053,7 +1053,7 @@ describe('applyRipples with illuminate config', () => {
 	});
 });
 
-describe('illuminatePrefix — 8-zone SGR transition', () => {
+describe('illuminatePrefix — 12-zone SGR transition', () => {
 	it('uses DIM prefix at low intensity', () => {
 		const now = Date.now();
 		// Early ripple = low intensity → dim zone (threshold 0.25)
@@ -1075,7 +1075,7 @@ describe('illuminatePrefix — 8-zone SGR transition', () => {
 		expect(hasTruecolor).toBe(true);
 	});
 
-	it('produces valid 8-zone output with truecolor at all depths', () => {
+	it('produces valid 12-zone output with truecolor at all depths', () => {
 		const now = Date.now();
 		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
 		const config = ILLUMINATE_CONFIGS.msgContent;
@@ -1091,10 +1091,10 @@ describe('illuminatePrefix — 8-zone SGR transition', () => {
 
 	it('produces purple-orange mid-intensity colors', () => {
 		const now = Date.now();
-		// elapsed=350 at spread=1.5 gives moderate intensity → purple-orange zone (0.30–0.45)
-		const ripple = { pos: 5, time: now - 350, dur: 850, spread: 1.5 };
+		// elapsed=250 at spread=1.5 on 14-char text hits purple-orange zone (0.36–0.44)
+		const ripple = { pos: 7, time: now - 250, dur: 850, spread: 1.5 };
 		const config = ILLUMINATE_CONFIGS.msgContent;
-		const result = applyRipples('abcdefghij', [ripple], now, config);
+		const result = applyRipples('abcdefghijklmn', [ripple], now, config);
 		// Should produce truecolor codes — look for purple or orange signature RGBs
 		// Purple: R>100, G<120, B>200; Orange: R>200, G>100, B<80
 		expect(result).toContain('\x1b[38;2;');
@@ -1553,7 +1553,7 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 		expect(manager.hasAnyActiveAnimations(base + 55)).toBe(true); // first flash active
 		const second = manager.updateTps('id-1', '43.0', base + 300, false, true);
 		expect(second).toBe('43.0'); // no re-flash
-		expect(manager.hasAnyActiveAnimations(base + 400)).toBe(false); // accounts for afterglow window
+		expect(manager.hasAnyActiveAnimations(base + 600)).toBe(false); // accounts for afterglow window
 	});
 
 	it('updateTps non-staticLine flashes on significant value change', () => {
@@ -1571,8 +1571,8 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 		manager.updateText('id-1', 'header', 'scout - [↑ 0.11M]', base, false, true);
 		// Minor digit change (>50% overlap) should NOT spawn a new ripple
 		manager.updateText('id-1', 'header', 'scout - [↑ 0.12M]', base + 50, false, true);
-		// Old ripple expires at base+1200; afterglow ends at base+1350
-		expect(manager.hasAnyActiveAnimations(base + 1400)).toBe(false);
+		// Old ripple expires at base+1200; afterglow ends at base+1550
+		expect(manager.hasAnyActiveAnimations(base + 1600)).toBe(false);
 	});
 
 	it('staticLine minor-mutation guard suppresses re-flash beyond cooldown', () => {
@@ -1582,8 +1582,8 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 		manager.updateText('id-1', 'header', 'scout - lite - tps: 12', base, false, true);
 		// Minor trailing-digit change within cooldown (300ms < 500ms) should NOT spawn a new ripple
 		manager.updateText('id-1', 'header', 'scout - lite - tps: 15', base + 300, false, true);
-		// Initial ripple expires at base+1200; afterglow ends at base+1350
-		expect(manager.hasActiveAnimations('id-1', base + 1400)).toBe(false);
+		// Initial ripple expires at base+1200; afterglow ends at base+1550
+		expect(manager.hasActiveAnimations('id-1', base + 1600)).toBe(false);
 	});
 
 	it('staticLine still flashes on major rewrite beyond cooldown', () => {

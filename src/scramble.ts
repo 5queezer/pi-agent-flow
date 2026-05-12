@@ -166,7 +166,7 @@ const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
 // Timing constants
 // ---------------------------------------------------------------------------
 
-const RIPPLE_DUR_DEFAULT = 900;
+const RIPPLE_DUR_DEFAULT = 1200;
 const RIPPLE_SPREAD_DEFAULT = 1;
 const MIN_RIPPLE_INTERVAL = 500;
 const DEPTH_BAND_MAX = 6;
@@ -1413,37 +1413,30 @@ export class ScrambleStateManager {
 		} else if (staticLine && state.initialized) {
 			const oldText = state.lastText;
 			const textChanged = oldText !== visibleText;
-			state.lastText = visibleText;
+
 			if (this.mode === 'stream') {
+				state.lastText = visibleText;
 				// stream mode: text displays directly, no buffering needed
 			} else {
-				// Always show latest visible text — animation triggers on cooldown
-				state.displayedText = visibleText;
-
 				if (!textChanged) {
-					// Text stable — clean up or drain suppressed change
+					// Text stable — clean up or commit stale text after animation ends
 					if (!this.isLineAnimating(state, now)) {
-						if (state.phraseBuffer !== state.displayedText && now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
-							state.phraseBuffer = state.displayedText;
-							state.lastAnimTime = now;
-							if (this.mode === 'cascade') {
-								state.queue = buildQueue(oldText, visibleText);
-								state.startTime = now;
-								state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
-							} else if (this.mode === 'illuminate') {
-								state.ripples = state.ripples.filter(r => now - r.time < r.dur);
-								state.ripples.push(spawnIlluminateRipple(randomSentenceStart(visibleText), now, ILLUMINATE_CONFIGS.msgContent));
-							} else {
-								state.ripples = state.ripples.filter(r => now - r.time < r.dur);
-								state.ripples.push(spawnRipple(randomSentenceStart(visibleText), now));
-							}
+						if (state.displayedText !== visibleText) {
+							// Animation ended but displayedText is stale — commit without ripple
+							state.displayedText = visibleText;
+							state.lastText = visibleText;
+							state.phraseBuffer = visibleText;
 						} else {
+							// Fully stable — clear ripples/queue
 							state.queue = [];
 							state.ripples = [];
 						}
 					}
+					// If still animating, do nothing — old text + active ripple stay on screen
 				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
 					// Text changed and cooled down — trigger animation
+					state.lastText = visibleText;
+					state.displayedText = visibleText;
 					state.lastAnimTime = now;
 					state.phraseBuffer = visibleText;
 					if (this.mode === 'cascade') {
@@ -1460,7 +1453,9 @@ export class ScrambleStateManager {
 						state.ripples.push(spawnRipple(randomSentenceStart(visibleText), now));
 					}
 				} else {
-					// Cooling down — text changed but animation suppressed
+					// Cooling down — text changed but animation suppressed.
+					// Do NOT update displayedText or lastText — old text stays frozen
+					// on screen while the active ripple continues to play.
 				}
 			}
 		} else {

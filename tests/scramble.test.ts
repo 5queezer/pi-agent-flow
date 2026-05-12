@@ -746,8 +746,8 @@ describe('ScrambleStateManager (ripple mode)', () => {
 		// First call creates ripple — still active at t+300ms
 		const during = manager.updateMsg(TEST_ID, 'same text', now + 300);
 		expect(during.isAnimating).toBe(true);
-		// After ripple expires (dur=666ms), plain text
-		const done = manager.updateMsg(TEST_ID, 'same text', now + 1000);
+		// After ripple expires (dur=1200ms), plain text
+		const done = manager.updateMsg(TEST_ID, 'same text', now + 1300);
 		expect(done.isAnimating).toBe(false);
 		expect(stripAnsi(done.content)).toBe('same text');
 	});
@@ -765,10 +765,10 @@ describe('ScrambleStateManager (ripple mode)', () => {
 		manager.updateMsg(TEST_ID, 'init', base);
 		// First call creates ripple animation
 		expect(manager.hasAnyActiveAnimations(base)).toBe(true);
-		expect(manager.hasAnyActiveAnimations(base + 1000)).toBe(false);
+		expect(manager.hasAnyActiveAnimations(base + 1300)).toBe(false);
 		manager.updateMsg(TEST_ID, 'changed', base + 300);
 		expect(manager.hasAnyActiveAnimations(base + 300)).toBe(true);
-		expect(manager.hasAnyActiveAnimations(base + 300 + 1000)).toBe(false);
+		expect(manager.hasAnyActiveAnimations(base + 300 + 1300)).toBe(false);
 	});
 });
 
@@ -1463,8 +1463,8 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 		manager.updateText('id-1', 'header', 'scout - [↑ 0.11M]', base, false, true);
 		// Minor digit change (>50% overlap) should NOT spawn a new ripple
 		manager.updateText('id-1', 'header', 'scout - [↑ 0.12M]', base + 50, false, true);
-		// Old ripple expires at base+900; if a new ripple had spawned at base+50 it would expire at base+950
-		expect(manager.hasAnyActiveAnimations(base + 950)).toBe(false);
+		// Old ripple expires at base+1200; if a new ripple had spawned at base+50 it would expire at base+1250
+		expect(manager.hasAnyActiveAnimations(base + 1300)).toBe(false);
 	});
 
 	it('staticLine minor-mutation guard suppresses re-flash beyond cooldown', () => {
@@ -1474,8 +1474,8 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 		manager.updateText('id-1', 'header', 'scout - lite - tps: 12', base, false, true);
 		// Minor trailing-digit change within cooldown (300ms < 500ms) should NOT spawn a new ripple
 		manager.updateText('id-1', 'header', 'scout - lite - tps: 15', base + 300, false, true);
-		// Initial ripple expires at base+900; no new ripple means inactive by base+950
-		expect(manager.hasActiveAnimations('id-1', base + 950)).toBe(false);
+		// Initial ripple expires at base+1200; no new ripple means inactive by base+1300
+		expect(manager.hasActiveAnimations('id-1', base + 1300)).toBe(false);
 	});
 
 	it('staticLine still flashes on major rewrite beyond cooldown', () => {
@@ -1808,7 +1808,7 @@ describe('ScrambleStateManager (ripple mode) — sentence-start coexistence', ()
 		expect(result1.isAnimating).toBe(true);
 
 		// Second call with changed text after cooldown — should ADD ripple, not replace
-		const result2 = manager.updateMsg(TEST_ID, 'Hello world. Second changed.', base + 300, false, undefined, true);
+		const result2 = manager.updateMsg(TEST_ID, 'Hello world. Second changed.', base + 600, false, undefined, true);
 		expect(result2.isAnimating).toBe(true);
 	});
 
@@ -1818,7 +1818,7 @@ describe('ScrambleStateManager (ripple mode) — sentence-start coexistence', ()
 		manager.updateMsg(TEST_ID, text, base, false, undefined, true);
 		// After cooldown, change text
 		const changed = 'First sentence. Second changed. Third here.';
-		const result = manager.updateMsg(TEST_ID, changed, base + 300, false, undefined, true);
+		const result = manager.updateMsg(TEST_ID, changed, base + 600, false, undefined, true);
 		expect(result.isAnimating).toBe(true);
 		// The ripple position should be a sentence start (0, 16, or 32)
 		// We verify by checking the scramble is not concentrated at center
@@ -1933,23 +1933,26 @@ describe('ScrambleStateManager — ripple position bounds', () => {
 		const base = 1_000_000;
 		manager.updateMsg(TEST_ID, 'Hello world', base, false, undefined, true);
 		// Complete rewrite (no overlap) after cooldown
-		const result = manager.updateMsg(TEST_ID, 'Completely different text.', base + 300, false, undefined, true);
+		const result = manager.updateMsg(TEST_ID, 'Completely different text.', base + 600, false, undefined, true);
 		expect(result.isAnimating).toBe(true);
 		// Ripple should be visible (pos within bounds)
 		expect(result.content).not.toBe('Completely different text.');
 		expect(result.content).toContain('\x1b');
 	});
 
-	it('spawns ripple within bounds on non-extension pendingText drain', () => {
+	it('spawns ripple on cooldown commit after suppressed rewrite', () => {
 		const base = 1_000_000;
 		manager.updateMsg(TEST_ID, 'Hello world', base, false, undefined, true);
-		// Buffer a rewrite while cooling down
+		// Suppress a rewrite while cooling down (100ms < 500ms cooldown)
 		manager.updateMsg(TEST_ID, 'Brand new text here.', base + 100, false, undefined, true);
-		// Drain happens when text is stable and old ripple expired.
-		// First call at base+2000 drains pendingText and spawns ripple (elapsed=0, no scramble yet).
-		manager.updateMsg(TEST_ID, 'Brand new text here.', base + 2000, false, undefined, true);
-		// Second call at base+2300 lets ripple expand enough to scramble chars.
-		const result = manager.updateMsg(TEST_ID, 'Brand new text here.', base + 2300, false, undefined, true);
+		// Old text stays frozen on screen during suppression (ripple still active).
+		const frozen = manager.updateMsg(TEST_ID, 'Brand new text here.', base + 300, false, undefined, true);
+		// Content is the OLD text with active scramble chars — definitely not the new text.
+		expect(stripAnsi(frozen.content)).not.toBe('Brand new text here.');
+		// After cooldown passes, text change is committed and a new ripple spawns.
+		manager.updateMsg(TEST_ID, 'Brand new text here.', base + 600, false, undefined, true);
+		// Let new ripple expand enough to scramble chars.
+		const result = manager.updateMsg(TEST_ID, 'Brand new text here.', base + 900, false, undefined, true);
 		expect(result.isAnimating).toBe(true);
 		// Ripple should scramble at least one character
 		expect(result.content).not.toBe('Brand new text here.');

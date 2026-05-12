@@ -1053,7 +1053,7 @@ describe('applyRipples with illuminate config', () => {
 	});
 });
 
-describe('illuminatePrefix — 9-zone SGR transition', () => {
+describe('illuminatePrefix — 8-zone SGR transition', () => {
 	it('uses DIM prefix at low intensity', () => {
 		const now = Date.now();
 		// Early ripple = low intensity → dim zone (threshold 0.25)
@@ -1075,7 +1075,7 @@ describe('illuminatePrefix — 9-zone SGR transition', () => {
 		expect(hasTruecolor).toBe(true);
 	});
 
-	it('produces valid 9-zone output with truecolor at all depths', () => {
+	it('produces valid 8-zone output with truecolor at all depths', () => {
 		const now = Date.now();
 		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
 		const config = ILLUMINATE_CONFIGS.msgContent;
@@ -1091,7 +1091,7 @@ describe('illuminatePrefix — 9-zone SGR transition', () => {
 
 	it('produces purple-orange mid-intensity colors', () => {
 		const now = Date.now();
-		// elapsed=350 at spread=1.5 gives moderate intensity → purple-orange zone (0.38–0.50)
+		// elapsed=350 at spread=1.5 gives moderate intensity → purple-orange zone (0.30–0.45)
 		const ripple = { pos: 5, time: now - 350, dur: 850, spread: 1.5 };
 		const config = ILLUMINATE_CONFIGS.msgContent;
 		const result = applyRipples('abcdefghij', [ripple], now, config);

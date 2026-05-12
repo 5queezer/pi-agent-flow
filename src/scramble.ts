@@ -587,45 +587,40 @@ function illuminatePrefix(depth: number, elapsed: number, dur: number, config: I
 		const life = 1 - progress;
 		const intensity = heat * life;
 
-		// 9-zone continuous truecolor gradient: deep teal → cyan → mint → purple → orange → white
+		// 8-zone continuous truecolor gradient: cyan → mint → purple → orange → white
 		let r: number, g: number, b: number;
-		if (intensity < 0.12) {
-			const t = smoothstep(0, 0.12, intensity);
-			r = lerp(0, 0, t);
-			g = lerp(140, 230, t);
-			b = lerp(110, 220, t);
-		} else if (intensity < 0.25) {
-			const t = smoothstep(0.12, 0.25, intensity);
+		if (intensity < 0.15) {
+			const t = smoothstep(0, 0.15, intensity);
 			r = lerp(0, 100, t);
 			g = lerp(230, 255, t);
 			b = lerp(220, 180, t);
-		} else if (intensity < 0.38) {
-			const t = smoothstep(0.25, 0.38, intensity);
+		} else if (intensity < 0.30) {
+			const t = smoothstep(0.15, 0.30, intensity);
 			r = lerp(100, 170, t);
 			g = lerp(255, 80, t);
 			b = lerp(180, 255, t);
-		} else if (intensity < 0.50) {
-			const t = smoothstep(0.38, 0.50, intensity);
+		} else if (intensity < 0.45) {
+			const t = smoothstep(0.30, 0.45, intensity);
 			r = lerp(170, 255, t);
 			g = lerp(80, 160, t);
 			b = lerp(255, 40, t);
-		} else if (intensity < 0.62) {
-			const t = smoothstep(0.50, 0.62, intensity);
+		} else if (intensity < 0.58) {
+			const t = smoothstep(0.45, 0.58, intensity);
 			r = lerp(255, 255, t);
 			g = lerp(160, 230, t);
 			b = lerp(40, 180, t);
-		} else if (intensity < 0.74) {
-			const t = smoothstep(0.62, 0.74, intensity);
+		} else if (intensity < 0.70) {
+			const t = smoothstep(0.58, 0.70, intensity);
 			r = lerp(255, 180, t);
 			g = lerp(230, 255, t);
 			b = lerp(180, 240, t);
-		} else if (intensity < 0.85) {
-			const t = smoothstep(0.74, 0.85, intensity);
+		} else if (intensity < 0.82) {
+			const t = smoothstep(0.70, 0.82, intensity);
 			r = lerp(180, 240, t);
 			g = 255;
 			b = lerp(240, 250, t);
 		} else if (intensity < 0.93) {
-			const t = smoothstep(0.85, 0.93, intensity);
+			const t = smoothstep(0.82, 0.93, intensity);
 			r = lerp(240, 250, t);
 			g = 255;
 			b = lerp(250, 252, t);
@@ -783,7 +778,7 @@ export function applyRipples(
 			}
 		} else if (afterglowIntensity > 0 && config) {
 			const agPrefix = config.color === 'dynamic'
-				? DIM_ON + '\x1b[38;2;50;200;170m'
+				? DIM_ON + '\x1b[38;2;0;180;200m'
 				: DIM_ON + config.color;
 			if (!inColor || currentPrefix !== agPrefix) {
 				if (inColor) segments[segCount++] = ILLUMINATE_CLOSE;

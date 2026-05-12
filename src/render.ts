@@ -419,7 +419,7 @@ function renderFlowCollapsed(
 		// For active (incomplete) flows, pass full text to keep animation stable.
 		// TruncatedText handles display truncation. Completed flows truncate as before.
 		if (!isComplete) {
-			msgContent = scrambleManager.updateMsg(id, rawMsg, now, isComplete).content;
+			msgContent = scrambleManager.updateMsg(id, rawMsg, now, isComplete, msgBudget).content;
 		} else {
 			const needsTail = (r.exitCode === -1 && streamingText) || streamingText;
 			const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
@@ -636,7 +636,7 @@ function renderActivityPanel(
 			// For active (incomplete) flows, pass full text to keep animation stable.
 			// TruncatedText handles display truncation. Completed flows truncate as before.
 			if (!flowComplete) {
-				msgContent = scrambleManager.updateMsg(flowId, rawMsg, now, flowComplete).content;
+				msgContent = scrambleManager.updateMsg(flowId, rawMsg, now, flowComplete, msgBudget).content;
 			} else {
 				const needsTail = Boolean(liveText || lastText);
 				const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);

@@ -28,6 +28,41 @@ import type { UsageStats } from './types.js';
 import { stripAnsi, tailText, truncateChars } from './render-utils.js';
 
 // ---------------------------------------------------------------------------
+// Fast RNG (xorshift32) + hash-based noise
+// ---------------------------------------------------------------------------
+
+export class FastRNG {
+	private s: number;
+	constructor(seed: number) { this.s = seed >>> 0; }
+	next(): number {
+		let s = this.s;
+		s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+		this.s = s >>> 0;
+		return (s >>> 0) / 0xFFFFFFFF;
+	}
+	nextInt(max: number): number {
+		return Math.floor(this.next() * max);
+	}
+}
+
+export function makeAnimationSeed(text: string, timestamp: number): number {
+	let h = 2166136261;
+	for (let i = 0; i < text.length; i++) {
+		h ^= text.charCodeAt(i);
+		h = Math.imul(h, 16777619);
+	}
+	return ((h ^ timestamp) >>> 0);
+}
+
+export function hashNoise(seed: number, charIndex: number, tick: number, depth: number): number {
+	let h = Math.imul(seed ^ charIndex, 0x45d9f3b);
+	h = Math.imul(h ^ tick, 0x45d9f3b);
+	h = Math.imul(h ^ depth, 0x45d9f3b);
+	h ^= h >>> 16;
+	return (h >>> 0) / 0xFFFFFFFF;
+}
+
+// ---------------------------------------------------------------------------
 // Character sets — depth-based esoteric scramble symbols (illuminate mode)
 // ---------------------------------------------------------------------------
 
@@ -40,9 +75,18 @@ const SHALLOW_GLITCH = '0123456789\\/[]{}|';
 /** Classic ASCII-safe set for stream/cascade/ripple fallback */
 const SCRAMBLE_CHARS = '!<>-_\\/[]{}-=+*^?#________';
 
-function selectScrambleChar(depth: number, dist: number, elapsed: number, entropy: number = 0): string {
+function selectScrambleChar(depth: number, dist: number, elapsed: number, seed?: number): string {
 	const tick = Math.floor(elapsed / 40);
-	const jitter = entropy % 3;
+	if (seed !== undefined) {
+		const n = hashNoise(seed, dist, tick, depth);
+		const charSet = depth <= 2 ? DEEP_GLITCH
+			: depth === 3 ? MID_GLITCH
+			: SHALLOW_GLITCH;
+		const idx = Math.floor(n * charSet.length);
+		return charSet[idx < 0 ? idx + charSet.length : idx];
+	}
+	// Deterministic fallback (backward compatible)
+	const jitter = 0;
 	if (depth <= 2) {
 		const idx = (3 * dist + tick + jitter) % DEEP_GLITCH.length;
 		return DEEP_GLITCH[idx < 0 ? idx + DEEP_GLITCH.length : idx];
@@ -179,6 +223,7 @@ interface Ripple {
 	time: number;
 	dur: number;
 	spread: number;
+	seed?: number;
 }
 
 interface QueueItem {
@@ -309,10 +354,14 @@ const RANDOM_POOL_SIZE = 512;
 let randomPool: string[] = [];
 let randomPoolIndex = 0;
 
-function fillRandomPool(): void {
+function fillRandomPool(rng?: FastRNG): void {
 	randomPool = new Array(RANDOM_POOL_SIZE);
 	for (let i = 0; i < RANDOM_POOL_SIZE; i++) {
-		randomPool[i] = SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+		if (rng) {
+			randomPool[i] = SCRAMBLE_CHARS[rng.nextInt(SCRAMBLE_CHARS.length)];
+		} else {
+			randomPool[i] = SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+		}
 	}
 	randomPoolIndex = 0;
 }
@@ -397,14 +446,19 @@ export function buildQueue(
 	newText: string,
 	maxStart: number = CASCADE_MAX_START,
 	maxLength: number = CASCADE_MAX_LENGTH,
+	rng?: FastRNG,
 ): QueueItem[] {
 	const queue: QueueItem[] = [];
 	const length = Math.max(oldText.length, newText.length);
+	const useRng = rng ?? new FastRNG(makeAnimationSeed(newText, Date.now()));
 	for (let i = 0; i < length; i++) {
 		const from = oldText[i] || '';
 		const to = newText[i] || '';
-		const start = Math.floor(Math.random() * maxStart);
-		const end = start + Math.floor(Math.random() * maxLength);
+		const t = length <= 1 ? 0 : i / (length - 1);
+		const baseStart = easeOutQuad(t) * maxStart * 0.7;
+		const jitter = useRng.next() * maxStart * 0.3;
+		const start = Math.floor(baseStart + jitter);
+		const end = start + Math.floor(useRng.next() * maxLength);
 		queue.push({ from, to, start, end });
 	}
 	return queue;
@@ -531,6 +585,7 @@ export function applyRipples(
 		let bestElapsed = 0;
 		let bestDist = 0;
 		let bestDur = activeRipples[0].dur;
+		let bestIdx = 0;
 
 		for (let i = 0; i < activeCount; i++) {
 			const dist = Math.abs(idx - activeRipples[i].pos);
@@ -542,13 +597,14 @@ export function applyRipples(
 					bestElapsed = now - activeRipples[i].time;
 					bestDist = dist;
 					bestDur = activeRipples[i].dur;
+					bestIdx = i;
 				}
 			}
 		}
 
 		if (maxDepth > 0) {
-			const entropy = Math.floor(bestElapsed + bestDist) % 7;
-			const char = selectScrambleChar(maxDepth, bestDist, bestElapsed, entropy);
+			const seed = activeRipples[bestIdx].seed ?? 0;
+			const char = selectScrambleChar(maxDepth, bestDist, bestElapsed, seed);
 			if (config) {
 				const prefix = illuminatePrefix(maxDepth, bestElapsed, bestDur, config);
 				if (!inColor || currentPrefix !== prefix) {
@@ -589,12 +645,13 @@ function spawnRipple(
 	now: number,
 	dur: number = RIPPLE_DUR_DEFAULT,
 	spread: number = RIPPLE_SPREAD_DEFAULT,
+	seed?: number,
 ): Ripple {
-	return { pos, time: now, dur, spread };
+	return { pos, time: now, dur, spread, seed: seed ?? makeAnimationSeed(String(pos), now) };
 }
 
-function spawnIlluminateRipple(pos: number, now: number, config: IlluminateConfig): Ripple {
-	return { pos, time: now, dur: config.duration, spread: config.spread };
+function spawnIlluminateRipple(pos: number, now: number, config: IlluminateConfig, seed?: number): Ripple {
+	return { pos, time: now, dur: config.duration, spread: config.spread, seed: seed ?? makeAnimationSeed(String(pos), now) };
 }
 
 /**
@@ -602,7 +659,7 @@ function spawnIlluminateRipple(pos: number, now: number, config: IlluminateConfi
  * The position is anchored at the text center but randomized by up to
  * `jitterRatio` of the text length (default ±20%), clamped to [0, len-1].
  */
-function randomizedCenter(length: number, jitterRatio = 0.2): number {
+function randomizedCenter(length: number, jitterRatio = 0.2, rng?: FastRNG): number {
 	const base = Math.floor(length / 2);
 	if (length <= 1) return base;
 	// Cap jitter so center never lands at the very edge for short texts,
@@ -610,7 +667,9 @@ function randomizedCenter(length: number, jitterRatio = 0.2): number {
 	const rawJitter = Math.floor(length * jitterRatio);
 	const maxJitter = Math.max(0, Math.min(rawJitter, base - 1, length - base - 2));
 	if (maxJitter <= 0) return base;
-	const offset = Math.floor(Math.random() * (maxJitter * 2 + 1)) - maxJitter;
+	const offset = rng
+		? rng.nextInt(maxJitter * 2 + 1) - maxJitter
+		: Math.floor(Math.random() * (maxJitter * 2 + 1)) - maxJitter;
 	return base + offset;
 }
 
@@ -972,10 +1031,12 @@ export class ScrambleStateManager {
 	// msg: — stream/cascade/ripple on text change
 	// -----------------------------------------------------------------------
 
-	updateMsg(id: string, text: string, now: number, isComplete: boolean = false): ScrambleResult {
+	updateMsg(id: string, text: string, now: number, isComplete: boolean = false, budget?: number): ScrambleResult {
+		const visibleText = budget !== undefined ? tailText(text, budget) : text;
+
 		if (isComplete) {
 			const record = this.cache.get(id);
-			if (!record) return { label: 'msg:', content: text, isAnimating: false };
+			if (!record) return { label: 'msg:', content: visibleText, isAnimating: false };
 		}
 		const state = this.getState(id, 'msg');
 		// Reset if a previously-completed flow is now running again (new flow started)
@@ -994,9 +1055,9 @@ export class ScrambleStateManager {
 			state.queue = [];
 			state.ripples = [];
 		}
-		if (state.completed) return { label: 'msg:', content: text, isAnimating: false };
-		processLine(state, text, now, this.mode, 'msg');
-		const content = applyScramble(text, state, now, this.mode, 'msg');
+		if (state.completed) return { label: 'msg:', content: visibleText, isAnimating: false };
+		processLine(state, visibleText, now, this.mode, 'msg');
+		const content = applyScramble(visibleText, state, now, this.mode, 'msg');
 		const isAnimating = this.isLineAnimating(state, now);
 		return { label: 'msg:', content, isAnimating };
 	}

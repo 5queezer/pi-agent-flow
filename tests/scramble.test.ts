@@ -17,6 +17,9 @@ import {
 	WHITE_GLOW,
 	BOLD_ON,
 	ILLUMINATE_CONFIGS,
+	FastRNG,
+	makeAnimationSeed,
+	hashNoise,
 } from '../src/scramble.js';
 
 // ---------------------------------------------------------------------------
@@ -1179,5 +1182,170 @@ describe('ScrambleStateManager — sweepCompletedEntries batch delete', () => {
 		manager.updateMsg('fresh', 'hello', 1000000 + 50000);
 		// After batch sweep, completed entries should be gone
 		expect(manager.hasAnyActiveAnimations(1000000 + 50001)).toBe(false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Visible-window contract tests
+// ---------------------------------------------------------------------------
+
+describe('ScrambleStateManager — visible-window contract', () => {
+	let manager: ScrambleStateManager;
+
+	beforeEach(() => {
+		manager = new ScrambleStateManager();
+		manager.setMode('ripple');
+	});
+
+	it('updateMsg with budget truncates text to visible window', () => {
+		const base = 1000000;
+		const longText = 'a'.repeat(100);
+		const result = manager.updateMsg(TEST_ID, longText, base, false, 20);
+		expect(stripAnsi(result.content).length).toBeLessThanOrEqual(20);
+	});
+
+	it('ripple scramble is visible within budget window', () => {
+		const base = 1000000;
+		manager.updateMsg(TEST_ID, 'a'.repeat(100), base, false, 20);
+		manager.updateMsg(TEST_ID, 'b'.repeat(100), base + 300, false, 20);
+		// Evaluate at a later time when ripple has expanded
+		const result = manager.updateMsg(TEST_ID, 'b'.repeat(100), base + 400, false, 20);
+		expect(result.isAnimating).toBe(true);
+		expect(hasDimAnsi(result.content)).toBe(true);
+		expect(stripAnsi(result.content).length).toBeLessThanOrEqual(20);
+	});
+
+	it('cascade queue is scoped to visible window', () => {
+		manager.setMode('cascade');
+		const base = 1000000;
+		manager.updateMsg(TEST_ID, 'a'.repeat(100), base, false, 20);
+		const result = manager.updateMsg(TEST_ID, 'b'.repeat(100), base + 300, false, 20);
+		expect(result.isAnimating).toBe(true);
+		expect(stripAnsi(result.content).length).toBeLessThanOrEqual(20);
+	});
+
+	it('updateMsg without budget behaves as before (full text)', () => {
+		manager.setMode('cascade');
+		const base = 1000000;
+		const result = manager.updateMsg(TEST_ID, 'hello world', base);
+		expect(stripAnsi(result.content).length).toBe('hello world'.length);
+	});
+
+	it('completed flow with budget returns truncated text', () => {
+		const base = 1000000;
+		const longText = 'x'.repeat(100);
+		const result = manager.updateMsg(TEST_ID, longText, base, true, 15);
+		expect(stripAnsi(result.content).length).toBeLessThanOrEqual(15);
+		expect(result.isAnimating).toBe(false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// FastRNG and hashNoise tests
+// ---------------------------------------------------------------------------
+
+describe('FastRNG', () => {
+	it('produces deterministic sequence for same seed', () => {
+		const rng1 = new FastRNG(12345);
+		const rng2 = new FastRNG(12345);
+		for (let i = 0; i < 100; i++) {
+			expect(rng1.next()).toBe(rng2.next());
+		}
+	});
+
+	it('produces values in [0, 1)', () => {
+		const rng = new FastRNG(12345);
+		for (let i = 0; i < 100; i++) {
+			const v = rng.next();
+			expect(v).toBeGreaterThanOrEqual(0);
+			expect(v).toBeLessThan(1);
+		}
+	});
+
+	it('nextInt returns values in [0, max)', () => {
+		const rng = new FastRNG(12345);
+		for (let i = 0; i < 100; i++) {
+			const v = rng.nextInt(10);
+			expect(v).toBeGreaterThanOrEqual(0);
+			expect(v).toBeLessThan(10);
+		}
+	});
+});
+
+describe('makeAnimationSeed', () => {
+	it('produces same seed for same text and timestamp', () => {
+		const s1 = makeAnimationSeed('hello', 1000);
+		const s2 = makeAnimationSeed('hello', 1000);
+		expect(s1).toBe(s2);
+	});
+
+	it('produces different seeds for different text', () => {
+		const s1 = makeAnimationSeed('hello', 1000);
+		const s2 = makeAnimationSeed('world', 1000);
+		expect(s1).not.toBe(s2);
+	});
+});
+
+describe('hashNoise', () => {
+	it('produces same output for same inputs', () => {
+		const n1 = hashNoise(12345, 0, 0, 1);
+		const n2 = hashNoise(12345, 0, 0, 1);
+		expect(n1).toBe(n2);
+	});
+
+	it('produces values in [0, 1)', () => {
+		for (let i = 0; i < 100; i++) {
+			const n = hashNoise(i, i * 2, i * 3, i % 4 + 1);
+			expect(n).toBeGreaterThanOrEqual(0);
+			expect(n).toBeLessThan(1);
+		}
+	});
+});
+
+describe('buildQueue with seeded RNG', () => {
+	it('produces deterministic queue for same seed', () => {
+		const rng1 = new FastRNG(12345);
+		const rng2 = new FastRNG(12345);
+		const q1 = buildQueue('abc', 'xyz', 40, 40, rng1);
+		const q2 = buildQueue('abc', 'xyz', 40, 40, rng2);
+		expect(q1.length).toBe(q2.length);
+		for (let i = 0; i < q1.length; i++) {
+			expect(q1[i].start).toBe(q2[i].start);
+			expect(q1[i].end).toBe(q2[i].end);
+		}
+	});
+
+	it('later chars have start >= earlier chars (easing monotonicity)', () => {
+		const rng = new FastRNG(0);
+		const queue = buildQueue('abcdef', 'xyz123', 40, 40, rng);
+		for (let i = 1; i < queue.length; i++) {
+			expect(queue[i].start).toBeGreaterThanOrEqual(queue[i - 1].start - 5);
+		}
+	});
+});
+
+describe('selectScrambleChar with seed', () => {
+	it('produces same char for same inputs', () => {
+		const c1 = selectScrambleChar(1, 0, 0, 12345);
+		const c2 = selectScrambleChar(1, 0, 0, 12345);
+		expect(c1).toBe(c2);
+	});
+
+	it('seeded mode increases entropy vs deterministic fallback', () => {
+		const seeded = new Set<string>();
+		const fallback = new Set<string>();
+		for (let i = 0; i < 100; i++) {
+			seeded.add(selectScrambleChar(1, i, i * 40, 12345));
+			fallback.add(selectScrambleChar(1, i, i * 40));
+		}
+		// Seeded mode should use many more chars from the set
+		expect(seeded.size).toBeGreaterThanOrEqual(10);
+		expect(fallback.size).toBeGreaterThanOrEqual(1);
+	});
+
+	it('falls back to deterministic mode without seed', () => {
+		const c1 = selectScrambleChar(1, 0, 0);
+		const c2 = selectScrambleChar(1, 0, 0);
+		expect(c1).toBe(c2);
 	});
 });

@@ -122,7 +122,7 @@ function logCompress(toolName: string, before: number, after: number) {
 const KNOWN_SECTION_HEADERS = [
 	/^--- (.+) \((\d+) lines\) ---$/,
 	/^--- (.+) (context map|file summary) ---$/,
-	/^--- bash \[.+\] exit (\d+) ---$/,
+	/^--- bash \[.+\] (exit \d+|pending|error) ---$/,
 	/^--- edit: .+ ---$/,
 	/^--- write: .+ ---$/,
 	/^--- delete: .+ ---$/,
@@ -177,7 +177,38 @@ function compressBatchResult(text: string): string {
 			continue;
 		}
 
-		// Everything else (bash, edit, write, delete, error, summary) — keep as-is
+		// Bash section — keep but truncate if oversized
+		const bashMatch = line.match(/^--- bash \[.+\] (exit \d+|pending|error) ---$/);
+		if (bashMatch) {
+			const bashSection: string[] = [line];
+			i++;
+			while (i < lines.length && !isKnownSectionHeader(lines[i])) {
+				bashSection.push(lines[i]);
+				i++;
+			}
+
+			const sectionText = bashSection.join("\n");
+			const sectionBytes = Buffer.byteLength(sectionText, "utf-8");
+			const sectionLines = bashSection.length;
+
+			const MAX_BASH_SNAPSHOT_BYTES = 50 * 1024;
+			const MAX_BASH_SNAPSHOT_LINES = 500;
+
+			if (sectionBytes > MAX_BASH_SNAPSHOT_BYTES || sectionLines > MAX_BASH_SNAPSHOT_LINES) {
+				const keepHead = 25;
+				const keepTail = 25;
+				const head = bashSection.slice(0, keepHead);
+				const tail = bashSection.slice(-keepTail);
+				const truncated = sectionLines - head.length - tail.length;
+				const marker = `[... ${truncated} lines truncated, ${sectionBytes} bytes total ...]`;
+				out.push(...head, marker, ...tail);
+			} else {
+				out.push(...bashSection);
+			}
+			continue;
+		}
+
+		// Everything else (edit, write, delete, error, summary) — keep as-is
 		out.push(line);
 		i++;
 	}

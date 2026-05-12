@@ -23,7 +23,7 @@ import {
 	isFlowSuccess,
 } from "./types.js";
 import { formatBatchOpsSummary } from "./batch/render.js";
-import { scrambleManager } from "./scramble.js";
+import { scrambleManager, runScrambleTimer } from "./scramble.js";
 import { formatCompactStats, formatCompactTokenPair, formatCountdown, formatFlowTypeName, italic, lowerFirstWord, truncateChars, tailText, getTruncationBudget, visibleLength, stripAnsi } from "./render-utils.js";
 
 function shortenPath(p: string): string {
@@ -186,26 +186,8 @@ export function renderFlowResult(
 		container = renderMultiFlowResult(details, expanded, theme);
 	}
 
-	// Scramble animation timer management — MUST run AFTER rendering so that
-	// ripples spawned during render are detected and the timer is started.
-	// Uses chained setTimeout (not setInterval) to avoid TUI ghost frames.
-	if (args?.invalidate && args?.state) {
-		const s = (args.state as any).__scramble = (args.state as any).__scramble || {};
-		const now = Date.now();
-		const hasActive = scrambleManager.hasAnyActiveAnimations(now);
-
-		if (hasActive) {
-			if (!s.animTimer) {
-				s.animTimer = setTimeout(() => {
-					s.animTimer = undefined;
-					args.invalidate!();
-				}, 50);
-			}
-		} else if (s.animTimer) {
-			clearTimeout(s.animTimer);
-			s.animTimer = undefined;
-		}
-	}
+	// Scramble animation timer — shared helper so any renderer can animate.
+	runScrambleTimer(args as Record<string, any> | undefined);
 
 	return container;
 }

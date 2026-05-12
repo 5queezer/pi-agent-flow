@@ -860,7 +860,22 @@ export class ScrambleStateManager {
 			state.ripples = [];
 		}
 		if (state.completed) return { label: key, content: text, isAnimating: false };
-		processLine(state, text, now, this.mode);
+		// Trigger initial reveal animation for static text (non-stream modes)
+		if (!state.initialized && this.mode !== 'stream') {
+			state.lastText = text;
+			state.initialized = true;
+			state.lastAnimTime = now;
+			if (this.mode === 'cascade') {
+				state.queue = buildQueue('', text);
+				state.startTime = now;
+			} else if (this.mode === 'illuminate') {
+				state.ripples.push(spawnIlluminateRipple(randomizedCenter(text.length), now, ILLUMINATE_CONFIGS.msgContent));
+			} else {
+				state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
+			}
+		} else {
+			processLine(state, text, now, this.mode);
+		}
 		const content = applyScramble(text, state, now, this.mode);
 		const isAnimating = this.isLineAnimating(state, now);
 		return { label: key, content, isAnimating };
@@ -1341,6 +1356,30 @@ export class ScrambleStateManager {
 
 	hasAnyActiveRipples(now: number): boolean {
 		return this.hasAnyActiveAnimations(now);
+	}
+}
+
+/**
+ * Shared animation timer — wired by any renderer that uses scrambleManager.
+ * Uses chained setTimeout (not setInterval) to avoid TUI ghost frames.
+ */
+export function runScrambleTimer(args: Record<string, any> | undefined): void {
+	if (args?.invalidate && args?.state) {
+		const s = (args.state as any).__scramble = (args.state as any).__scramble || {};
+		const now = Date.now();
+		const hasActive = scrambleManager.hasAnyActiveAnimations(now);
+
+		if (hasActive) {
+			if (!s.animTimer) {
+				s.animTimer = setTimeout(() => {
+					s.animTimer = undefined;
+					args.invalidate!();
+				}, 50);
+			}
+		} else if (s.animTimer) {
+			clearTimeout(s.animTimer);
+			s.animTimer = undefined;
+		}
 	}
 }
 

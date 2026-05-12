@@ -152,13 +152,14 @@ interface IlluminateConfig {
 	duration: number;
 	spread: number;
 	glowIntensity: 'high' | 'medium' | 'low' | 'variable';
+	initialTimeOffset?: number;
 }
 
 const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
 	aimLabel: { color: CYAN_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
 	actLabel: { color: PURPLE_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
 	msgLabel: { color: CYAN_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
-	msgContent: { color: 'dynamic', duration: 1000, spread: 1.5, glowIntensity: 'variable' },
+	msgContent: { color: 'dynamic', duration: 450, spread: 0.85, glowIntensity: 'variable', initialTimeOffset: 120 },
 	tps: { color: GOLD_GLOW, duration: 120, spread: 0.5, glowIntensity: 'medium' },
 };
 
@@ -168,7 +169,7 @@ const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
 
 const RIPPLE_DUR_DEFAULT = 1200;
 const RIPPLE_SPREAD_DEFAULT = 1;
-const MIN_RIPPLE_INTERVAL = 1200;
+const MIN_RIPPLE_INTERVAL = 550;
 const DEPTH_BAND_MAX = 6;
 const TPS_FLASH_DUR = 150;
 const TPS_FLASH_SPREAD = 0.5;
@@ -179,7 +180,7 @@ const CASCADE_FLASH_MAX_START = 5;
 const CASCADE_FLASH_MAX_LENGTH = 8;
 
 // Illuminate phrase buffering
-const MAX_PHRASE_BUFFER_TIME = 1200;
+const MAX_PHRASE_BUFFER_TIME = 550;
 const MIN_PHRASE_LENGTH = 15;
 
 // TPS hysteresis
@@ -718,7 +719,7 @@ function spawnRipple(
 }
 
 function spawnIlluminateRipple(pos: number, now: number, config: IlluminateConfig, seed?: number): Ripple {
-	return { pos, time: now, dur: config.duration, spread: config.spread, seed: seed ?? makeAnimationSeed(String(pos), now) };
+	return { pos, time: now - (config.initialTimeOffset || 0), dur: config.duration, spread: config.spread, seed: seed ?? makeAnimationSeed(String(pos), now) };
 }
 
 /**
@@ -856,14 +857,18 @@ function processLine(
 		if (state.lastText === newText) {
 			return;
 		}
-		// Prevent overlapping ripples: block new spawn while previous is still active
-		const hasActiveRipples = state.ripples.some((rp) => rp.time + rp.dur > now);
+		// Prevent overlapping ripples: block new spawn while previous is still active.
+		// Clean up expired ripples and detect if one just expired this tick.
+		const hadRipples = state.ripples.length > 0;
+		state.ripples = state.ripples.filter(r => now - r.time < r.dur);
+		const justExpired = hadRipples && state.ripples.length === 0;
+		const hasActiveRipples = state.ripples.length > 0;
 		if (hasActiveRipples) {
 			state.lastText = newText;
 			return;
 		}
 		const cooledDown = now - state.lastAnimTime > MIN_RIPPLE_INTERVAL;
-		if (!cooledDown) {
+		if (!cooledDown && !justExpired) {
 			state.lastText = newText;
 			return;
 		}
@@ -877,18 +882,9 @@ function processLine(
 				state.lastAnimTime = now;
 				state.ripples.push(spawnIlluminateRipple(randomizedCenter(newText.length), now, ILLUMINATE_CONFIGS.msgContent));
 			} else {
-				// Text changed but no flush yet — buffer in pendingText.
-				// For extensions, update displayedText immediately.
-				// For non-extension slides, keep displayedText stable
-				// so the scramble effect applies to consistent text.
-				const isExtension = state.displayedText &&
-					newText.startsWith(state.displayedText) &&
-					newText.length > state.displayedText.length;
-				if (isExtension) {
-					state.displayedText = newText;
-				} else {
-					state.pendingText = newText;
-				}
+				// Buffer all text changes without updating displayedText.
+				// This prevents clean-text leaks when text streams in
+				// between ripples.
 				state.lastText = newText;
 			}
 		} else {

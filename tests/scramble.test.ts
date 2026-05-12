@@ -1886,22 +1886,22 @@ describe('ScrambleStateManager (illuminate mode) — ripple coexistence', () => 
 		manager.updateMsg(TEST_ID, 'running...', base, false, undefined, true);
 
 		// Wait for cooldown, then change text — spawns first ripple
-		const firstRipple = manager.updateMsg(TEST_ID, 'running... done', base + 1300, false, undefined, true);
+		const firstRipple = manager.updateMsg(TEST_ID, 'running... done', base + 600, false, undefined, true);
 		expect(firstRipple.isAnimating).toBe(true);
 
 		// During ripple: text changes, but suppressed by isLineAnimating
-		manager.updateMsg(TEST_ID, 'Context mapped. Scout flow active.', base + 1800, false, undefined, true);
+		manager.updateMsg(TEST_ID, 'Context mapped. Scout flow active.', base + 700, false, undefined, true);
 
-		// After ripple expires (dur=1000ms, spawned at base+1300) and text has changed:
-		// With the bug: lastAnimTime reset to base+2300, cooldown blocks spawn → plain text
+		// After ripple expires (dur=450ms + offset=120, spawned at base+480) and text has changed:
+		// With the bug: lastAnimTime reset on expiry, cooldown blocks spawn → plain text
 		// With the fix: justExpired && textChanged → spawn immediately
-		const result = manager.updateMsg(TEST_ID, 'Context mapped. Scout flow active.', base + 2400, false, undefined, true);
+		const result = manager.updateMsg(TEST_ID, 'Context mapped. Scout flow active.', base + 950, false, undefined, true);
 
 		// Should be animating (new ripple spawned)
 		expect(result.isAnimating).toBe(true);
 
 		// Evaluate at a later time when ripple has expanded enough to scramble
-		const later = manager.updateMsg(TEST_ID, 'Context mapped. Scout flow active.', base + 2600, false, undefined, true);
+		const later = manager.updateMsg(TEST_ID, 'Context mapped. Scout flow active.', base + 1100, false, undefined, true);
 		// Should be scrambled, not plain text
 		expect(stripAnsi(later.content)).not.toBe('Context mapped. Scout flow active.');
 		// Should contain illuminate ANSI codes

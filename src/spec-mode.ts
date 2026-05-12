@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ReplacedSessionContext } from "@mariozechner/pi-coding-agent";
 import { isSpecModeActive, setSpecModeActive } from "./sliding-prompt.js";
 
 /**
@@ -21,13 +21,16 @@ export function setupSpecMode(pi: ExtensionAPI): void {
 			} else {
 				const next = !isSpecModeActive();
 				if (!next) {
-					const result = await ctx.newSession();
+					const result = await ctx.newSession({
+						withSession: async (newCtx: ReplacedSessionContext) => {
+							setSpecModeActive(false);
+							await newCtx.sendUserMessage("Please read the spec from `.specs/` and proceed with implementation.");
+							newCtx.ui.notify?.("Spec mode deactivated", "info");
+						},
+					});
 					if (result.cancelled) {
 						return;
 					}
-					setSpecModeActive(false);
-					pi.sendUserMessage("Please read the spec from `.specs/` and proceed with implementation.");
-					ctx.ui.notify?.("Spec mode deactivated", "info");
 				} else {
 					setSpecModeActive(true);
 					ctx.ui.notify?.("Spec mode activated", "info");

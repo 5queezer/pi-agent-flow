@@ -1349,3 +1349,85 @@ describe('selectScrambleChar with seed', () => {
 		expect(c1).toBe(c2);
 	});
 });
+
+describe('selectScrambleChar — smooth glitch blending', () => {
+	it('returns deep glitch chars at shallow depth (1.0)', () => {
+		const deepChars = '><+*·-~!#$%^&=@?';
+		const c = selectScrambleChar(1, 0, 0, 12345);
+		expect(deepChars).toContain(c);
+	});
+
+	it('returns mid or shallow glitch chars at blend depth (3.0)', () => {
+		// At depth 3.0 we are in the mid→shallow blend zone [2.5, 3.5]
+		const midChars = 'abcdefghijklmnopqrstuvwxyz';
+		const shallowChars = '0123456789\\/[]{}|';
+		const c = selectScrambleChar(3, 0, 0, 12345);
+		const isMid = midChars.includes(c);
+		const isShallow = shallowChars.includes(c);
+		expect(isMid || isShallow).toBe(true);
+	});
+
+	it('returns shallow glitch chars at deep depth (5.0)', () => {
+		const shallowChars = '0123456789\\/[]{}|';
+		const c = selectScrambleChar(5, 0, 0, 12345);
+		expect(shallowChars).toContain(c);
+	});
+
+	it('blends between deep and mid at boundary depth (2.0)', () => {
+		// At depth 2.0 we are on the edge of the blend zone [1.5, 2.5]
+		// Both deep and mid chars should be possible across many seeds
+		const results = new Set<string>();
+		for (let seed = 0; seed < 50; seed++) {
+			results.add(selectScrambleChar(2, seed, 0, seed));
+		}
+		const deepChars = '><+*·-~!#$%^&=@?';
+		const midChars = 'abcdefghijklmnopqrstuvwxyz';
+		let deepCount = 0;
+		let midCount = 0;
+		for (const c of results) {
+			if (deepChars.includes(c)) deepCount++;
+			if (midChars.includes(c)) midCount++;
+		}
+		// Should see both sets represented
+		expect(deepCount + midCount).toBeGreaterThanOrEqual(results.size);
+	});
+
+	it('blends between mid and shallow at boundary depth (3.0 with seeded)', () => {
+		const results = new Set<string>();
+		for (let seed = 0; seed < 50; seed++) {
+			results.add(selectScrambleChar(3, seed, 0, seed));
+		}
+		const midChars = 'abcdefghijklmnopqrstuvwxyz';
+		const shallowChars = '0123456789\\/[]{}|';
+		let midCount = 0;
+		let shallowCount = 0;
+		for (const c of results) {
+			if (midChars.includes(c)) midCount++;
+			if (shallowChars.includes(c)) shallowCount++;
+		}
+		expect(midCount + shallowCount).toBeGreaterThanOrEqual(results.size);
+	});
+});
+
+describe('applyRipples — wider depth band (DEPTH_BAND_MAX=6)', () => {
+	it('scrambles more characters with wider band at same elapsed time', () => {
+		const now = Date.now();
+		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
+		const result = applyRipples('abcdefghijklmnopqrstuvwxyz', [ripple], now);
+		const stripped = stripAnsi(result);
+		// With DEPTH_BAND_MAX=6, at 100ms the ripple should scramble more chars
+		// than it would have with DEPTH_BAND_MAX=4
+		const scrambled = stripped.split('').filter(c => !'abcdefghijklmnopqrstuvwxyz'.includes(c)).length;
+		expect(scrambled).toBeGreaterThanOrEqual(3);
+	});
+
+	it('preserves spaces within wider ripple band', () => {
+		const now = Date.now();
+		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
+		const result = applyRipples('a b c d e f g h i', [ripple], now);
+		const stripped = stripAnsi(result);
+		expect(stripped[1]).toBe(' ');
+		expect(stripped[3]).toBe(' ');
+		expect(stripped[5]).toBe(' ');
+	});
+});

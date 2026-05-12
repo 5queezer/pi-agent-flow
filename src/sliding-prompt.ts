@@ -49,8 +49,8 @@ export const SLIDING_PROMPT =
 	`### Build a mental map:\n` +
 	`- Tech stack, patterns, test coverage, constraints\n` +
 	`- What exists vs what needs to be built\n\n` +
-	`## Phase 2: Discuss (2-3 questions via ask_user)\n\n` +
-	`Ask 2-3 targeted questions grounded in Phase 1 findings.\n\n` +
+	\`## Phase 2: Discuss (2-3 questions via ask_user)\n\n\` +
+	\`Ask 2-3 targeted questions grounded in Phase 1 findings.\n\n\` +
 	`### Question styles (use ALL three):\n` +
 	`1. **Challenge assumptions** — "You asked for X, but codebase has Y. Extend Y or build X?"\n` +
 	`2. **Present trade-offs** — "Approach A [fast] vs B [extensible]. Which fits?"\n` +
@@ -59,7 +59,7 @@ export const SLIDING_PROMPT =
 	`- NEVER ask what you can discover with tools\n` +
 	`- Mark recommended option with [preferred], place it first\n` +
 	`- 2-4 options per question with clear trade-off descriptions\n` +
-	`- Questions must be codebase-specific, not generic\n\n` +
+	`- Questions must be codebase-specific, not generic\n` +
 	`## Phase 3: Write Spec (delegate to build flow)\n\n` +
 	`flow [build] intent:\n` +
 	`"Write the following spec to .specs/{slug}/spec.md. Create directory if needed.\n\n` +

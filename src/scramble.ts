@@ -79,11 +79,24 @@ function selectScrambleChar(depth: number, dist: number, elapsed: number, seed?:
 	const tick = Math.floor(elapsed / 40);
 	if (seed !== undefined) {
 		const n = hashNoise(seed, dist, tick, depth);
-		const charSet = depth <= 2 ? DEEP_GLITCH
-			: depth === 3 ? MID_GLITCH
-			: SHALLOW_GLITCH;
-		const idx = Math.floor(n * charSet.length);
-		return charSet[idx < 0 ? idx + charSet.length : idx];
+		let char: string;
+		if (depth < 2.5) {
+			// Blend deep→mid across [1.5, 2.5]
+			const t = smoothstep(1.5, 2.5, depth);
+			const deepIdx = Math.floor(n * DEEP_GLITCH.length);
+			const midIdx = Math.floor(n * MID_GLITCH.length);
+			char = n < t ? MID_GLITCH[midIdx] : DEEP_GLITCH[deepIdx];
+		} else if (depth < 3.5) {
+			// Blend mid→shallow across [2.5, 3.5]
+			const t = smoothstep(2.5, 3.5, depth);
+			const midIdx = Math.floor(n * MID_GLITCH.length);
+			const shallowIdx = Math.floor(n * SHALLOW_GLITCH.length);
+			char = n < t ? SHALLOW_GLITCH[shallowIdx] : MID_GLITCH[midIdx];
+		} else {
+			const shallowIdx = Math.floor(n * SHALLOW_GLITCH.length);
+			char = SHALLOW_GLITCH[shallowIdx];
+		}
+		return char;
 	}
 	// Deterministic fallback (backward compatible)
 	const jitter = 0;
@@ -145,7 +158,7 @@ const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
 const RIPPLE_DUR_DEFAULT = 666;
 const RIPPLE_SPREAD_DEFAULT = 1;
 const MIN_RIPPLE_INTERVAL = 250;
-const DEPTH_BAND_MAX = 4;
+const DEPTH_BAND_MAX = 6;
 const TPS_FLASH_DUR = 150;
 const TPS_FLASH_SPREAD = 0.5;
 const CASCADE_FRAME_MS = 16;
@@ -591,7 +604,7 @@ export function applyRipples(
 			const dist = Math.abs(idx - activeRipples[i].pos);
 			const depth = radii[i] - dist;
 			if (depth > 0) {
-				const fade = 1 - smoothstep(DEPTH_BAND_MAX - 0.5, DEPTH_BAND_MAX + 2, depth);
+				const fade = 1 - smoothstep(DEPTH_BAND_MAX - 1, DEPTH_BAND_MAX + 2, depth);
 				if (fade > 0 && depth > maxDepth) {
 					maxDepth = Math.min(depth, DEPTH_BAND_MAX);
 					bestElapsed = now - activeRipples[i].time;

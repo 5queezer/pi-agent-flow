@@ -85,8 +85,9 @@ const SHALLOW_GLITCH = '0123456789\\/[]{}|';
 /** Classic ASCII-safe set for stream/cascade/ripple fallback */
 const SCRAMBLE_CHARS = '!<>-_\\/[]{}-=+*^?#________';
 
-function selectScrambleChar(depth: number, dist: number, elapsed: number, seed?: number): string {
-	const tick = Math.floor(elapsed / 40);
+function selectScrambleChar(depth: number, dist: number, elapsed: number, seed?: number, textLen?: number): string {
+	const tickMs = (textLen !== undefined && textLen < 20) ? 160 : 80;
+	const tick = Math.floor(elapsed / tickMs);
 	if (seed !== undefined) {
 		const n = hashNoise(seed, dist, tick, depth);
 		let char: string;
@@ -671,7 +672,7 @@ export function applyRipples(
 
 		if (maxDepth > 0) {
 			const seed = activeRipples[bestIdx].seed ?? 0;
-			const char = selectScrambleChar(maxDepth, bestDist, bestElapsed, seed);
+			const char = selectScrambleChar(maxDepth, bestDist, bestElapsed, seed, text.length);
 			if (config) {
 				const prefix = illuminatePrefix(maxDepth, bestElapsed, bestDur, config);
 				if (!inColor || currentPrefix !== prefix) {
@@ -725,12 +726,13 @@ function spawnIlluminateRipple(pos: number, now: number, config: IlluminateConfi
  * The position is anchored at the text center but randomized by up to
  * `jitterRatio` of the text length (default ±20%), clamped to [0, len-1].
  */
-function randomizedCenter(length: number, jitterRatio = 0.2, rng?: FastRNG): number {
+function randomizedCenter(length: number, jitterRatio?: number, rng?: FastRNG): number {
 	const base = Math.floor(length / 2);
 	if (length <= 1) return base;
+	const effectiveRatio = jitterRatio ?? (length < 20 ? 0.4 : 0.2);
 	// Cap jitter so center never lands at the very edge for short texts,
 	// preserving wavefront symmetry.
-	const rawJitter = Math.floor(length * jitterRatio);
+	const rawJitter = Math.floor(length * effectiveRatio);
 	const maxJitter = Math.max(0, Math.min(rawJitter, base - 1, length - base - 2));
 	if (maxJitter <= 0) return base;
 	const offset = rng
@@ -795,7 +797,9 @@ export function findSentenceStarts(text: string): number[] {
  */
 export function randomSentenceStart(text: string, rng?: FastRNG): number {
 	const starts = findSentenceStarts(text);
-	if (starts.length === 0) return randomizedCenter(text.length);
+	if (starts.length === 0 || (starts.length === 1 && starts[0] === 0)) {
+		return randomizedCenter(text.length, 0.2, rng);
+	}
 	const idx = rng ? rng.nextInt(starts.length) : Math.floor(Math.random() * starts.length);
 	return starts[idx];
 }
@@ -1431,11 +1435,7 @@ export class ScrambleStateManager {
 								state.ripples.push(spawnIlluminateRipple(randomSentenceStart(visibleText), now, ILLUMINATE_CONFIGS.msgContent));
 							} else {
 								state.ripples = state.ripples.filter(r => now - r.time < r.dur);
-								const starts = findSentenceStarts(visibleText);
-								let pos = starts.length > 0
-									? starts[Math.floor(Math.random() * starts.length)]
-									: randomSentenceStart(visibleText);
-								state.ripples.push(spawnRipple(pos, now));
+								state.ripples.push(spawnRipple(randomSentenceStart(visibleText), now));
 							}
 						} else {
 							state.queue = [];
@@ -1457,11 +1457,7 @@ export class ScrambleStateManager {
 						state.ripples.push(spawnIlluminateRipple(randomSentenceStart(visibleText), now, ILLUMINATE_CONFIGS.msgContent));
 					} else {
 						state.ripples = state.ripples.filter(r => now - r.time < r.dur);
-						const starts = findSentenceStarts(visibleText);
-						let pos = starts.length > 0
-							? starts[Math.floor(Math.random() * starts.length)]
-							: randomSentenceStart(visibleText);
-						state.ripples.push(spawnRipple(pos, now));
+						state.ripples.push(spawnRipple(randomSentenceStart(visibleText), now));
 					}
 				} else {
 					// Cooling down — text changed but animation suppressed

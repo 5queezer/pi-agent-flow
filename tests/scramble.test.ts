@@ -1768,9 +1768,11 @@ describe('findSentenceStarts', () => {
 });
 
 describe('randomSentenceStart', () => {
-	it('returns 0 for single-sentence text', () => {
+	it('centers for single-sentence short text', () => {
 		const pos = randomSentenceStart('hello world');
-		expect(pos).toBe(0);
+		// Length 11, center is ~5 with ±4 jitter (0.4 ratio for short text) → [1, 9]
+		expect(pos).toBeGreaterThanOrEqual(1);
+		expect(pos).toBeLessThanOrEqual(9);
 	});
 
 	it('picks from multiple sentence starts', () => {

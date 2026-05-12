@@ -655,11 +655,13 @@ describe('ScrambleStateManager (cascade mode)', () => {
 	it('cooldown prevents rapid-fire cascades', () => {
 		const base = 2000000;
 		manager.updateMsg(TEST_ID, 'text one', base);
+		// Rapid changes within cooldown (300ms < 1300ms) don't spawn cascades
 		manager.updateMsg(TEST_ID, 'text two', base + 300);
 		manager.updateMsg(TEST_ID, 'text three', base + 400);
-		const result = manager.updateMsg(TEST_ID, 'text three', base + 1300);
+		// After cooldown elapses (1400ms >= 1300ms), text change triggers cascade
+		const result = manager.updateMsg(TEST_ID, 'text four', base + 1400);
 		expect(result.isAnimating).toBe(true);
-		const done = manager.updateMsg(TEST_ID, 'text three', base + 3000);
+		const done = manager.updateMsg(TEST_ID, 'text four', base + 3000);
 		expect(done.isAnimating).toBe(false);
 	});
 

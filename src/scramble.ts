@@ -86,7 +86,7 @@ const SHALLOW_GLITCH = '0123456789\\/[]{}|';
 const SCRAMBLE_CHARS = '!<>-_\\/[]{}-=+*^?#________';
 
 function selectScrambleChar(depth: number, dist: number, elapsed: number, seed?: number, textLen?: number): string {
-	const tickMs = (textLen !== undefined && textLen < 20) ? 160 : 80;
+	const tickMs = (textLen !== undefined && textLen < 20) ? 300 : 150;
 	const tick = Math.floor(elapsed / tickMs);
 	if (seed !== undefined) {
 		const n = hashNoise(seed, dist, tick, depth);
@@ -159,7 +159,7 @@ const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
 	aimLabel: { color: CYAN_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
 	actLabel: { color: PURPLE_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
 	msgLabel: { color: CYAN_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
-	msgContent: { color: 'dynamic', duration: 450, spread: 0.85, glowIntensity: 'variable', initialTimeOffset: 120 },
+	msgContent: { color: 'dynamic', duration: 1200, spread: 0.5, glowIntensity: 'variable', initialTimeOffset: 50 },
 	tps: { color: GOLD_GLOW, duration: 120, spread: 0.5, glowIntensity: 'medium' },
 };
 
@@ -169,8 +169,8 @@ const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
 
 const RIPPLE_DUR_DEFAULT = 1200;
 const RIPPLE_SPREAD_DEFAULT = 1;
-const MIN_RIPPLE_INTERVAL = 550;
-const DEPTH_BAND_MAX = 6;
+const MIN_RIPPLE_INTERVAL = 1300;
+const DEPTH_BAND_MAX = 10;
 const TPS_FLASH_DUR = 150;
 const TPS_FLASH_SPREAD = 0.5;
 const CASCADE_FRAME_MS = 16;
@@ -180,7 +180,7 @@ const CASCADE_FLASH_MAX_START = 5;
 const CASCADE_FLASH_MAX_LENGTH = 8;
 
 // Illuminate phrase buffering
-const MAX_PHRASE_BUFFER_TIME = 550;
+const MAX_PHRASE_BUFFER_TIME = 800;
 const MIN_PHRASE_LENGTH = 60;
 
 // Drain timeout: partial chunk ripples when text stops changing for this long.
@@ -206,7 +206,7 @@ const STREAM_RERANDOMIZE_RATE = 0.28; // 28% chance to re-randomize (CodePen sty
  *  Blended 80% linear + 20% ease-out to keep scramble band intact on short texts. */
 function easeOutCubic(t: number): number {
 	const e = 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
-	return 0.8 * t + 0.2 * e;
+	return 0.5 * t + 0.5 * e;
 }
 
 /** Smoothstep interpolation for smooth color band transitions */
@@ -919,7 +919,7 @@ function processLine(
 			state.lastText = newText;
 			return;
 		}
-		const cooledDown = now - state.lastAnimTime > MIN_RIPPLE_INTERVAL;
+		const cooledDown = now - state.lastAnimTime >= MIN_RIPPLE_INTERVAL;
 		if (!cooledDown && !justExpired) {
 			state.lastText = newText;
 			return;
@@ -971,9 +971,9 @@ function processLine(
 		state.displayedText = newText;
 		return;
 	}
-	const cooledDown = now - state.lastAnimTime > MIN_RIPPLE_INTERVAL;
+	const cooledDown = now - state.lastAnimTime >= MIN_RIPPLE_INTERVAL;
+	state.lastText = newText;
 	if (cooledDown) {
-		state.lastText = newText;
 		state.displayedText = newText;
 		state.lastAnimTime = now;
 		if (mode === 'cascade') {
@@ -1210,7 +1210,7 @@ export class ScrambleStateManager {
 			if (textChanged) {
 				if (isMinorStaticMutation(oldText, text)) {
 					// minor mutation (e.g. trailing stat digit) — don't restart animation
-				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
+				} else if (now - state.lastAnimTime >= MIN_RIPPLE_INTERVAL) {
 					state.lastAnimTime = now;
 					if (this.mode === 'cascade') {
 						state.queue = buildQueue('', text);
@@ -1293,7 +1293,7 @@ export class ScrambleStateManager {
 			if (textChanged) {
 				if (isMinorStaticMutation(oldText, text)) {
 					// minor mutation — don't restart animation
-				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
+				} else if (now - state.lastAnimTime >= MIN_RIPPLE_INTERVAL) {
 					state.lastAnimTime = now;
 					if (this.mode === 'cascade') {
 						state.queue = buildQueue('', text);
@@ -1372,7 +1372,7 @@ export class ScrambleStateManager {
 			if (textChanged) {
 				if (isMinorStaticMutation(oldText, text)) {
 					// minor mutation — don't restart animation
-				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
+				} else if (now - state.lastAnimTime >= MIN_RIPPLE_INTERVAL) {
 					state.lastAnimTime = now;
 					if (this.mode === 'cascade') {
 						state.queue = buildQueue('', text);
@@ -1513,7 +1513,7 @@ export class ScrambleStateManager {
 							state.lastAnimTime = now;
 						}
 						// Fully stable — nothing to do
-					} else if (justExpired || now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
+					} else if (justExpired || now - state.lastAnimTime >= MIN_RIPPLE_INTERVAL) {
 						// Spawn ONE fresh ripple immediately if the old one just expired
 						// (no overlap risk — previous ripple is fully gone) OR if cooled down.
 						state.lastText = visibleText;

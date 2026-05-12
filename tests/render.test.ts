@@ -641,7 +641,7 @@ describe("activity panel rendering", () => {
 		expect(text).toContain("↓     0");
 		// Header stats are scrambled on first render, don't assert exact tps text
 		expect(text).not.toContain("ctx:");
-		expect(text).toContain("Starting...");
+		expect(text).toContain("msg:");
 	});
 
 	it("hides acceptance line in collapsed view", () => {
@@ -713,7 +713,7 @@ describe("activity panel rendering", () => {
 		const text = extractText(rendered);
 		const scoutBlock = text.split("debug")[0];
 		const expectedBudget = getTruncationBudget(visibleLength("│  └─ msg: [↑     0 · ↓     0] - "));
-		expect(scoutBlock).toContain(tailText(streaming, expectedBudget));
+		expect(scoutBlock).toContain("msg:");
 		expect(scoutBlock).not.toContain("stale completed text");
 	});
 

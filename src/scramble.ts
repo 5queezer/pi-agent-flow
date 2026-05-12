@@ -748,7 +748,7 @@ function applyScramble(text: string, state: LineState, now: number, mode: Scramb
 		}
 		return computeCascadeFrame(state.queue, frame, rng);
 	} else if (mode === 'illuminate') {
-		const displayText = state.displayedText ?? text;
+		const displayText = state.displayedText || text;
 		const config = lineKey === 'msg'
 			? ILLUMINATE_CONFIGS.msgContent
 			: lineKey === 'act'
@@ -842,6 +842,14 @@ function processLine(
 	if (!state.initialized) {
 		state.lastText = newText;
 		state.initialized = true;
+		state.lastAnimTime = now;
+		if (mode === 'cascade') {
+			state.queue = buildQueue('', newText);
+			state.startTime = now;
+			state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+		} else if (mode === 'ripple') {
+			state.ripples.push(spawnRipple(randomizedCenter(newText.length), now));
+		}
 		return;
 	}
 	if (!textChanged) return;
@@ -1062,13 +1070,15 @@ export class ScrambleStateManager {
 				state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
 			}
 		} else if (staticLine && state.initialized) {
-			// Static line: silently update text, clear any ongoing animation
+			const textChanged = state.lastText !== text;
 			state.lastText = text;
-			state.queue = [];
-			state.ripples = [];
 			if (this.mode === 'illuminate') {
 				state.displayedText = text;
 				state.pendingText = '';
+			}
+			if (textChanged || !this.isLineAnimating(state, now)) {
+				state.queue = [];
+				state.ripples = [];
 			}
 		} else {
 			processLine(state, text, now, this.mode);
@@ -1125,12 +1135,15 @@ export class ScrambleStateManager {
 				state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
 			}
 		} else if (staticLine && state.initialized) {
+			const textChanged = state.lastText !== text;
 			state.lastText = text;
-			state.queue = [];
-			state.ripples = [];
 			if (this.mode === 'illuminate') {
 				state.displayedText = text;
 				state.pendingText = '';
+			}
+			if (textChanged || !this.isLineAnimating(state, now)) {
+				state.queue = [];
+				state.ripples = [];
 			}
 		} else {
 			processLine(state, text, now, this.mode);
@@ -1168,13 +1181,30 @@ export class ScrambleStateManager {
 			state.ripples = [];
 		}
 		if (state.completed) return { label: 'act:', content: text, isAnimating: false };
-		if (staticLine && state.initialized) {
+		if (!state.initialized) {
 			state.lastText = text;
-			state.queue = [];
-			state.ripples = [];
+			state.initialized = true;
+			state.lastAnimTime = now;
+			if (this.mode === 'cascade') {
+				state.queue = buildQueue('', text);
+				state.startTime = now;
+				state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+			} else if (this.mode === 'illuminate') {
+				state.ripples.push(spawnIlluminateRipple(randomizedCenter(text.length), now, ILLUMINATE_CONFIGS.actLabel));
+				state.displayedText = text;
+			} else {
+				state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
+			}
+		} else if (staticLine && state.initialized) {
+			const textChanged = state.lastText !== text;
+			state.lastText = text;
 			if (this.mode === 'illuminate') {
 				state.displayedText = text;
 				state.pendingText = '';
+			}
+			if (textChanged || !this.isLineAnimating(state, now)) {
+				state.queue = [];
+				state.ripples = [];
 			}
 		} else {
 			processLine(state, text, now, this.mode, 'act');
@@ -1214,13 +1244,30 @@ export class ScrambleStateManager {
 			state.ripples = [];
 		}
 		if (state.completed) return { label: 'msg:', content: visibleText, isAnimating: false };
-		if (staticLine && state.initialized) {
+		if (!state.initialized) {
 			state.lastText = visibleText;
-			state.queue = [];
-			state.ripples = [];
+			state.initialized = true;
+			state.lastAnimTime = now;
+			if (this.mode === 'cascade') {
+				state.queue = buildQueue('', visibleText);
+				state.startTime = now;
+				state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+			} else if (this.mode === 'illuminate') {
+				state.ripples.push(spawnIlluminateRipple(randomizedCenter(visibleText.length), now, ILLUMINATE_CONFIGS.msgContent));
+				state.displayedText = visibleText;
+			} else {
+				state.ripples.push(spawnRipple(randomizedCenter(visibleText.length), now));
+			}
+		} else if (staticLine && state.initialized) {
+			const textChanged = state.lastText !== visibleText;
+			state.lastText = visibleText;
 			if (this.mode === 'illuminate') {
 				state.displayedText = visibleText;
 				state.pendingText = '';
+			}
+			if (textChanged || !this.isLineAnimating(state, now)) {
+				state.queue = [];
+				state.ripples = [];
 			}
 		} else {
 			processLine(state, visibleText, now, this.mode, 'msg');

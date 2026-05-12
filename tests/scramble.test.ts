@@ -611,9 +611,13 @@ describe('ScrambleStateManager (cascade mode)', () => {
 	it('updateAct does NOT scramble when text is the same', () => {
 		const base = 2000000;
 		manager.updateAct(TEST_ID, 'same text', base);
-		const result = manager.updateAct(TEST_ID, 'same text', base + 300);
-		expect(result.isAnimating).toBe(false);
-		expect(stripAnsi(result.content)).toBe('same text');
+		// First call creates cascade — still animating at t+300ms
+		const during = manager.updateAct(TEST_ID, 'same text', base + 300);
+		expect(during.isAnimating).toBe(true);
+		// After cascade completes (~640ms), plain text
+		const done = manager.updateAct(TEST_ID, 'same text', base + 1500);
+		expect(done.isAnimating).toBe(false);
+		expect(stripAnsi(done.content)).toBe('same text');
 	});
 
 	it('updateMsg spawns cascade on text change', () => {
@@ -669,7 +673,9 @@ describe('ScrambleStateManager (cascade mode)', () => {
 	it('hasAnyActiveAnimations works for cascade', () => {
 		const base = 7000000;
 		manager.updateMsg(TEST_ID, 'init', base);
-		expect(manager.hasAnyActiveAnimations(base)).toBe(false);
+		// First call creates cascade animation
+		expect(manager.hasAnyActiveAnimations(base)).toBe(true);
+		expect(manager.hasAnyActiveAnimations(base + 1500)).toBe(false);
 		manager.updateMsg(TEST_ID, 'changed', base + 300);
 		expect(manager.hasAnyActiveAnimations(base + 300)).toBe(true);
 		expect(manager.hasAnyActiveAnimations(base + 300 + 1500)).toBe(false);
@@ -735,9 +741,13 @@ describe('ScrambleStateManager (ripple mode)', () => {
 	it('same text does not trigger new ripple', () => {
 		const now = Date.now();
 		manager.updateMsg(TEST_ID, 'same text', now);
-		const result = manager.updateMsg(TEST_ID, 'same text', now + 300);
-		expect(result.isAnimating).toBe(false);
-		expect(stripAnsi(result.content)).toBe('same text');
+		// First call creates ripple — still active at t+300ms
+		const during = manager.updateMsg(TEST_ID, 'same text', now + 300);
+		expect(during.isAnimating).toBe(true);
+		// After ripple expires (dur=666ms), plain text
+		const done = manager.updateMsg(TEST_ID, 'same text', now + 1000);
+		expect(done.isAnimating).toBe(false);
+		expect(stripAnsi(done.content)).toBe('same text');
 	});
 
 	it('TPS flash works in ripple mode', () => {
@@ -751,7 +761,9 @@ describe('ScrambleStateManager (ripple mode)', () => {
 	it('hasAnyActiveAnimations works for ripple', () => {
 		const base = 7000000;
 		manager.updateMsg(TEST_ID, 'init', base);
-		expect(manager.hasAnyActiveAnimations(base)).toBe(false);
+		// First call creates ripple animation
+		expect(manager.hasAnyActiveAnimations(base)).toBe(true);
+		expect(manager.hasAnyActiveAnimations(base + 1000)).toBe(false);
 		manager.updateMsg(TEST_ID, 'changed', base + 300);
 		expect(manager.hasAnyActiveAnimations(base + 300)).toBe(true);
 		expect(manager.hasAnyActiveAnimations(base + 300 + 1000)).toBe(false);
@@ -775,8 +787,8 @@ describe('ScrambleStateManager mode switching', () => {
 		manager.setMode('cascade');
 		expect(manager.getMode()).toBe('cascade');
 		const result = manager.updateMsg(TEST_ID, 'new text', base + 500);
-		// Cascade mode: first call initializes, second triggers animation
-		expect(result.isAnimating).toBe(false); // first call just initializes
+		// First call creates cascade animation
+		expect(result.isAnimating).toBe(true);
 	});
 
 	it('can switch between all four modes', () => {
@@ -924,8 +936,8 @@ describe('ScrambleStateManager — memory bounds', () => {
 			manager.updateMsg(id, 'test', 1000000 + i * 10);
 			manager.completeFlow(id);
 		}
-		// After sweeping, new operations should still work
-		const fresh = manager.updateMsg('fresh-flow', 'hello', 1000000);
+		// After sweeping, new operations should still work (isComplete=true for plain text)
+		const fresh = manager.updateMsg('fresh-flow', 'hello', 1000000, true);
 		expect(fresh.content).toBe('hello');
 	});
 });
@@ -1022,9 +1034,9 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 	it('updateMsg buffers phrases and flushes at boundaries', () => {
 		const base = 2000000;
 		manager.updateMsg(TEST_ID, 'Hello world', base);
-		// Same text — no flush
+		// Same text — no flush; first-render ripple still active
 		const same = manager.updateMsg(TEST_ID, 'Hello world', base + 100);
-		expect(same.content).toBe('Hello world');
+		expect(same.isAnimating).toBe(true);
 		// New text with phrase boundary — triggers flush
 		manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 300);
 		// Ripple is active for 850ms — verify animation is detected
@@ -1086,7 +1098,8 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 	it('hasAnyActiveAnimations works for illuminate', () => {
 		const base = 7000000;
 		manager.updateMsg(TEST_ID, 'init', base);
-		expect(manager.hasAnyActiveAnimations(base)).toBe(false);
+		// First call creates ripple animation
+		expect(manager.hasAnyActiveAnimations(base)).toBe(true);
 		manager.updateMsg(TEST_ID, 'changed text here.', base + 300);
 		expect(manager.hasAnyActiveAnimations(base + 300)).toBe(true);
 	});
@@ -1109,8 +1122,10 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		const stripped = stripAnsi(result.content);
 		// Should NOT be the raw new text immediately
 		expect(stripped).not.toBe('world today is nice');
-		// Should show buffered old text instead
-		expect(stripped).toContain('hello');
+		// Should show buffered old text (may have scramble chars from first-render ripple)
+		expect(stripped.length).toBe('hello world today'.length);
+		// Verify state: old text is still displayed, new text is pending
+		expect(result.isAnimating).toBe(true);
 	});
 
 	it('updateMsg flushes on slide after timeout', () => {
@@ -1281,7 +1296,7 @@ describe('ScrambleStateManager — sweepCompletedEntries batch delete', () => {
 		}
 		// All 50 should be swept eventually — after enough operations
 		// Trigger an update that causes sweep
-		manager.updateMsg('fresh', 'hello', 1000000 + 50000);
+		manager.updateMsg('fresh', 'hello', 1000000 + 50000, true);
 		// After batch sweep, completed entries should be gone
 		expect(manager.hasAnyActiveAnimations(1000000 + 50001)).toBe(false);
 	});

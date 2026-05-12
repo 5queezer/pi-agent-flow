@@ -39,6 +39,7 @@ function createMockCtx(options?: { newSessionCancelled?: boolean }) {
 	const notifyCalls: { msg: string; type: string }[] = [];
 	const sentUserMessages: string[] = [];
 	const editorTexts: string[] = [];
+	const newSessionId = "new-session-456";
 	const newCtx = {
 		cwd: "/tmp/test",
 		hasUI: true,
@@ -54,6 +55,7 @@ function createMockCtx(options?: { newSessionCancelled?: boolean }) {
 				editorTexts.push(text);
 			}),
 		},
+		sessionManager: { getSessionDir: () => "/tmp", getHeader: () => ({}), getBranch: () => [], getSessionId: () => newSessionId },
 		sendUserMessage: vi.fn(async (msg: string) => {
 			sentUserMessages.push(msg);
 		}),
@@ -73,6 +75,7 @@ function createMockCtx(options?: { newSessionCancelled?: boolean }) {
 				editorTexts.push(text);
 			}),
 		},
+		sessionManager: { getSessionDir: () => "/tmp", getHeader: () => ({}), getBranch: () => [], getSessionId: () => "old-session-123" },
 		newSession: vi.fn(async (opts?: { withSession?: (ctx: ReplacedSessionContext) => Promise<void> }) => {
 			const cancelled = options?.newSessionCancelled ?? false;
 			if (!cancelled && opts?.withSession) {
@@ -106,7 +109,7 @@ describe("setupSpecMode", () => {
 		const pi = createMockPi();
 		setupSpecMode(pi);
 		const command = registeredCommands.get("spec")!;
-		const { ctx, notifyCalls, sentUserMessages, editorTexts } = createMockCtx();
+		const { ctx, notifyCalls, sentUserMessages, editorTexts, newCtx } = createMockCtx();
 
 		expect(isSpecModeActive()).toBe(true);
 		await command.handler("", ctx);
@@ -116,10 +119,10 @@ describe("setupSpecMode", () => {
 		expect(sentUserMessages).toContain("Synthesize a full implementation plan from the conversation history. Output ONLY the complete markdown spec (no tool calls after you start writing). After you finish, the plan will be placed in the editor for review.");
 		expect(pi.sendUserMessage).not.toHaveBeenCalled();
 
-		// Simulate assistant responding with the plan
+		// Simulate assistant responding with the plan in the NEW session
 		pi.emitTurnEnd(
 			{ message: { role: "assistant", content: [{ type: "text", text: "# Plan\n\nImplement caching." }] } },
-			ctx,
+			newCtx as unknown as ExtensionCommandContext,
 		);
 		expect(editorTexts).toContain("# Plan\n\nImplement caching.");
 	});
@@ -128,14 +131,14 @@ describe("setupSpecMode", () => {
 		const pi = createMockPi();
 		setupSpecMode(pi);
 		const command = registeredCommands.get("spec")!;
-		const { ctx, editorTexts } = createMockCtx();
+		const { ctx, editorTexts, newCtx } = createMockCtx();
 
 		await command.handler("", ctx);
 
-		// Simulate a user turn — should be ignored
+		// Simulate a user turn in the new session — should be ignored
 		pi.emitTurnEnd(
 			{ message: { role: "user", content: "some user text" } },
-			ctx,
+			newCtx as unknown as ExtensionCommandContext,
 		);
 		expect(editorTexts).toHaveLength(0);
 	});
@@ -144,20 +147,20 @@ describe("setupSpecMode", () => {
 		const pi = createMockPi();
 		setupSpecMode(pi);
 		const command = registeredCommands.get("spec")!;
-		const { ctx, editorTexts } = createMockCtx();
+		const { ctx, editorTexts, newCtx } = createMockCtx();
 
 		await command.handler("", ctx);
 
 		pi.emitTurnEnd(
 			{ message: { role: "assistant", content: [{ type: "text", text: "First plan" }] } },
-			ctx,
+			newCtx as unknown as ExtensionCommandContext,
 		);
 		expect(editorTexts).toContain("First plan");
 
-		// Second assistant turn should be ignored
+		// Second assistant turn in the new session should be ignored
 		pi.emitTurnEnd(
 			{ message: { role: "assistant", content: [{ type: "text", text: "Second plan" }] } },
-			ctx,
+			newCtx as unknown as ExtensionCommandContext,
 		);
 		expect(editorTexts).toHaveLength(1);
 		expect(editorTexts).not.toContain("Second plan");

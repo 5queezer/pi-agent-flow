@@ -33,7 +33,7 @@ declare module "@mariozechner/pi-coding-agent" {
 			notify?: (message: string, type: string) => void;
 			setEditorText?: (text: string) => void;
 		};
-		sessionManager: { getSessionDir(): string; getHeader(): unknown; getBranch(): unknown[] };
+		sessionManager: { getSessionDir(): string; getHeader(): unknown; getBranch(): unknown[]; getSessionId(): string };
 	}
 	export interface Theme {
 		fg(key: string, text: string): string;
@@ -73,6 +73,7 @@ declare module "@mariozechner/pi-coding-agent" {
 			onTerminalInput?: (handler: (data: string) => { consume?: boolean } | undefined) => (() => void);
 			setEditorText?: (text: string) => void;
 		};
+		sessionManager: { getSessionDir(): string; getHeader(): unknown; getBranch(): unknown[]; getSessionId(): string };
 		newSession(opts?: {
 			parentSession?: string;
 			withSession?: (ctx: ReplacedSessionContext) => Promise<void>;

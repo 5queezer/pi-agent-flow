@@ -177,6 +177,18 @@ describe('ScrambleStateManager (stream mode)', () => {
 		expect(hasDimAnsi(result)).toBe(true);
 	});
 
+	it('streamAct does not reset on same tool with different args', () => {
+		const base = 2000000;
+		// First tool call
+		manager.streamAct(TEST_ID, 'ls /foo/bar/a', base, false, 40);
+		// Let it fully reveal
+		const before = manager.streamAct(TEST_ID, 'ls /foo/bar/a', base + 500, false, 40);
+		expect(hasDimAnsi(before)).toBe(false);
+		// Same tool, different path — should NOT reset (no dim scramble)
+		const result = manager.streamAct(TEST_ID, 'ls /foo/bar/b', base + 600, false, 40);
+		expect(hasDimAnsi(result)).toBe(false);
+	});
+
 	it('streamMsg reveals streaming text progressively', () => {
 		const base = 1000000;
 		const result = manager.streamMsg(TEST_ID, 'Found 4 files', base, false, 40);
@@ -914,5 +926,23 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		expect(manager.hasAnyActiveAnimations(base)).toBe(false);
 		manager.updateMsg(TEST_ID, 'changed text here.', base + 300);
 		expect(manager.hasAnyActiveAnimations(base + 300)).toBe(true);
+	});
+
+	it('updateMsg does not flush on tail-view slide (high overlap)', () => {
+		const base = 8000000;
+		manager.updateMsg(TEST_ID, 'lo world foo bar', base);
+		// Simulate a 1-char tail window slide: old suffix overlaps new prefix (>50%)
+		const result = manager.updateMsg(TEST_ID, 'o world foo bar b', base + 100);
+		// Should NOT spawn a new ripple immediately — displayedText stays old
+		expect(result.content).not.toContain(CYAN_GLOW);
+	});
+
+	it('updateMsg flushes on slide after timeout', () => {
+		const base = 9000000;
+		manager.updateMsg(TEST_ID, 'lo world foo bar', base);
+		// Wait past MAX_PHRASE_BUFFER_TIME (500ms) with a sliding window
+		const result = manager.updateMsg(TEST_ID, 'world foo bar baz', base + 600);
+		// Timeout should force flush
+		expect(result.isAnimating).toBe(true);
 	});
 });

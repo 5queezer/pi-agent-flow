@@ -188,8 +188,17 @@ function findPhraseBoundary(text: string, minLen: number = MIN_PHRASE_LENGTH): n
 
 function shouldFlushPhrase(text: string, displayed: string, lastFlushTime: number, now: number): boolean {
 	if (text === displayed) return false;
-	// If text is completely different (not incremental), flush immediately
-	if (!text.startsWith(displayed) && !displayed.startsWith(text)) return true;
+	// If text is completely different (not incremental), check if it's just a slide
+	if (!text.startsWith(displayed) && !displayed.startsWith(text)) {
+		// Tail-view windows slide: old suffix overlaps new prefix.
+		// If overlap is significant (>50%), treat as a slide, not a rewrite.
+		const overlap = computeOverlapLen(displayed, text);
+		const minLen = Math.min(displayed.length, text.length);
+		if (overlap > 0 && overlap >= minLen * 0.5) {
+			return now - lastFlushTime > MAX_PHRASE_BUFFER_TIME;
+		}
+		return true;
+	}
 	// Check buffer timeout
 	if (now - lastFlushTime > MAX_PHRASE_BUFFER_TIME) return true;
 	// Find new content added since displayed
@@ -559,7 +568,16 @@ function processLine(
 				state.lastAnimTime = now;
 				state.ripples.push(spawnIlluminateRipple(randomizedCenter(newText.length), now, ILLUMINATE_CONFIGS.msgContent));
 			} else {
-				// Text changed but no flush yet — update lastText for tracking
+				// Text changed but no flush yet — update lastText for tracking.
+				// For tail-view slides (non-extension), also update displayedText
+				// so the rendered text tracks the sliding window instead of
+				// showing stale buffered content mixed with scramble ripples.
+				const isExtension = state.displayedText &&
+					newText.startsWith(state.displayedText) &&
+					newText.length > state.displayedText.length;
+				if (!isExtension) {
+					state.displayedText = newText;
+				}
 				state.lastText = newText;
 			}
 		} else {
@@ -588,6 +606,18 @@ function processLine(
 	}
 	if (!textChanged) return;
 	const oldText = state.lastText;
+	// Detect tail-view slides: if old suffix matches new prefix significantly,
+	// the visible window is just sliding — don't restart animation.
+	const overlap = computeOverlapLen(oldText, newText);
+	const minLen = Math.min(oldText.length, newText.length);
+	if (overlap > 0 && overlap >= minLen * 0.5) {
+		state.lastText = newText;
+		// Clean expired ripples but don't spawn new ones for a slide
+		if (mode === 'ripple') {
+			state.ripples = state.ripples.filter((r) => now - r.time < r.dur);
+		}
+		return;
+	}
 	const cooledDown = now - state.lastAnimTime > MIN_RIPPLE_INTERVAL;
 	if (cooledDown) {
 		state.lastText = newText;
@@ -700,7 +730,22 @@ export class ScrambleStateManager {
 	// -----------------------------------------------------------------------
 
 	updateAct(id: string, text: string, now: number, isComplete: boolean = false): ScrambleResult {
+		if (isComplete) {
+			const record = this.cache.get(id);
+			if (!record) return { label: 'act:', content: text, isAnimating: false };
+		}
 		const state = this.getState(id, 'act');
+		// Reset if a previously-completed flow is now running again (new flow started)
+		if (!isComplete && state.completed) {
+			state.completed = false;
+			state.queue = [];
+			state.ripples = [];
+			state.lastText = '';
+			state.initialized = false;
+			state.phraseBuffer = '';
+			state.displayedText = '';
+			state.lastFlushTime = 0;
+		}
 		if (isComplete) {
 			state.completed = true;
 			state.queue = [];
@@ -718,7 +763,22 @@ export class ScrambleStateManager {
 	// -----------------------------------------------------------------------
 
 	updateMsg(id: string, text: string, now: number, isComplete: boolean = false): ScrambleResult {
+		if (isComplete) {
+			const record = this.cache.get(id);
+			if (!record) return { label: 'msg:', content: text, isAnimating: false };
+		}
 		const state = this.getState(id, 'msg');
+		// Reset if a previously-completed flow is now running again (new flow started)
+		if (!isComplete && state.completed) {
+			state.completed = false;
+			state.queue = [];
+			state.ripples = [];
+			state.lastText = '';
+			state.initialized = false;
+			state.phraseBuffer = '';
+			state.displayedText = '';
+			state.lastFlushTime = 0;
+		}
 		if (isComplete) {
 			state.completed = true;
 			state.queue = [];
@@ -744,6 +804,13 @@ export class ScrambleStateManager {
 	 * resolved and only newly-entered chars are scrambled.
 	 */
 	streamMsg(id: string, fullText: string, now: number, isComplete: boolean, budget: number): string {
+		if (isComplete) {
+			const record = this.streamState.get(id);
+			if (!record) {
+				const cleanText = stripAnsi(fullText);
+				return tailText(cleanText, budget);
+			}
+		}
 		const state = this.getStreamState(id, 'msg');
 
 		if (isComplete && !state.completed) {
@@ -771,7 +838,12 @@ export class ScrambleStateManager {
 			// Find how much of the old visible text is still at the start of
 			// the new visible text. Chars that slid out of view reduce the
 			// revealed count so the visible window doesn't flash to pure noise.
-			const overlapLen = computeOverlapLen(oldVisibleText, newVisibleText);
+			// Only trust the overlap if the new text continues from the old;
+			// otherwise it's a rewrite and we start from zero.
+			let overlapLen = 0;
+			if (state.fullText && cleanText.startsWith(state.fullText)) {
+				overlapLen = computeOverlapLen(oldVisibleText, newVisibleText);
+			}
 			const charsSlidOut = oldVisibleText.length - overlapLen;
 			state.revealedCount = Math.max(0, state.revealedCount - charsSlidOut);
 			if (charsSlidOut > 0) {
@@ -813,6 +885,13 @@ export class ScrambleStateManager {
 	 * Budget controls truncation (truncateChars, shows beginning).
 	 */
 	streamAct(id: string, fullText: string, now: number, isComplete: boolean, budget: number): string {
+		if (isComplete) {
+			const record = this.streamState.get(id);
+			if (!record) {
+				const cleanText = stripAnsi(fullText);
+				return cleanText.length > budget ? cleanText.slice(0, budget) : cleanText;
+			}
+		}
 		const state = this.getStreamState(id, 'act');
 
 		if (isComplete && !state.completed) {
@@ -831,17 +910,17 @@ export class ScrambleStateManager {
 		// Strip ANSI for stable comparison (formatFlowToolCall adds color codes)
 		const cleanText = stripAnsi(fullText);
 
-		// Detect tool call change — reset if text differs
+		// Detect tool call change — reset only when the tool name (first word) changes.
+		// This avoids restarting the typewriter for minor arg changes of the same tool.
 		if (state.fullText && cleanText !== state.fullText) {
-			// Only reset if significantly different (different tool name)
-			const prefixChanged = cleanText.slice(0, 10) !== state.fullText.slice(0, 10);
-			if (prefixChanged) {
+			const oldTool = state.fullText.split(' ')[0];
+			const newTool = cleanText.split(' ')[0];
+			if (oldTool !== newTool) {
 				state.fullText = cleanText;
 				state.revealedCount = 0;
 				state.lastRevealTime = now;
 				state.cursorChars = [];
 			} else {
-				// Same tool, just params changed — update text, keep cursor
 				state.fullText = cleanText;
 			}
 		} else if (!state.fullText) {
@@ -884,11 +963,23 @@ export class ScrambleStateManager {
 
 	updateTps(id: string, tpsText: string, now: number, isComplete: boolean = false): string {
 		if (!tpsText || tpsText.trim() === '-') return tpsText;
+		if (isComplete) {
+			const s = this.tpsState.get(id);
+			if (!s) return tpsText;
+		}
 		let state = this.tpsState.get(id);
 		if (!state) {
 			state = createValueFlashState();
 			state.prev = tpsText;
 			this.tpsState.set(id, state);
+		}
+		// Reset if a previously-completed flow is now running again (new flow started)
+		if (!isComplete && state.completed) {
+			state.completed = false;
+			state.prev = '';
+			state.queue = [];
+			state.ripple = null;
+			state.startTime = 0;
 		}
 		if (isComplete) {
 			state.completed = true;
@@ -1046,6 +1137,9 @@ export class ScrambleStateManager {
 			streamRecord.act.completed = true;
 			streamRecord.act.revealedCount = streamRecord.act.fullText.length;
 		}
+		// Do NOT delete Map entries — early-return guards in update/stream
+		// methods already return static content for completed flows.
+		// Deleting risks state recreation mid-session and flicker.
 	}
 
 	/** Legacy aliases */

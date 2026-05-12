@@ -424,6 +424,10 @@ function renderFlowCollapsed(
 		0, 0,
 	));
 
+	if (isComplete) {
+		scrambleManager.completeFlow(id);
+	}
+
 	return container;
 }
 
@@ -610,6 +614,10 @@ function renderActivityPanel(
 			`${theme.fg("dim", msgPrefix)}${theme.fg(useError ? "error" : "dim", italic(msgContent))}`,
 			0, 0,
 		));
+
+		if (flowComplete) {
+			scrambleManager.completeFlow(flowId);
+		}
 
 		// Add blank line separator between flows (with continuation pipe)
 		if (!isLast) {

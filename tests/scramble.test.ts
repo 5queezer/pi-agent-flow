@@ -1033,35 +1033,50 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		expect(manager.getMode()).toBe('illuminate');
 	});
 
-	it('updateMsg buffers phrases and flushes at boundaries', () => {
+	it('updateMsg shows plain text while streaming, then ripples when stable', () => {
 		const base = 2000000;
 		manager.updateMsg(TEST_ID, 'Hello world', base);
-		// Same text — no flush; msg: in illuminate mode initializes silently
+		// Same text — no ripple yet (needs debounce period)
 		const same = manager.updateMsg(TEST_ID, 'Hello world', base + 100);
 		expect(same.isAnimating).toBe(false);
-		// New text with phrase boundary — triggers flush and ripple
-		manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 1300);
-		// Ripple is active for 850ms — verify animation is detected
-		expect(manager.hasAnyActiveAnimations(base + 1400)).toBe(true);
-		// Content should show scramble chars once ripple has expanded
-		const result = manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 1500);
-		// Smooth truecolor uses \x1b[38;2;R;G;Bm instead of hard threshold constants
-		expect(result.content).toContain('\x1b[38;2;');
+		expect(stripAnsi(same.content)).toBe('Hello world');
+
+		// Text changes while streaming — shows plain, no ripple
+		const streaming = manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 200);
+		expect(streaming.isAnimating).toBe(false);
+		expect(stripAnsi(streaming.content)).toBe('Hello world. How are you?');
+
+		// After debounce (350ms) — ripple fires on stable text
+		const stable = manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 600);
+		expect(stable.isAnimating).toBe(true);
+		expect(stable.content).toContain('\x1b[38;2;');
 	});
 
-	it('updateMsg does not flush before phrase boundary', () => {
+	it('updateMsg does not ripple while text is actively changing', () => {
 		const base = 2000000;
 		manager.updateMsg(TEST_ID, 'Hello', base);
-		// Small change without boundary — should keep old display
-		const result = manager.updateMsg(TEST_ID, 'Hello wor', base + 300);
-		expect(result.content).toBeDefined();
+		// Text changes rapidly — should stay plain, no animation
+		const r1 = manager.updateMsg(TEST_ID, 'Hello wor', base + 100);
+		expect(r1.isAnimating).toBe(false);
+		expect(stripAnsi(r1.content)).toBe('Hello wor');
+
+		// More changes before debounce elapses — still plain
+		const r2 = manager.updateMsg(TEST_ID, 'Hello world', base + 300);
+		expect(r2.isAnimating).toBe(false);
+		expect(stripAnsi(r2.content)).toBe('Hello world');
 	});
 
-	it('updateMsg flushes after max buffer time even without boundary', () => {
+	it('updateMsg ripples once after text stabilizes', () => {
 		const base = 2000000;
 		manager.updateMsg(TEST_ID, 'Hello', base);
-		// Wait longer than MAX_PHRASE_BUFFER_TIME (1200ms)
-		const result = manager.updateMsg(TEST_ID, 'Hello world how are', base + 1300);
+		// Text changes at t=100, t=200
+		manager.updateMsg(TEST_ID, 'Hello world', base + 100);
+		const preStable = manager.updateMsg(TEST_ID, 'Hello world how are', base + 200);
+		expect(preStable.isAnimating).toBe(false);
+		expect(stripAnsi(preStable.content)).toBe('Hello world how are');
+
+		// Wait past MSG_STABLE_DEBOUNCE_MS (350ms) — ripple fires
+		const result = manager.updateMsg(TEST_ID, 'Hello world how are', base + 600);
 		expect(result.isAnimating).toBe(true);
 	});
 
@@ -1118,27 +1133,26 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		expect(result.content).not.toContain(CYAN_GLOW);
 	});
 
-	it('buffers non-extension text instead of showing raw newText immediately', () => {
+	it('shows plain text immediately on text changes', () => {
 		const base = 8000000;
 		manager.updateMsg(TEST_ID, 'hello world today', base);
-		// Overlapping slide: significant overlap (>50%) prevents immediate flush
+		// Text changes — should show latest text as plain immediately
 		const result = manager.updateMsg(TEST_ID, 'world today is nice', base + 100);
-		// Should show old displayedText with scramble effect, not raw new text
 		const stripped = stripAnsi(result.content);
-		// Should NOT be the raw new text immediately
-		expect(stripped).not.toBe('world today is nice');
-		// Should show buffered old text (no scramble yet — phrase buffering)
-		expect(stripped.length).toBe('hello world today'.length);
-		// Verify state: old text is still displayed, new text is pending, no animation yet
+		expect(stripped).toBe('world today is nice');
 		expect(result.isAnimating).toBe(false);
 	});
 
-	it('updateMsg flushes on slide after timeout', () => {
+	it('updateMsg ripples on slide after text stabilizes', () => {
 		const base = 9000000;
 		manager.updateMsg(TEST_ID, 'lo world foo bar', base);
-		// Wait past MAX_PHRASE_BUFFER_TIME (1200ms) with a sliding window
-		const result = manager.updateMsg(TEST_ID, 'world foo bar baz', base + 1300);
-		// Timeout should force flush
+		// Sliding window changes — text is plain while sliding
+		const sliding = manager.updateMsg(TEST_ID, 'world foo bar baz', base + 100);
+		expect(sliding.isAnimating).toBe(false);
+		expect(stripAnsi(sliding.content)).toBe('world foo bar baz');
+
+		// After debounce — ripple fires on stable text
+		const result = manager.updateMsg(TEST_ID, 'world foo bar baz', base + 500);
 		expect(result.isAnimating).toBe(true);
 	});
 });
@@ -1867,45 +1881,37 @@ describe('ScrambleStateManager (illuminate mode) — ripple coexistence', () => 
 		expect(manager.getMode()).toBe('illuminate');
 	});
 
-	it('updateMsg staticLine keeps old illuminate ripples on text change', () => {
+	it('updateMsg staticLine shows plain text then ripples once when stable', () => {
 		const base = 5000000;
 		manager.updateMsg(TEST_ID, 'Hello world. How are you?', base, false, undefined, true);
-		// After cooldown, change text with a significant rewrite (not a minor mutation)
-		manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 1300, false, undefined, true);
-		// Evaluate at a later time when ripple has expanded enough to scramble
-		const result = manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 1600, false, undefined, true);
+		// Text changes rapidly — plain text, no ripple
+		const streaming = manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 100, false, undefined, true);
+		expect(streaming.isAnimating).toBe(false);
+		expect(stripAnsi(streaming.content)).toBe('Goodbye world. How is it?');
+
+		// After debounce — ripple fires on stable text
+		const result = manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 500, false, undefined, true);
 		expect(result.isAnimating).toBe(true);
-		// Should contain truecolor ANSI (illuminate signature)
 		expect(result.content).toContain('\x1b[38;2;');
 	});
 
-	it('updateMsg staticLine spawns new ripple immediately when old expires and text changed', () => {
+	it('updateMsg staticLine does not re-ripple unchanged stable text', () => {
 		const base = 6000000;
 		manager.setMode('illuminate');
-		// First call: initialize (no ripple in illuminate mode)
+		// Initialize
 		manager.updateMsg(TEST_ID, 'running...', base, false, undefined, true);
 
-		// Wait for cooldown, then change text — spawns first ripple
-		const firstRipple = manager.updateMsg(TEST_ID, 'running... done', base + 600, false, undefined, true);
+		// Text changes — plain
+		manager.updateMsg(TEST_ID, 'running... done', base + 100, false, undefined, true);
+
+		// Stable after debounce — first ripple fires
+		const firstRipple = manager.updateMsg(TEST_ID, 'running... done', base + 500, false, undefined, true);
 		expect(firstRipple.isAnimating).toBe(true);
 
-		// During ripple: text changes, but suppressed by isLineAnimating
-		manager.updateMsg(TEST_ID, 'Context mapped. Scout flow active.', base + 700, false, undefined, true);
-
-		// After ripple expires (dur=450ms + offset=120, spawned at base+480) and text has changed:
-		// With the bug: lastAnimTime reset on expiry, cooldown blocks spawn → plain text
-		// With the fix: justExpired && textChanged → spawn immediately
-		const result = manager.updateMsg(TEST_ID, 'Context mapped. Scout flow active.', base + 950, false, undefined, true);
-
-		// Should be animating (new ripple spawned)
-		expect(result.isAnimating).toBe(true);
-
-		// Evaluate at a later time when ripple has expanded enough to scramble
-		const later = manager.updateMsg(TEST_ID, 'Context mapped. Scout flow active.', base + 1100, false, undefined, true);
-		// Should be scrambled, not plain text
-		expect(stripAnsi(later.content)).not.toBe('Context mapped. Scout flow active.');
-		// Should contain illuminate ANSI codes
-		expect(later.content).toContain('\x1b[38;2;');
+		// Ripple finishes, text still stable — no re-ripple
+		const later = manager.updateMsg(TEST_ID, 'running... done', base + 1000, false, undefined, true);
+		expect(later.isAnimating).toBe(false);
+		expect(stripAnsi(later.content)).toBe('running... done');
 	});
 });
 
@@ -1941,15 +1947,18 @@ describe('ScrambleStateManager — lastFlushTime init', () => {
 		expect(result.isAnimating).toBe(true);
 	});
 
-	it('does not timeout-flush on first text change when mode is illuminate', () => {
+	it('ripples on stable text after debounce in illuminate mode', () => {
 		manager.setMode('illuminate');
 		const base = 1_000_000;
 		manager.updateMsg(TEST_ID, 'Hello world.', base, false, undefined, true);
-		// Wait past timeout (1200ms) to force flush + ripple
-		const r1 = manager.updateMsg(TEST_ID, 'Hello world. How are you today?', base + 1300, false, undefined, true);
-		expect(r1.isAnimating).toBe(true);
-		// Ripple at elapsed=0 has radius=0; check again later when expanded
-		const r2 = manager.updateMsg(TEST_ID, 'Hello world. How are you today?', base + 1600, false, undefined, true);
+		// Text streams in — plain
+		const r1 = manager.updateMsg(TEST_ID, 'Hello world. How are you today?', base + 100, false, undefined, true);
+		expect(r1.isAnimating).toBe(false);
+		expect(stripAnsi(r1.content)).toBe('Hello world. How are you today?');
+
+		// After debounce — ripple fires
+		const r2 = manager.updateMsg(TEST_ID, 'Hello world. How are you today?', base + 500, false, undefined, true);
+		expect(r2.isAnimating).toBe(true);
 		expect(r2.content).toContain('\x1b[38;2;');
 	});
 });

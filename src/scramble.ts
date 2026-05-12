@@ -183,6 +183,11 @@ const CASCADE_FLASH_MAX_LENGTH = 8;
 const MAX_PHRASE_BUFFER_TIME = 550;
 const MIN_PHRASE_LENGTH = 60;
 
+// Drain timeout: partial chunk ripples when text stops changing for this long.
+// Tokens arrive ~200ms apart at 196 TPS; 350ms is long enough to avoid firing
+// during active streaming but short enough to feel responsive when tool calls pause.
+const MSG_CHUNK_DRAIN_MS = 350;
+
 // TPS hysteresis
 const TPS_HYSTERESIS_PCT = 0.15;
 const TPS_HYSTERESIS_MS = 2000;
@@ -278,6 +283,8 @@ interface LineState {
 	resolvedMask: Set<number>;
 	// Age tracking for cache eviction
 	lastAccessTime: number;
+	// Drain timing: when text last changed (for partial chunk drain)
+	lastTextChangeTime: number;
 }
 
 /** Phrase boundary detection for illuminate msg: streaming */
@@ -851,6 +858,7 @@ function processLine(
 			if (lineKey === 'msg') {
 				state.displayedText = newText;
 				state.lastFlushTime = now;
+				state.lastTextChangeTime = now;
 			} else {
 				state.displayedText = newText;
 				state.lastFlushTime = now;
@@ -877,12 +885,20 @@ function processLine(
 			if (textChanged) {
 				state.lastText = newText;
 				state.phraseBuffer = newText;
+				state.lastTextChangeTime = now;
 				// During active ripple, keep displayedText frozen (text being scrambled)
 				// Between ripples, displayedText stays as last rippled text for chunk detection
 			}
 
 			// If no active ripple and accumulated content meets chunk threshold → fire ripple
 			if (!hasActiveRipples && shouldFlushPhrase(newText, state.displayedText, state.lastFlushTime, now)) {
+				state.displayedText = newText;
+				state.lastFlushTime = now;
+				state.lastAnimTime = now;
+				state.ripples.push(spawnIlluminateRipple(randomizedCenter(newText.length), now, ILLUMINATE_CONFIGS.msgContent));
+			} else if (!hasActiveRipples && newText !== state.displayedText && now - state.lastTextChangeTime > MSG_CHUNK_DRAIN_MS) {
+				// Drain: text stopped arriving and we have unrippled content —
+				// ripple it out so it doesn't sit plain indefinitely.
 				state.displayedText = newText;
 				state.lastFlushTime = now;
 				state.lastAnimTime = now;
@@ -1000,6 +1016,7 @@ function createLineState(): LineState {
 		targetText: '',
 		resolvedMask: new Set(),
 		lastAccessTime: Date.now(),
+		lastTextChangeTime: 0,
 	};
 }
 
@@ -1427,6 +1444,7 @@ export class ScrambleStateManager {
 				state.displayedText = visibleText;
 				state.phraseBuffer = visibleText;
 				state.lastAnimTime = 0;
+				state.lastTextChangeTime = now;
 			} else {
 				state.displayedText = visibleText;
 				state.phraseBuffer = visibleText;
@@ -1451,10 +1469,18 @@ export class ScrambleStateManager {
 				if (textChanged) {
 					state.lastText = visibleText;
 					state.phraseBuffer = visibleText;
+					state.lastTextChangeTime = now;
 				}
 
 				// If no active ripple and accumulated content meets chunk threshold → fire ripple
 				if (!hasActiveRipples && shouldFlushPhrase(visibleText, state.displayedText, state.lastFlushTime, now)) {
+					state.displayedText = visibleText;
+					state.lastFlushTime = now;
+					state.lastAnimTime = now;
+					state.ripples.push(spawnIlluminateRipple(randomSentenceStart(visibleText), now, ILLUMINATE_CONFIGS.msgContent));
+				} else if (!hasActiveRipples && visibleText !== state.displayedText && now - state.lastTextChangeTime > MSG_CHUNK_DRAIN_MS) {
+					// Drain: text stopped arriving and we have unrippled content —
+					// ripple it out so it doesn't sit plain indefinitely.
 					state.displayedText = visibleText;
 					state.lastFlushTime = now;
 					state.lastAnimTime = now;

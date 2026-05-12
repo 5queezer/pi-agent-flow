@@ -1891,24 +1891,30 @@ describe('ScrambleStateManager (illuminate mode) — ripple coexistence', () => 
 		expect(result.content).toContain('\x1b[38;2;');
 	});
 
-	it('updateMsg staticLine does not re-ripple unchanged stable text', () => {
+	it('updateMsg staticLine drains partial chunk after pause', () => {
 		const base = 6000000;
 		manager.setMode('illuminate');
 		// Initialize with short text
 		manager.updateMsg(TEST_ID, 'running...', base, false, undefined, true);
 
-		// Text changes to short text — no ripple (chunk too small)
+		// Text changes to short text — no immediate ripple (chunk too small)
 		manager.updateMsg(TEST_ID, 'running... done', base + 100, false, undefined, true);
-		const preRipple = manager.updateMsg(TEST_ID, 'running... done', base + 500, false, undefined, true);
-		expect(preRipple.isAnimating).toBe(false);
+		// After drain timeout (350ms) with no new text — ripple fires on leftover content
+		const drainRipple = manager.updateMsg(TEST_ID, 'running... done', base + 500, false, undefined, true);
+		expect(drainRipple.isAnimating).toBe(true);
+
+		// Ripple finishes, text still stable — no re-ripple on unchanged text
+		const stable = manager.updateMsg(TEST_ID, 'running... done', base + 2000, false, undefined, true);
+		expect(stable.isAnimating).toBe(false);
+		expect(stripAnsi(stable.content)).toBe('running... done');
 
 		// Text changes with sentence boundary — chunk threshold met, ripple fires
 		const longText = 'running... done. Now we are processing the data and analyzing the results carefully.';
-		const firstRipple = manager.updateMsg(TEST_ID, longText, base + 600, false, undefined, true);
-		expect(firstRipple.isAnimating).toBe(true);
+		const chunkRipple = manager.updateMsg(TEST_ID, longText, base + 3000, false, undefined, true);
+		expect(chunkRipple.isAnimating).toBe(true);
 
 		// Ripple finishes, text still stable — no re-ripple
-		const later = manager.updateMsg(TEST_ID, longText, base + 2000, false, undefined, true);
+		const later = manager.updateMsg(TEST_ID, longText, base + 5000, false, undefined, true);
 		expect(later.isAnimating).toBe(false);
 		expect(stripAnsi(later.content)).toBe(longText);
 	});

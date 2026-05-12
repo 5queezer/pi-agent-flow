@@ -1,5 +1,15 @@
-import type { ExtensionAPI, ExtensionCommandContext, ReplacedSessionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ReplacedSessionContext, TurnEndEvent } from "@mariozechner/pi-coding-agent";
 import { isSpecModeActive, setSpecModeActive } from "./sliding-prompt.js";
+
+let _waitingForSpecPlan = false;
+
+function extractTextFromContent(content: string | Array<{ type: string; text?: string }>): string {
+	if (typeof content === "string") return content;
+	return content
+		.filter((part): part is { type: "text"; text: string } => part.type === "text" && typeof part.text === "string")
+		.map((part) => part.text)
+		.join("");
+}
 
 /**
  * Setup the /spec command as a persistent toggle between spec mode
@@ -10,6 +20,15 @@ import { isSpecModeActive, setSpecModeActive } from "./sliding-prompt.js";
  * the appropriate prompt content each turn.
  */
 export function setupSpecMode(pi: ExtensionAPI): void {
+	pi.on("turn_end", (event: TurnEndEvent, ctx: ExtensionCommandContext) => {
+		if (!_waitingForSpecPlan || event.message?.role !== "assistant") return;
+		const text = extractTextFromContent(event.message.content);
+		if (text.trim()) {
+			ctx.ui.setEditorText?.(text);
+		}
+		_waitingForSpecPlan = false;
+	});
+
 	pi.registerCommand("spec", {
 		description: "Toggle spec-driven planning mode on/off, or pass a prompt to activate and start immediately.",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
@@ -24,7 +43,8 @@ export function setupSpecMode(pi: ExtensionAPI): void {
 					const result = await ctx.newSession({
 						withSession: async (newCtx: ReplacedSessionContext) => {
 							setSpecModeActive(false);
-							await newCtx.sendUserMessage("Review the conversation history, synthesize a full implementation plan from all the discussion, decisions, and context gathered. Write that complete plan to `.specs/{slug}/spec.md` (create the directory if needed), using the spec template. Then proceed with implementation.");
+							_waitingForSpecPlan = true;
+							await newCtx.sendUserMessage("Synthesize a full implementation plan from the conversation history. Output ONLY the complete markdown spec (no tool calls after you start writing). After you finish, the plan will be placed in the editor for review.");
 							newCtx.ui.notify?.("Spec mode deactivated", "info");
 						},
 					});

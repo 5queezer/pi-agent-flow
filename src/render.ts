@@ -236,25 +236,30 @@ function renderFlowExpanded(
 	const typeName = formatFlowTypeName(r.type);
 	let header = theme.fg("toolTitle", theme.bold(typeName));
 	if (error && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
-	container.addChild(new Text(header, 0, 0));
+	const plainHeader = typeName + (error && r.stopReason ? ` [${r.stopReason}]` : "");
+	const headerResult = scrambleManager.updateText(id, 'header', plainHeader, now, isComplete);
+	container.addChild(new Text(headerResult.isAnimating ? theme.fg("toolTitle", headerResult.content) : header, 0, 0));
 	if (error && r.errorMessage) {
 		container.addChild(new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0));
 	}
 
 	// Stats: dashboard format
 	const inlineStats = formatCompactStats(r.usage, r.model);
-	container.addChild(new Text(theme.fg("dim", inlineStats), 0, 0));
+	const statsResult = scrambleManager.updateText(id, 'stats', stripAnsi(inlineStats), now, isComplete);
+	container.addChild(new Text(statsResult.isAnimating ? theme.fg("dim", statsResult.content) : theme.fg("dim", inlineStats), 0, 0));
 
 	// Intent
 	container.addChild(new Spacer(1));
 	container.addChild(new Text(theme.fg("muted", sectionHeader("intent")), 0, 0));
-	container.addChild(new Text(theme.fg("dim", r.intent), 0, 0));
+	const intentResult = scrambleManager.updateText(id, 'intent', r.intent, now, isComplete);
+	container.addChild(new Text(intentResult.isAnimating ? theme.fg("dim", intentResult.content) : theme.fg("dim", r.intent), 0, 0));
 
 	// Acceptance
 	if (r.acceptance) {
 		container.addChild(new Spacer(1));
 		container.addChild(new Text(theme.fg("muted", sectionHeader("acceptance")), 0, 0));
-		container.addChild(new Text(theme.fg("dim", r.acceptance), 0, 0));
+		const acceptanceResult = scrambleManager.updateText(id, 'acceptance', r.acceptance, now, isComplete);
+		container.addChild(new Text(acceptanceResult.isAnimating ? theme.fg("dim", acceptanceResult.content) : theme.fg("dim", r.acceptance), 0, 0));
 	}
 
 	// Flow report (structured output)
@@ -265,33 +270,42 @@ function renderFlowExpanded(
 	if (r.structuredOutput) {
 		const so = r.structuredOutput;
 		const statusColor = so.status === "complete" ? "success" : so.status === "partial" ? "warning" : "error";
+		const statusText = `[${so.status}] ${so.summary}`;
+		const statusResult = scrambleManager.updateText(id, 'report-status', statusText, now, isComplete);
 		container.addChild(new Text(
-			`${theme.fg(statusColor, `[${so.status}]`)} ${theme.fg("dim", so.summary)}`,
+			statusResult.isAnimating ? `${theme.fg(statusColor, statusResult.content.split(' ')[0])} ${theme.fg("dim", statusResult.content.slice(statusResult.content.indexOf(' ') + 1))}` : `${theme.fg(statusColor, `[${so.status}]`)} ${theme.fg("dim", so.summary)}`,
 			0, 0,
 		));
 		if (so.files.length > 0) {
-			container.addChild(new Text(theme.fg("dim", `Files: ${so.files.map((f) => f.path).join(", ")}`), 0, 0));
+			const filesText = `Files: ${so.files.map((f) => f.path).join(", ")}`;
+			const filesResult = scrambleManager.updateText(id, 'report-files', filesText, now, isComplete);
+			container.addChild(new Text(filesResult.isAnimating ? theme.fg("dim", filesResult.content) : theme.fg("dim", filesText), 0, 0));
 		}
 		if (so.commands?.length > 0) {
 			const cmdLabels = so.commands.map((c) => {
 				const short = c.command.length > 30 ? c.command.slice(0, 30) + "..." : c.command;
 				return `${c.tool ?? "cmd"}: ${short}`;
 			});
-			container.addChild(new Text(theme.fg("dim", `Commands: ${cmdLabels.join(", ")}`), 0, 0));
+			const commandsText = `Commands: ${cmdLabels.join(", ")}`;
+			const commandsResult = scrambleManager.updateText(id, 'report-commands', commandsText, now, isComplete);
+			container.addChild(new Text(commandsResult.isAnimating ? theme.fg("dim", commandsResult.content) : theme.fg("dim", commandsText), 0, 0));
 		}
 		if (so.notDone.length > 0) {
-			const notDoneText = so.notDone.map((item) => {
+			const notDoneText = `Not Done: ${so.notDone.map((item) => {
 				const details = [
 					item.reason ? `reason: ${item.reason}` : undefined,
 					item.blocker ? `blocker: ${item.blocker}` : undefined,
 					item.nextStep ? `next: ${item.nextStep}` : undefined,
 				].filter(Boolean).join("; ");
 				return details ? `${item.item} (${details})` : item.item;
-			}).join("; ");
-			container.addChild(new Text(theme.fg("dim", `Not Done: ${notDoneText}`), 0, 0));
+			}).join("; ")}`;
+			const notDoneResult = scrambleManager.updateText(id, 'report-notDone', notDoneText, now, isComplete);
+			container.addChild(new Text(notDoneResult.isAnimating ? theme.fg("dim", notDoneResult.content) : theme.fg("dim", notDoneText), 0, 0));
 		}
 		if (so.nextSteps.length > 0) {
-			container.addChild(new Text(theme.fg("dim", `Next: ${so.nextSteps.join("; ")}`), 0, 0));
+			const nextStepsText = `Next: ${so.nextSteps.join("; ")}`;
+			const nextStepsResult = scrambleManager.updateText(id, 'report-nextSteps', nextStepsText, now, isComplete);
+			container.addChild(new Text(nextStepsResult.isAnimating ? theme.fg("dim", nextStepsResult.content) : theme.fg("dim", nextStepsText), 0, 0));
 		}
 		container.addChild(new Spacer(1));
 	}
@@ -304,7 +318,8 @@ function renderFlowExpanded(
 		container.addChild(new Markdown(flowOutput.trim(), 0, 0, mdTheme));
 	} else {
 		const summary = getFlowSummaryText(r);
-		container.addChild(new Text(theme.fg("muted", summary), 0, 0));
+		const summaryResult = scrambleManager.updateText(id, 'output-summary', summary, now, isComplete);
+		container.addChild(new Text(summaryResult.isAnimating ? theme.fg("muted", summaryResult.content) : theme.fg("muted", summary), 0, 0));
 	}
 
 	// Tool traces (expanded only) — per-line scramble
@@ -359,9 +374,13 @@ function renderFlowCollapsed(
 	const modelLabel = r.model ? r.model.replace(/^[^/]+\//, "").toLowerCase() : "";
 	let header = `${theme.fg("accent", theme.bold(typeName))}${theme.fg("dim", modelLabel ? ` - ${modelLabel} - ` : " - ")}${theme.fg("dim", displayStats)}`;
 	if (error && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
-	container.addChild(new TruncatedText(header, 0, 0));
+	// Scramble header on first render; show full styled header when complete
+	const plainHeader = typeName + (modelLabel ? ` - ${modelLabel} - ` : " - ") + stripAnsi(displayStats) + (error && r.stopReason ? ` [${r.stopReason}]` : "");
+	const headerResult = scrambleManager.updateText(id, 'header', plainHeader, now, isComplete);
+	const headerDisplay = headerResult.isAnimating ? theme.fg("accent", headerResult.content) : header;
+	container.addChild(new TruncatedText(headerDisplay, 0, 0));
 
-	// aim: line — no animation, content stays still
+	// aim: line — cascade/ripple/illuminate on text change
 	if (r.aim) {
 		const countdown = getLiveCountdown(r);
 		const treePrefix = "├─";
@@ -370,7 +389,9 @@ function renderFlowCollapsed(
 			: `${treePrefix} aim: `;
 		const budget = getTruncationBudget(visibleLength(aimPrefix));
 		const displayAim = truncateChars(lowerFirstWord(r.aim), budget);
-		container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(displayAim))}`, 0, 0));
+		const aimResult = scrambleManager.updateAim(id, displayAim, now, isComplete);
+		const aimContent = aimResult.content;
+		container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(aimContent))}`, 0, 0));
 	}
 
 	// act: line (last tool call with count)
@@ -489,17 +510,21 @@ function renderMultiFlowExpanded(
 
 		container.addChild(new Spacer(1));
 		// Per-flow header: ─── EXPLORER (no icon)
-		container.addChild(new Text(theme.fg("muted", sectionHeader(typeName)), 0, 0));
+		const headerResult = scrambleManager.updateText(flowId, 'header', typeName, now, isComplete);
+		container.addChild(new Text(headerResult.isAnimating ? theme.fg("muted", headerResult.content) : theme.fg("muted", sectionHeader(typeName)), 0, 0));
 
 		// Stats: dashboard format
 		const flowStats = formatCompactStats(r.usage, r.model);
-		container.addChild(new Text(theme.fg("dim", flowStats), 0, 0));
+		const statsResult = scrambleManager.updateText(flowId, 'stats', stripAnsi(flowStats), now, isComplete);
+		container.addChild(new Text(statsResult.isAnimating ? theme.fg("dim", statsResult.content) : theme.fg("dim", flowStats), 0, 0));
 
 		// Intent: just show text, no prefix
-		container.addChild(new Text(theme.fg("dim", r.intent), 0, 0));
+		const intentResult = scrambleManager.updateText(flowId, 'intent', r.intent, now, isComplete);
+		container.addChild(new Text(intentResult.isAnimating ? theme.fg("dim", intentResult.content) : theme.fg("dim", r.intent), 0, 0));
 
 		if (r.acceptance) {
-			container.addChild(new Text(theme.fg("dim", `Acceptance: ${r.acceptance}`), 0, 0));
+			const acceptanceResult = scrambleManager.updateText(flowId, 'acceptance', r.acceptance, now, isComplete);
+			container.addChild(new Text(acceptanceResult.isAnimating ? theme.fg("dim", acceptanceResult.content) : theme.fg("dim", `Acceptance: ${r.acceptance}`), 0, 0));
 		}
 
 		// Output: animate streaming text; show clean markdown when complete
@@ -577,12 +602,15 @@ function renderActivityPanel(
 		if (error && r.stopReason) {
 			headerLine += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 		}
-		container.addChild(new TruncatedText(headerLine, 0, 0));
+		const plainHeader = headerPrefix + " " + typeName + (modelLabel ? ` - ${modelLabel} - ` : " - ") + stripAnsi(displayStats) + (error && r.stopReason ? ` [${r.stopReason}]` : "");
+		const headerResult = scrambleManager.updateText(flowId, 'header', plainHeader, now, flowComplete);
+		const headerDisplay = headerResult.isAnimating ? theme.fg("accent", headerResult.content) : headerLine;
+		container.addChild(new TruncatedText(headerDisplay, 0, 0));
 
 		// Continuation indent for sub-lines
 		const indent = isLast ? "   " : "│  ";
 
-		// aim: line — no animation, content stays still
+		// aim: line — cascade/ripple/illuminate on text change
 		if (r.aim) {
 			const countdown = getLiveCountdown(r);
 			const treePrefix = indent + "├─";
@@ -591,7 +619,9 @@ function renderActivityPanel(
 				: `${treePrefix} aim: `;
 			const budget = getTruncationBudget(visibleLength(aimPrefix));
 			const displayAim = truncateChars(lowerFirstWord(r.aim), budget);
-			container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(displayAim))}`, 0, 0));
+			const aimResult = scrambleManager.updateAim(flowId, displayAim, now, flowComplete);
+			const aimContent = aimResult.content;
+			container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(aimContent))}`, 0, 0));
 		}
 
 		// act: line (last tool call with count)

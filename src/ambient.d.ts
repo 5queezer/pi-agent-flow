@@ -31,6 +31,7 @@ declare module "@mariozechner/pi-coding-agent" {
 			custom: <T>(factory: (tui: any, theme: any, keybindings: any, done: (result: T | null) => void) => any, options?: any) => Promise<T | undefined>;
 			onTerminalInput?: (handler: (data: string) => { consume?: boolean } | undefined) => (() => void);
 			notify?: (message: string, type: string) => void;
+			setEditorText?: (text: string) => void;
 		};
 		sessionManager: { getSessionDir(): string; getHeader(): unknown; getBranch(): unknown[] };
 	}
@@ -70,6 +71,7 @@ declare module "@mariozechner/pi-coding-agent" {
 			input: (prompt: string, placeholder: string, opts?: any) => Promise<string | null>;
 			custom: <T>(factory: (...args: any[]) => any, options?: any) => Promise<T | undefined>;
 			onTerminalInput?: (handler: (data: string) => { consume?: boolean } | undefined) => (() => void);
+			setEditorText?: (text: string) => void;
 		};
 		newSession(opts?: {
 			parentSession?: string;
@@ -83,6 +85,14 @@ declare module "@mariozechner/pi-coding-agent" {
 	/** Fresh command-capable context bound to the replacement session after a session switch. */
 	export interface ReplacedSessionContext extends ExtensionCommandContext {
 		sendUserMessage(content: string, opts?: { deliverAs?: string }): Promise<void>;
+	}
+
+	/** Event payload for pi.on("turn_end", ...) callbacks. */
+	export interface TurnEndEvent {
+		message: {
+			role: string;
+			content: string | Array<{ type: string; text?: string }>;
+		};
 	}
 
 	/** Test-only exports provided by tests/__mocks__/pi-coding-agent.ts. */

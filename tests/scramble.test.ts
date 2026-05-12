@@ -147,10 +147,10 @@ describe('ScrambleStateManager (stream mode)', () => {
 		expect(DEFAULT_MODE).toBe('illuminate');
 	});
 
-	it('updateAim never animates', () => {
+	it('updateAim animates on first call', () => {
 		const result = manager.updateAim(TEST_ID, 'test', Date.now());
-		expect(result.content).toBe('test');
-		expect(result.isAnimating).toBe(false);
+		expect(result.content).not.toBe('test'); // scrambled on first call
+		expect(result.isAnimating).toBe(true);
 	});
 
 	it('streamAct reveals text progressively', () => {

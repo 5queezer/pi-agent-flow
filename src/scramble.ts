@@ -1070,11 +1070,37 @@ export class ScrambleStateManager {
 	}
 
 	// -----------------------------------------------------------------------
-	// aim: — never animates
+	// aim: — cascade/ripple/illuminate on text change
 	// -----------------------------------------------------------------------
 
-	updateAim(id: string, text: string, now: number): ScrambleResult {
-		return { label: 'aim:', content: text, isAnimating: false };
+	updateAim(id: string, text: string, now: number, isComplete: boolean = false): ScrambleResult {
+		if (isComplete) {
+			const record = this.cache.get(id);
+			if (!record) return { label: 'aim:', content: text, isAnimating: false };
+		}
+		const state = this.getState(id, 'aim');
+		// Reset if a previously-completed flow is now running again (new flow started)
+		if (!isComplete && state.completed) {
+			state.completed = false;
+			state.queue = [];
+			state.ripples = [];
+			state.lastText = '';
+			state.initialized = false;
+			state.phraseBuffer = '';
+			state.displayedText = '';
+			state.pendingText = '';
+			state.lastFlushTime = 0;
+		}
+		if (isComplete) {
+			state.completed = true;
+			state.queue = [];
+			state.ripples = [];
+		}
+		if (state.completed) return { label: 'aim:', content: text, isAnimating: false };
+		processLine(state, text, now, this.mode);
+		const content = applyScramble(text, state, now, this.mode, undefined, () => this.poolRandomChar());
+		const isAnimating = this.isLineAnimating(state, now);
+		return { label: 'aim:', content, isAnimating };
 	}
 
 	// -----------------------------------------------------------------------

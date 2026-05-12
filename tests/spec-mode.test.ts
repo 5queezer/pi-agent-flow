@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ExtensionAPI, ReplacedSessionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ReplacedSessionContext, TurnEndEvent } from "@mariozechner/pi-coding-agent";
 import { registeredCommands } from "../tests/__mocks__/pi-coding-agent.js";
 import { setupSpecMode } from "../src/spec-mode.js";
 import {
@@ -10,7 +10,7 @@ import {
 	IMPLEMENT_PROMPT,
 } from "../src/sliding-prompt.js";
 
-function createMockPi(): ExtensionAPI {
+function createMockPi(): ExtensionAPI & { emitTurnEnd(event: TurnEndEvent, ctx: ExtensionCommandContext): void } {
 	const handlers: Record<string, Function[]> = {};
 	return {
 		registerFlag: vi.fn(),
@@ -19,6 +19,11 @@ function createMockPi(): ExtensionAPI {
 			handlers[event].push(handler);
 		}),
 		emit: vi.fn(),
+		emitTurnEnd: (event: TurnEndEvent, ctx: ExtensionCommandContext) => {
+			for (const h of handlers["turn_end"] ?? []) {
+				h(event, ctx);
+			}
+		},
 		registerTool: vi.fn(),
 		setActiveTools: vi.fn(),
 		getActiveTools: vi.fn(() => []),
@@ -27,12 +32,13 @@ function createMockPi(): ExtensionAPI {
 			registeredCommands.set(name, config);
 		}),
 		sendUserMessage: vi.fn(),
-	} as unknown as ExtensionAPI;
+	} as unknown as ExtensionAPI & { emitTurnEnd(event: TurnEndEvent, ctx: ExtensionCommandContext): void };
 }
 
 function createMockCtx(options?: { newSessionCancelled?: boolean }) {
 	const notifyCalls: { msg: string; type: string }[] = [];
 	const sentUserMessages: string[] = [];
+	const editorTexts: string[] = [];
 	const newCtx = {
 		cwd: "/tmp/test",
 		hasUI: true,
@@ -44,6 +50,9 @@ function createMockCtx(options?: { newSessionCancelled?: boolean }) {
 			select: vi.fn(async () => null),
 			input: vi.fn(async () => null),
 			custom: vi.fn(async () => undefined),
+			setEditorText: vi.fn((text: string) => {
+				editorTexts.push(text);
+			}),
 		},
 		sendUserMessage: vi.fn(async (msg: string) => {
 			sentUserMessages.push(msg);
@@ -60,6 +69,9 @@ function createMockCtx(options?: { newSessionCancelled?: boolean }) {
 			select: vi.fn(async () => null),
 			input: vi.fn(async () => null),
 			custom: vi.fn(async () => undefined),
+			setEditorText: vi.fn((text: string) => {
+				editorTexts.push(text);
+			}),
 		},
 		newSession: vi.fn(async (opts?: { withSession?: (ctx: ReplacedSessionContext) => Promise<void> }) => {
 			const cancelled = options?.newSessionCancelled ?? false;
@@ -71,8 +83,8 @@ function createMockCtx(options?: { newSessionCancelled?: boolean }) {
 		navigateTree: vi.fn(async () => ({ cancelled: false })),
 		waitForIdle: vi.fn(async () => {}),
 		reload: vi.fn(async () => {}),
-	};
-	return { ctx, notifyCalls, sentUserMessages, newCtx };
+	} as unknown as ExtensionCommandContext;
+	return { ctx, notifyCalls, sentUserMessages, editorTexts, newCtx };
 }
 
 describe("setupSpecMode", () => {
@@ -81,34 +93,81 @@ describe("setupSpecMode", () => {
 		setSpecModeActive(true); // reset to default
 	});
 
-	it("registers the spec command", () => {
+	it("registers the spec command and turn_end listener", () => {
 		const pi = createMockPi();
 		setupSpecMode(pi);
 
 		expect(registeredCommands.has("spec")).toBe(true);
 		expect(registeredCommands.get("spec")!.description).toContain("Toggle");
+		expect(pi.on).toHaveBeenCalledWith("turn_end", expect.any(Function));
 	});
 
-	it("toggles spec mode off", async () => {
+	it("toggles spec mode off and captures assistant plan into editor", async () => {
 		const pi = createMockPi();
 		setupSpecMode(pi);
 		const command = registeredCommands.get("spec")!;
-		const { ctx, notifyCalls, sentUserMessages } = createMockCtx();
+		const { ctx, notifyCalls, sentUserMessages, editorTexts } = createMockCtx();
 
 		expect(isSpecModeActive()).toBe(true);
 		await command.handler("", ctx);
 		expect(isSpecModeActive()).toBe(false);
 		expect(ctx.newSession).toHaveBeenCalled();
 		expect(notifyCalls.some((n) => n.msg === "Spec mode deactivated")).toBe(true);
-		expect(sentUserMessages).toContain("Review the conversation history, synthesize a full implementation plan from all the discussion, decisions, and context gathered. Write that complete plan to `.specs/{slug}/spec.md` (create the directory if needed), using the spec template. Then proceed with implementation.");
+		expect(sentUserMessages).toContain("Synthesize a full implementation plan from the conversation history. Output ONLY the complete markdown spec (no tool calls after you start writing). After you finish, the plan will be placed in the editor for review.");
 		expect(pi.sendUserMessage).not.toHaveBeenCalled();
+
+		// Simulate assistant responding with the plan
+		pi.emitTurnEnd(
+			{ message: { role: "assistant", content: [{ type: "text", text: "# Plan\n\nImplement caching." }] } },
+			ctx,
+		);
+		expect(editorTexts).toContain("# Plan\n\nImplement caching.");
+	});
+
+	it("does not capture non-assistant turns", async () => {
+		const pi = createMockPi();
+		setupSpecMode(pi);
+		const command = registeredCommands.get("spec")!;
+		const { ctx, editorTexts } = createMockCtx();
+
+		await command.handler("", ctx);
+
+		// Simulate a user turn — should be ignored
+		pi.emitTurnEnd(
+			{ message: { role: "user", content: "some user text" } },
+			ctx,
+		);
+		expect(editorTexts).toHaveLength(0);
+	});
+
+	it("captures only the first assistant turn then stops listening", async () => {
+		const pi = createMockPi();
+		setupSpecMode(pi);
+		const command = registeredCommands.get("spec")!;
+		const { ctx, editorTexts } = createMockCtx();
+
+		await command.handler("", ctx);
+
+		pi.emitTurnEnd(
+			{ message: { role: "assistant", content: [{ type: "text", text: "First plan" }] } },
+			ctx,
+		);
+		expect(editorTexts).toContain("First plan");
+
+		// Second assistant turn should be ignored
+		pi.emitTurnEnd(
+			{ message: { role: "assistant", content: [{ type: "text", text: "Second plan" }] } },
+			ctx,
+		);
+		expect(editorTexts).toHaveLength(1);
+		expect(editorTexts).not.toContain("Second plan");
 	});
 
 	it("stays in spec mode when newSession is cancelled", async () => {
 		const pi = createMockPi();
 		setupSpecMode(pi);
 		const command = registeredCommands.get("spec")!;
-		const { ctx, notifyCalls, sentUserMessages } = createMockCtx({ newSessionCancelled: true });
+		const { ctx, notifyCalls, sentUserMessages, editorTexts } = createMockCtx({ newSessionCancelled: true });
 
 		expect(isSpecModeActive()).toBe(true);
 		await command.handler("", ctx);
@@ -117,6 +176,7 @@ describe("setupSpecMode", () => {
 		expect(notifyCalls.some((n) => n.msg === "Spec mode deactivated")).toBe(false);
 		expect(sentUserMessages).toHaveLength(0);
 		expect(pi.sendUserMessage).not.toHaveBeenCalled();
+		expect(editorTexts).toHaveLength(0);
 	});
 
 	it("toggles spec mode on", async () => {

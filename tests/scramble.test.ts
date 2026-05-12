@@ -1873,3 +1873,84 @@ describe('ScrambleStateManager (illuminate mode) — ripple coexistence', () => 
 		expect(result.content).toContain('\x1b[38;2;');
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Bug fixes — staticLine buffering: lastFlushTime init, budget-overflow,
+// ripple position bounds
+// ---------------------------------------------------------------------------
+
+describe('ScrambleStateManager — lastFlushTime init', () => {
+	let manager: ScrambleStateManager;
+
+	beforeEach(() => {
+		manager = new ScrambleStateManager();
+	});
+
+	it('does not timeout-flush on first text change when mode is ripple', () => {
+		manager.setMode('ripple');
+		const base = 1_000_000;
+		manager.updateMsg(TEST_ID, 'Hello', base, false, undefined, true);
+		// At base + 260 (> MIN_RIPPLE_INTERVAL=250, < MAX_PHRASE_BUFFER_TIME=500)
+		// If lastFlushTime were 0, timeout would force flush. Should buffer instead.
+		const result = manager.updateMsg(TEST_ID, 'Hello world here', base + 260, false, undefined, true);
+		// Should still be animating from init ripple, and text should be the
+		// stable init text (not yet flushed to new text)
+		expect(result.isAnimating).toBe(true);
+	});
+
+	it('does not timeout-flush on first text change when mode is cascade', () => {
+		manager.setMode('cascade');
+		const base = 1_000_000;
+		manager.updateMsg(TEST_ID, 'Hello', base, false, undefined, true);
+		const result = manager.updateMsg(TEST_ID, 'Hello world here', base + 260, false, undefined, true);
+		expect(result.isAnimating).toBe(true);
+	});
+
+	it('does not timeout-flush on first text change when mode is illuminate', () => {
+		manager.setMode('illuminate');
+		const base = 1_000_000;
+		manager.updateMsg(TEST_ID, 'Hello world.', base, false, undefined, true);
+		// Wait past timeout (500ms) to force flush + ripple
+		const r1 = manager.updateMsg(TEST_ID, 'Hello world. How are you today?', base + 600, false, undefined, true);
+		expect(r1.isAnimating).toBe(true);
+		// Ripple at elapsed=0 has radius=0; check again later when expanded
+		const r2 = manager.updateMsg(TEST_ID, 'Hello world. How are you today?', base + 900, false, undefined, true);
+		expect(r2.content).toContain('\x1b[38;2;');
+	});
+});
+
+describe('ScrambleStateManager — ripple position bounds', () => {
+	let manager: ScrambleStateManager;
+
+	beforeEach(() => {
+		manager = new ScrambleStateManager();
+		manager.setMode('ripple');
+	});
+
+	it('spawns ripple within targetText bounds on non-extension rewrite (flush branch)', () => {
+		const base = 1_000_000;
+		manager.updateMsg(TEST_ID, 'Hello world', base, false, undefined, true);
+		// Complete rewrite (no overlap) after cooldown
+		const result = manager.updateMsg(TEST_ID, 'Completely different text.', base + 300, false, undefined, true);
+		expect(result.isAnimating).toBe(true);
+		// Ripple should be visible (pos within bounds)
+		expect(result.content).not.toBe('Completely different text.');
+		expect(result.content).toContain('\x1b');
+	});
+
+	it('spawns ripple within bounds on non-extension pendingText drain', () => {
+		const base = 1_000_000;
+		manager.updateMsg(TEST_ID, 'Hello world', base, false, undefined, true);
+		// Buffer a rewrite while cooling down
+		manager.updateMsg(TEST_ID, 'Brand new text here.', base + 100, false, undefined, true);
+		// Drain happens when text is stable and old ripple expired.
+		// First call at base+2000 drains pendingText and spawns ripple (elapsed=0, no scramble yet).
+		manager.updateMsg(TEST_ID, 'Brand new text here.', base + 2000, false, undefined, true);
+		// Second call at base+2300 lets ripple expand enough to scramble chars.
+		const result = manager.updateMsg(TEST_ID, 'Brand new text here.', base + 2300, false, undefined, true);
+		expect(result.isAnimating).toBe(true);
+		// Ripple should scramble at least one character
+		expect(result.content).not.toBe('Brand new text here.');
+		expect(result.content).toContain('\x1b');
+	});
+});

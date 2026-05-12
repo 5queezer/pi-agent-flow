@@ -750,23 +750,27 @@ export function findSentenceStarts(text: string): number[] {
 	if (text.length === 0) return starts;
 	starts.push(0);
 
-	const delimiters = ['. ', '! ', '? ', '... ', '\n'];
+	const delimiters = ['... ', '. ', '! ', '? ', '\n'];
 	let i = 0;
 	while (i < text.length) {
-		let found = false;
+		let bestD = '';
+		let bestLen = 0;
 		for (const d of delimiters) {
-			if (text.slice(i, i + d.length) === d) {
-				let pos = i + d.length;
-				while (pos < text.length && text[pos] === ' ') pos++;
-				if (pos < text.length && pos !== starts[starts.length - 1]) {
-					starts.push(pos);
-				}
-				i = pos;
-				found = true;
-				break;
+			if (text.slice(i, i + d.length) === d && d.length > bestLen) {
+				bestD = d;
+				bestLen = d.length;
 			}
 		}
-		if (!found) i++;
+		if (bestD) {
+			let pos = i + bestD.length;
+			while (pos < text.length && text[pos] === ' ') pos++;
+			if (pos < text.length && pos !== starts[starts.length - 1]) {
+				starts.push(pos);
+			}
+			i = pos;
+		} else {
+			i++;
+		}
 	}
 
 	// Fallback: if too few sentence starts, add positions at ~30-char intervals
@@ -921,16 +925,18 @@ function processLine(
 	// the visible window is just sliding — don't restart animation.
 	const overlap = computeOverlapLen(oldText, newText);
 	const minLen = Math.min(oldText.length, newText.length);
-	if (overlap > 0 && overlap >= minLen * 0.5) {
+	const isExtension = newText.startsWith(oldText);
+	if (!isExtension && overlap > 0 && overlap >= minLen * 0.5) {
 		state.lastText = newText;
+		state.displayedText = newText;
 		return;
 	}
 	const cooledDown = now - state.lastAnimTime > MIN_RIPPLE_INTERVAL;
 	if (cooledDown) {
 		state.lastText = newText;
+		state.displayedText = newText;
 		state.lastAnimTime = now;
 		if (mode === 'cascade') {
-			state.displayedText = newText;
 			state.queue = buildQueue(oldText, newText);
 			state.startTime = now;
 			state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
@@ -1385,6 +1391,7 @@ export class ScrambleStateManager {
 			state.lastText = visibleText;
 			state.initialized = true;
 			state.lastAnimTime = now;
+			state.lastFlushTime = now;
 			if (this.mode === 'cascade') {
 				state.displayedText = visibleText;
 				state.queue = buildQueue('', visibleText);
@@ -1421,13 +1428,17 @@ export class ScrambleStateManager {
 							state.ripples.push(spawnIlluminateRipple(randomSentenceStart(state.displayedText), now, ILLUMINATE_CONFIGS.msgContent));
 						} else {
 							state.ripples = state.ripples.filter(r => now - r.time < r.dur);
-							const newContent = state.displayedText.startsWith(oldDisplayed)
+							const isExtDrain = state.displayedText.startsWith(oldDisplayed);
+							const newContent = isExtDrain
 								? state.displayedText.slice(oldDisplayed.length)
 								: state.displayedText;
 							const starts = findSentenceStarts(newContent);
-							let pos = starts.length > 0
-								? oldDisplayed.length + starts[Math.floor(Math.random() * starts.length)]
-								: randomSentenceStart(state.displayedText);
+							let pos: number;
+							if (isExtDrain && starts.length > 0) {
+								pos = oldDisplayed.length + starts[Math.floor(Math.random() * starts.length)];
+							} else {
+								pos = randomSentenceStart(state.displayedText);
+							}
 							state.ripples.push(spawnRipple(pos, now));
 						}
 					} else {
@@ -1439,7 +1450,8 @@ export class ScrambleStateManager {
 				// Text changed — detect tail-view slide or buffer
 				const overlap = computeOverlapLen(state.displayedText, visibleText);
 				const minOverlapLen = Math.min(state.displayedText.length, visibleText.length);
-				const isSlide = overlap > 0 && overlap >= minOverlapLen * 0.5 && state.displayedText.slice(-overlap) === visibleText.slice(0, overlap);
+				const isExtension = visibleText.startsWith(state.displayedText);
+				const isSlide = !isExtension && overlap > 0 && overlap >= minOverlapLen * 0.5 && state.displayedText.slice(-overlap) === visibleText.slice(0, overlap);
 
 				if (isSlide) {
 					// Tail-view slide: update displayed text immediately, no animation
@@ -1480,13 +1492,17 @@ export class ScrambleStateManager {
 						} else {
 							state.ripples = state.ripples.filter(r => now - r.time < r.dur);
 							// Spawn ripple in the new content area when possible
-							const newContent = targetText.startsWith(state.displayedText)
+							const isExt = targetText.startsWith(state.displayedText);
+							const newContent = isExt
 								? targetText.slice(state.displayedText.length)
 								: targetText;
 							const starts = findSentenceStarts(newContent);
-							let pos = starts.length > 0
-								? state.displayedText.length + starts[Math.floor(Math.random() * starts.length)]
-								: randomSentenceStart(targetText);
+							let pos: number;
+							if (isExt && starts.length > 0) {
+								pos = state.displayedText.length + starts[Math.floor(Math.random() * starts.length)];
+							} else {
+								pos = randomSentenceStart(targetText);
+							}
 							state.ripples.push(spawnRipple(pos, now));
 						}
 						state.displayedText = targetText;

@@ -63,7 +63,7 @@ pi install .
 - **Project flow confirmation** — prompts before running project-local flows from `.pi/agents/` for security
 - **Rich TUI rendering** — collapsed activity-panel view with per-flow stats, live countdowns, scramble-animated act/msg/tps lines, and expanded view with full reports and tool traces
 - **Smooth streaming metrics** — token counters and smoothed TPS increment tick-by-tick during active streaming
-- **Quad-mode TUI scramble** — `stream`, `cascade`, `ripple`, and `illuminate` text animations on act, msg, and TPS lines in the collapsed activity panel (default: `illuminate`)
+- **Quad-mode TUI scramble** — `stream`, `cascade`, `ripple`, and `illuminate` text animations on act, msg, TPS lines, and tool results (batch, web, ask_user) in the collapsed activity panel (default: `illuminate`)
 - **`/spec` command** — toggle spec-driven planning mode that guides the orchestrator through investigate → discuss → plan → delegate
 - **Dynamic notifications** — terminal and desktop alerts adapt their title/body based on flow completion state or pending `ask_user` decisions
 - **Preferred-choice guidance** — `ask_user` prompts can mark a recommended option with `[preferred]` and place it first
@@ -189,6 +189,8 @@ Run `/spec` with a prompt to activate immediately and start investigating:
 ```
 
 Run `/spec` without arguments to toggle the mode on or off. When off, the orchestrator uses the standard implement-mode behavior: investigate first, then delegate directly to flows.
+
+When you deactivate spec mode, a new session is created and the orchestrator synthesizes a full implementation plan from the conversation history, placing it in the editor for review.
 
 ---
 
@@ -361,6 +363,8 @@ Built-in web operations (no API keys required):
 
 - **Search** — queries Brave and DuckDuckGo HTML endpoints, returns top results with titles, URLs, and snippets.
 - **Fetch** — downloads a page, converts HTML to Markdown via JSDOM + Turndown, saves to a temp file in the session directory, and returns a preview. Falls back through direct fetch → `r.jina.ai` → `curl`.
+
+In the collapsed activity panel, web operations display as compact one-line summaries (e.g., `search: "query"` or `fetch: example.com`). Like other tools, web results are scramble-animated in the collapsed view.
 
 ---
 

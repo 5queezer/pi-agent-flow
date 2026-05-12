@@ -798,7 +798,7 @@ describe('ScrambleStateManager mode switching', () => {
 
 describe('selectScrambleChar', () => {
 	it('returns deep glitch chars for depth 1–2', () => {
-		const deepChars = '𐕣𖤐█▓▒░║│¦|∆∇Λ';
+		const deepChars = '><+*·-~!#$%^&=@?';
 		for (let d = 1; d <= 2; d++) {
 			const c = selectScrambleChar(d, 0, 0);
 			expect(deepChars).toContain(c);
@@ -806,13 +806,13 @@ describe('selectScrambleChar', () => {
 	});
 
 	it('returns mid glitch chars for depth 3', () => {
-		const midChars = 'ΦΨΩαβγδεζηθικλμνξοπρστυφχψω';
+		const midChars = 'abcdefghijklmnopqrstuvwxyz';
 		const c = selectScrambleChar(3, 0, 0);
 		expect(midChars).toContain(c);
 	});
 
 	it('returns shallow glitch chars for depth 4+', () => {
-		const shallowChars = '><+*·-~01¦|║│░▒▓';
+		const shallowChars = '0123456789\\/[]{}|';
 		for (let d = 4; d <= 6; d++) {
 			const c = selectScrambleChar(d, 0, 0);
 			expect(shallowChars).toContain(c);

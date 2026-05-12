@@ -414,9 +414,15 @@ function renderFlowCollapsed(
 	if (scrambleManager.getMode() === 'stream') {
 		msgContent = scrambleManager.streamMsg(id, rawMsg, now, isComplete, msgBudget);
 	} else {
-		const needsTail = (r.exitCode === -1 && streamingText) || streamingText;
-		const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
-		msgContent = scrambleManager.updateMsg(id, displayMsg, now, isComplete).content;
+		// For active (incomplete) flows, pass full text to keep animation stable.
+		// TruncatedText handles display truncation. Completed flows truncate as before.
+		if (!isComplete) {
+			msgContent = scrambleManager.updateMsg(id, rawMsg, now, isComplete).content;
+		} else {
+			const needsTail = (r.exitCode === -1 && streamingText) || streamingText;
+			const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
+			msgContent = scrambleManager.updateMsg(id, displayMsg, now, isComplete).content;
+		}
 	}
 	const msgPrefix = `└─ msg: [${formatCompactTokenPair(r.usage)}] - `;
 	container.addChild(new TruncatedText(
@@ -605,9 +611,15 @@ function renderActivityPanel(
 		if (scrambleManager.getMode() === 'stream') {
 			msgContent = scrambleManager.streamMsg(flowId, rawMsg, now, flowComplete, msgBudget);
 		} else {
-			const needsTail = Boolean(liveText || lastText);
-			const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
-			msgContent = scrambleManager.updateMsg(flowId, displayMsg, now, flowComplete).content;
+			// For active (incomplete) flows, pass full text to keep animation stable.
+			// TruncatedText handles display truncation. Completed flows truncate as before.
+			if (!flowComplete) {
+				msgContent = scrambleManager.updateMsg(flowId, rawMsg, now, flowComplete).content;
+			} else {
+				const needsTail = Boolean(liveText || lastText);
+				const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
+				msgContent = scrambleManager.updateMsg(flowId, displayMsg, now, flowComplete).content;
+			}
 		}
 		const msgPrefix = `${indent}└─ msg: [${formatCompactTokenPair(r.usage)}] - `;
 		container.addChild(new TruncatedText(

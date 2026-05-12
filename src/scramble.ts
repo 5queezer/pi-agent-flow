@@ -31,12 +31,12 @@ import { stripAnsi, tailText, truncateChars } from './render-utils.js';
 // Character sets — depth-based esoteric scramble symbols (illuminate mode)
 // ---------------------------------------------------------------------------
 
-/** Deep glitch: block elements and runes for inner ripple depths (1–2) */
-const DEEP_GLITCH = '𐕣𖤐█▓▒░║│¦|∆∇Λ';
-/** Mid glitch: Greek alphabet for mid ripple depths (3) */
-const MID_GLITCH = 'ΦΨΩαβγδεζηθικλμνξοπρστυφχψω';
-/** Shallow glitch: math and geometric symbols for outer ripple depths (4+) */
-const SHALLOW_GLITCH = '><+*·-~01¦|║│░▒▓';
+/** Deep glitch: ASCII-safe dense symbols for inner ripple depths (1–2) */
+const DEEP_GLITCH = '><+*·-~!#$%^&=@?';
+/** Mid glitch: lowercase alphabet for mid ripple depth (3) */
+const MID_GLITCH = 'abcdefghijklmnopqrstuvwxyz';
+/** Shallow glitch: numbers and brackets for outer ripple depths (4+) */
+const SHALLOW_GLITCH = '0123456789\\/[]{}|';
 /** Classic ASCII-safe set for stream/cascade/ripple fallback */
 const SCRAMBLE_CHARS = '!<>-_\\/[]{}-=+*^?#________';
 
@@ -69,6 +69,10 @@ const BOLD_OFF = '\x1b[22m';
 
 const DIM_ON = '\x1b[2m';
 const DIM_OFF = '\x1b[22m';
+
+/** Illuminate close: turns off bold (SGR 22 also kills dim), then re-applies
+ *  dim (SGR 2) so enclosing dim context survives scramble transitions. */
+const ILLUMINATE_CLOSE = '\x1b[22m\x1b[2m\x1b[39m';
 
 // ---------------------------------------------------------------------------
 // Illuminate per-target effect configs
@@ -445,7 +449,7 @@ export function applyRipples(
 			if (config) {
 				const prefix = illuminatePrefix(scrambleDepth, scrambleElapsed, active[0].dur, config);
 				if (!inColor || currentPrefix !== prefix) {
-					if (inColor) result += BOLD_OFF + RESET_COLOR + DIM_OFF;
+					if (inColor) result += ILLUMINATE_CLOSE;
 					result += prefix;
 					inColor = true;
 					currentPrefix = prefix;
@@ -461,7 +465,11 @@ export function applyRipples(
 			}
 		} else {
 			if (inColor) {
-				result += BOLD_OFF + RESET_COLOR + DIM_OFF;
+				if (config) {
+					result += ILLUMINATE_CLOSE;
+				} else {
+					result += BOLD_OFF + RESET_COLOR + DIM_OFF;
+				}
 				inColor = false;
 				currentPrefix = '';
 			}
@@ -469,7 +477,11 @@ export function applyRipples(
 		}
 	}
 	if (inColor) {
-		result += BOLD_OFF + RESET_COLOR + DIM_OFF;
+		if (config) {
+			result += ILLUMINATE_CLOSE;
+		} else {
+			result += BOLD_OFF + RESET_COLOR + DIM_OFF;
+		}
 	}
 	return result;
 }

@@ -165,9 +165,9 @@ const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
 // Timing constants
 // ---------------------------------------------------------------------------
 
-const RIPPLE_DUR_DEFAULT = 666;
+const RIPPLE_DUR_DEFAULT = 900;
 const RIPPLE_SPREAD_DEFAULT = 1;
-const MIN_RIPPLE_INTERVAL = 250;
+const MIN_RIPPLE_INTERVAL = 500;
 const DEPTH_BAND_MAX = 6;
 const TPS_FLASH_DUR = 150;
 const TPS_FLASH_SPREAD = 0.5;
@@ -1419,7 +1419,7 @@ export class ScrambleStateManager {
 				if (!textChanged) {
 					// Text stable — clean up or drain suppressed change
 					if (!this.isLineAnimating(state, now)) {
-						if (state.phraseBuffer !== state.displayedText) {
+						if (state.phraseBuffer !== state.displayedText && now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
 							state.phraseBuffer = state.displayedText;
 							state.lastAnimTime = now;
 							if (this.mode === 'cascade') {

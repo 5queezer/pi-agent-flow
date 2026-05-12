@@ -633,8 +633,8 @@ describe('ScrambleStateManager (cascade mode)', () => {
 	it('updateMsg cascade self-terminates', () => {
 		const base = 2000000;
 		manager.updateMsg(TEST_ID, 'initial', base);
-		manager.updateMsg(TEST_ID, 'changed text', base + 300);
-		const result = manager.updateMsg(TEST_ID, 'changed text', base + 300 + 1500);
+		manager.updateMsg(TEST_ID, 'changed text', base + 600);
+		const result = manager.updateMsg(TEST_ID, 'changed text', base + 600 + 1500);
 		expect(result.isAnimating).toBe(false);
 		expect(stripAnsi(result.content)).toBe('changed text');
 	});
@@ -1040,11 +1040,11 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		const same = manager.updateMsg(TEST_ID, 'Hello world', base + 100);
 		expect(same.isAnimating).toBe(false);
 		// New text with phrase boundary — triggers flush and ripple
-		manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 300);
+		manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 600);
 		// Ripple is active for 850ms — verify animation is detected
-		expect(manager.hasAnyActiveAnimations(base + 400)).toBe(true);
+		expect(manager.hasAnyActiveAnimations(base + 700)).toBe(true);
 		// Content should show scramble chars once ripple has expanded
-		const result = manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 600);
+		const result = manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 800);
 		// Smooth truecolor uses \x1b[38;2;R;G;Bm instead of hard threshold constants
 		expect(result.content).toContain('\x1b[38;2;');
 	});
@@ -1069,9 +1069,9 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		const base = 2000000;
 		manager.updateAct(TEST_ID, 'read file.ts', base);
 		// Trigger change, then check when ripple wavefront is within text
-		manager.updateAct(TEST_ID, 'write other.ts', base + 300);
-		const result = manager.updateAct(TEST_ID, 'write other.ts', base + 400);
-		expect(manager.hasAnyActiveAnimations(base + 400)).toBe(true);
+		manager.updateAct(TEST_ID, 'write other.ts', base + 600);
+		const result = manager.updateAct(TEST_ID, 'write other.ts', base + 700);
+		expect(manager.hasAnyActiveAnimations(base + 700)).toBe(true);
 		expect(result.content).toContain(PURPLE_GLOW);
 	});
 
@@ -1105,8 +1105,8 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		// Trigger a flash via act: which does animate on first render
 		manager.updateAct(TEST_ID, 'read file.ts', base + 10);
 		expect(manager.hasAnyActiveAnimations(base + 10)).toBe(true);
-		manager.updateAct(TEST_ID, 'write file.ts', base + 300);
-		expect(manager.hasAnyActiveAnimations(base + 300)).toBe(true);
+		manager.updateAct(TEST_ID, 'write file.ts', base + 600);
+		expect(manager.hasAnyActiveAnimations(base + 600)).toBe(true);
 	});
 
 	it('updateMsg does not flush on tail-view slide (high overlap)', () => {
@@ -1459,12 +1459,12 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 	it('staticLine overlap guard suppresses re-flash on minor stat updates', () => {
 		manager.setMode('ripple');
 		const base = 1000000;
-		// First call triggers initial flash (ripple dur = 666ms)
+		// First call triggers initial flash (ripple dur = 900ms)
 		manager.updateText('id-1', 'header', 'scout - [↑ 0.11M]', base, false, true);
 		// Minor digit change (>50% overlap) should NOT spawn a new ripple
 		manager.updateText('id-1', 'header', 'scout - [↑ 0.12M]', base + 50, false, true);
-		// Old ripple expires at base+666; if a new ripple had spawned at base+50 it would expire at base+716
-		expect(manager.hasAnyActiveAnimations(base + 700)).toBe(false);
+		// Old ripple expires at base+900; if a new ripple had spawned at base+50 it would expire at base+950
+		expect(manager.hasAnyActiveAnimations(base + 950)).toBe(false);
 	});
 
 	it('staticLine minor-mutation guard suppresses re-flash beyond cooldown', () => {
@@ -1472,10 +1472,10 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 		const base = 1000000;
 		// First call triggers initial flash
 		manager.updateText('id-1', 'header', 'scout - lite - tps: 12', base, false, true);
-		// Minor trailing-digit change after cooldown (300ms > 250ms) should NOT spawn a new ripple
+		// Minor trailing-digit change within cooldown (300ms < 500ms) should NOT spawn a new ripple
 		manager.updateText('id-1', 'header', 'scout - lite - tps: 15', base + 300, false, true);
-		// Initial ripple expires at base+666; no new ripple means inactive by base+700
-		expect(manager.hasActiveAnimations('id-1', base + 700)).toBe(false);
+		// Initial ripple expires at base+900; no new ripple means inactive by base+950
+		expect(manager.hasActiveAnimations('id-1', base + 950)).toBe(false);
 	});
 
 	it('staticLine still flashes on major rewrite beyond cooldown', () => {
@@ -1865,9 +1865,9 @@ describe('ScrambleStateManager (illuminate mode) — ripple coexistence', () => 
 		const base = 5000000;
 		manager.updateMsg(TEST_ID, 'Hello world. How are you?', base, false, undefined, true);
 		// After cooldown, change text with a significant rewrite (not a minor mutation)
-		manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 300, false, undefined, true);
+		manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 600, false, undefined, true);
 		// Evaluate at a later time when ripple has expanded enough to scramble
-		const result = manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 600, false, undefined, true);
+		const result = manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 900, false, undefined, true);
 		expect(result.isAnimating).toBe(true);
 		// Should contain truecolor ANSI (illuminate signature)
 		expect(result.content).toContain('\x1b[38;2;');

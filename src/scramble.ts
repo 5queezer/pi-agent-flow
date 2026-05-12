@@ -271,6 +271,9 @@ interface LineState {
 	displayedText: string;
 	pendingText: string;
 	lastFlushTime: number;
+	// Ripple reveal target (msg: only)
+	targetText: string;
+	resolvedMask: Set<number>;
 	// Age tracking for cache eviction
 	lastAccessTime: number;
 }
@@ -599,15 +602,17 @@ export function applyRipples(
 	ripples: Ripple[],
 	now: number,
 	config?: IlluminateConfig,
+	targetText?: string,
+	resolvedMask?: Set<number>,
 ): string {
-	if (!ripples.length) return text;
-	const len = text.length;
+	if (!ripples.length && !targetText) return text;
+	const len = Math.max(text.length, targetText?.length || 0);
 	if (len === 0) return text;
 
 	// Filter expired / future ripples into a new array — do not mutate caller's array
 	const activeRipples = ripples.filter(r => r.time <= now && now - r.time < r.dur);
 	const activeCount = activeRipples.length;
-	if (!activeCount) return text;
+	if (!activeCount && !targetText) return text;
 
 	// Pre-compute radius per ripple to avoid O(n·m) recomputation inside char loop
 	const radii = new Float64Array(activeCount);
@@ -797,11 +802,11 @@ export function randomSentenceStart(text: string, rng?: FastRNG): number {
 
 function applyScramble(text: string, state: LineState, now: number, mode: ScrambleMode, lineKey?: LineKey, rng?: () => string): string {
 	if (mode === 'cascade') {
-		if (!state.queue.length) return text;
+		if (!state.queue.length) return state.displayedText || text;
 		const frame = Math.floor((now - state.startTime) / CASCADE_FRAME_MS);
 		if (isCascadeComplete(state.queue, frame, state.queueMaxEnd)) {
 			state.queue = [];
-			return text;
+			return state.displayedText || text;
 		}
 		return computeCascadeFrame(state.queue, frame, rng);
 	} else if (mode === 'illuminate') {
@@ -813,7 +818,8 @@ function applyScramble(text: string, state: LineState, now: number, mode: Scramb
 				: undefined;
 		return applyRipples(displayText, state.ripples, now, config);
 	} else {
-		return applyRipples(text, state.ripples, now);
+		const displayText = state.displayedText || text;
+		return applyRipples(displayText, state.ripples, now);
 	}
 }
 
@@ -924,6 +930,7 @@ function processLine(
 		state.lastText = newText;
 		state.lastAnimTime = now;
 		if (mode === 'cascade') {
+			state.displayedText = newText;
 			state.queue = buildQueue(oldText, newText);
 			state.startTime = now;
 			state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
@@ -960,6 +967,8 @@ function createLineState(): LineState {
 		displayedText: '',
 		pendingText: '',
 		lastFlushTime: 0,
+		targetText: '',
+		resolvedMask: new Set(),
 		lastAccessTime: Date.now(),
 	};
 }
@@ -1397,9 +1406,30 @@ export class ScrambleStateManager {
 				// Text stable — flush any remaining pending text when animation finishes
 				if (!this.isLineAnimating(state, now)) {
 					if (state.pendingText && state.pendingText !== state.displayedText) {
+						const oldDisplayed = state.displayedText;
 						state.displayedText = state.pendingText;
 						state.pendingText = '';
 						state.lastFlushTime = now;
+						state.lastAnimTime = now;
+						// Trigger animation for the transition from old to new displayed text
+						if (this.mode === 'cascade') {
+							state.queue = buildQueue(oldDisplayed, state.displayedText);
+							state.startTime = now;
+							state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+						} else if (this.mode === 'illuminate') {
+							state.ripples = state.ripples.filter(r => now - r.time < r.dur);
+							state.ripples.push(spawnIlluminateRipple(randomSentenceStart(state.displayedText), now, ILLUMINATE_CONFIGS.msgContent));
+						} else {
+							state.ripples = state.ripples.filter(r => now - r.time < r.dur);
+							const newContent = state.displayedText.startsWith(oldDisplayed)
+								? state.displayedText.slice(oldDisplayed.length)
+								: state.displayedText;
+							const starts = findSentenceStarts(newContent);
+							let pos = starts.length > 0
+								? oldDisplayed.length + starts[Math.floor(Math.random() * starts.length)]
+								: randomSentenceStart(state.displayedText);
+							state.ripples.push(spawnRipple(pos, now));
+						}
 					} else {
 						state.queue = [];
 						state.ripples = [];
@@ -1470,7 +1500,7 @@ export class ScrambleStateManager {
 		} else {
 			processLine(state, visibleText, now, this.mode, 'msg');
 		}
-		const displayText = (this.mode === 'stream' || this.mode === 'cascade') ? visibleText : (state.displayedText || visibleText);
+		const displayText = this.mode === 'stream' ? visibleText : (state.displayedText || visibleText);
 		const content = applyScramble(displayText, state, now, this.mode, 'msg', () => this.poolRandomChar());
 		const isAnimating = this.isLineAnimating(state, now);
 		return { label: 'msg:', content, isAnimating };

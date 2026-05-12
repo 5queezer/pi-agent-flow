@@ -85,6 +85,44 @@ describe('renderStreamText', () => {
 		renderStreamText('abcdef', 2, 3, cursorChars);
 		expect(cursorChars.length).toBe(3);
 	});
+
+	it('beyond-cursor scramble chars keep fuzzing each frame', () => {
+		const cursorChars: string[] = [];
+		const r1 = renderStreamText('abcdefghij', 2, 3, cursorChars);
+		const r2 = renderStreamText('abcdefghij', 2, 3, cursorChars);
+		// Beyond cursor zone starts at index 5 (revealed 2 + width 3)
+		// Positions 5+ should produce different scramble chars across calls
+		const stripped1 = stripAnsi(r1);
+		const stripped2 = stripAnsi(r2);
+		let diffCount = 0;
+		for (let i = 5; i < stripped1.length; i++) {
+			if (stripped1[i] !== ' ' && stripped2[i] !== ' ') {
+				if (stripped2[i] !== stripped1[i]) diffCount++;
+			}
+		}
+		expect(diffCount).toBeGreaterThan(0);
+	});
+
+	it('groups contiguous scramble chars under a single ANSI pair', () => {
+		const cursorChars: string[] = [];
+		const result = renderStreamText('abcdefghij', 2, 3, cursorChars);
+		const dimOnCount = (result.match(/\x1b\[2m/g) || []).length;
+		const dimOffCount = (result.match(/\x1b\[22m/g) || []).length;
+		// 8 scramble chars (3 cursor + 5 beyond) are contiguous with no spaces,
+		// so exactly one DIM_ON / DIM_OFF pair wraps the entire scramble run.
+		expect(dimOnCount).toBe(1);
+		expect(dimOffCount).toBe(1);
+	});
+
+	it('spaces break dim groups but scramble runs stay grouped', () => {
+		const cursorChars: string[] = [];
+		const result = renderStreamText('ab cde fgh', 2, 3, cursorChars);
+		const dimOnCount = (result.match(/\x1b\[2m/g) || []).length;
+		const dimOffCount = (result.match(/\x1b\[22m/g) || []).length;
+		// 'ab' resolved, space, 'cde' grouped, space, 'fgh' grouped
+		expect(dimOnCount).toBe(2);
+		expect(dimOffCount).toBe(2);
+	});
 });
 
 describe('ScrambleStateManager (stream mode)', () => {
@@ -349,6 +387,26 @@ describe('ScrambleStateManager (stream mode)', () => {
 		const recovered = manager.streamAct(TEST_ID, 'read file.ts', base + 500, false, 40);
 		expect(stripAnsi(recovered)).toBe('read file.ts');
 		expect(hasDimAnsi(recovered)).toBe(false);
+	});
+
+	it('streamMsg applies scramble effect during fast streaming', () => {
+		const base = 1000000;
+		const budget = 40;
+		// Start with short text
+		manager.streamMsg(TEST_ID, 'hello world', base, false, budget);
+		// Fully reveal it
+		manager.streamMsg(TEST_ID, 'hello world', base + 500, false, budget);
+
+		// Now simulate a huge fast jump (as if LLM dumped a big chunk)
+		const longText = 'x'.repeat(80) + 'end';
+		const result = manager.streamMsg(TEST_ID, longText, base + 600, false, budget);
+		const stripped = stripAnsi(result);
+
+		// The scramble effect should be visible across the text, not just
+		// forced to the last few chars. At least some scramble chars should
+		// be present while the cursor catches up.
+		const scrambleCount = stripped.split('').filter(c => SCRAMBLE_CHAR_SET.includes(c)).length;
+		expect(scrambleCount).toBeGreaterThan(0);
 	});
 });
 

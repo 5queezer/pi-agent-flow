@@ -161,31 +161,43 @@ export function renderStreamText(
 	if (visibleRevealed >= visibleText.length) return visibleText;
 
 	let result = '';
+	let inDim = false;
+
 	for (let i = 0; i < visibleText.length; i++) {
-		if (i < visibleRevealed) {
-			// Resolved — show normally
-			result += visibleText[i];
-		} else if (i < visibleRevealed + scrambleWidth) {
-			// Cursor zone — 28% re-randomize (CodePen style)
-			if (visibleText[i] === ' ') {
-				result += ' ';
-			} else {
-				const cursorIdx = i - visibleRevealed;
-				while (cursorChars.length <= cursorIdx) cursorChars.push(randomChar());
-				if (Math.random() < STREAM_RERANDOMIZE_RATE || !cursorChars[cursorIdx]) {
-					cursorChars[cursorIdx] = randomChar();
-				}
-				result += `${DIM_ON}${cursorChars[cursorIdx]}${DIM_OFF}`;
+		const isResolved = i < visibleRevealed;
+		const isCursorZone = !isResolved && i < visibleRevealed + scrambleWidth;
+		const ch = visibleText[i];
+
+		if (isResolved || ch === ' ') {
+			if (inDim) {
+				result += DIM_OFF;
+				inDim = false;
 			}
+			result += ch;
+		} else if (isCursorZone) {
+			if (!inDim) {
+				result += DIM_ON;
+				inDim = true;
+			}
+			const cursorIdx = i - visibleRevealed;
+			while (cursorChars.length <= cursorIdx) cursorChars.push(randomChar());
+			if (Math.random() < STREAM_RERANDOMIZE_RATE || !cursorChars[cursorIdx]) {
+				cursorChars[cursorIdx] = randomChar();
+			}
+			result += cursorChars[cursorIdx];
 		} else {
-			// Beyond cursor — pure noise scramble
-			if (visibleText[i] === ' ') {
-				result += ' ';
-			} else {
-				result += `${DIM_ON}${randomChar()}${DIM_OFF}`;
+			// Beyond cursor — live scramble (keeps fuzzing each frame)
+			if (!inDim) {
+				result += DIM_ON;
+				inDim = true;
 			}
+			result += randomChar();
 		}
 	}
+	if (inDim) {
+		result += DIM_OFF;
+	}
+
 	// Trim cursor chars array to actual size used
 	cursorChars.length = Math.min(scrambleWidth, Math.max(0, visibleText.length - visibleRevealed));
 	return result;

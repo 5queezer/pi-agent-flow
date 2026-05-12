@@ -1434,11 +1434,7 @@ export class ScrambleStateManager {
 					const hadRipples = state.ripples.length > 0;
 					state.ripples = state.ripples.filter(r => now - r.time < r.dur);
 					state.queue = [];
-					// If the last ripple just expired, start the cooldown from now
-					// so the next ripple doesn't fire the instant the animation ends.
-					if (hadRipples && state.ripples.length === 0) {
-						state.lastAnimTime = now;
-					}
+					const justExpired = hadRipples && state.ripples.length === 0;
 
 					if (!textChanged) {
 						if (state.displayedText !== visibleText) {
@@ -1447,9 +1443,15 @@ export class ScrambleStateManager {
 							state.lastText = visibleText;
 							state.phraseBuffer = visibleText;
 						}
+						// If the last ripple just expired and text is stable,
+						// start the cooldown from now for future changes.
+						if (justExpired) {
+							state.lastAnimTime = now;
+						}
 						// Fully stable — nothing to do
-					} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
-						// Cooled down — spawn ONE fresh ripple
+					} else if (justExpired || now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
+						// Spawn ONE fresh ripple immediately if the old one just expired
+						// (no overlap risk — previous ripple is fully gone) OR if cooled down.
 						state.lastText = visibleText;
 						state.displayedText = visibleText;
 						state.lastAnimTime = now;
@@ -1464,10 +1466,10 @@ export class ScrambleStateManager {
 							state.ripples.push(spawnRipple(randomSentenceStart(visibleText), now));
 						}
 					} else {
-						// Not cooled down — commit text cleanly without ripple
+						// Not cooled down — track latest text but keep displayedText frozen
+						// so any residual scramble from previous frames stays visible.
 						state.lastText = visibleText;
-						state.displayedText = visibleText;
-						state.phraseBuffer = visibleText;
+						// DO NOT update displayedText or phraseBuffer — prevents plain-text flash
 					}
 				}
 			}

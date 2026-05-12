@@ -128,10 +128,8 @@ function selectScrambleChar(depth: number, dist: number, elapsed: number, seed?:
 // ---------------------------------------------------------------------------
 
 const CYAN_GLOW = '\x1b[38;2;0;255;204m';
-const PURPLE_GLOW = '\x1b[38;2;191;0;255m';
-const PINK_GLOW = '\x1b[38;2;255;0;85m';
-const GOLD_GLOW = '\x1b[38;2;255;204;0m';
-const MINT_GLOW = '\x1b[38;2;100;255;180m';
+const WARM_GLOW = '\x1b[38;2;249;124;124m';
+const PEACH_GLOW = '\x1b[38;2;244;193;193m';
 const ORANGE_GLOW = '\x1b[38;2;255;160;40m';
 const WHITE_GLOW = '\x1b[38;2;255;255;255m';
 const RESET_COLOR = '\x1b[39m';
@@ -159,8 +157,8 @@ interface IlluminateConfig {
 
 const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
 	aimLabel: { color: CYAN_GLOW, duration: 400, spread: 1.0, glowIntensity: 'high' },
-	actLabel: { color: PURPLE_GLOW, duration: 400, spread: 1.0, glowIntensity: 'high' },
-	msgLabel: { color: MINT_GLOW, duration: 400, spread: 1.0, glowIntensity: 'high' },
+	actLabel: { color: WARM_GLOW, duration: 400, spread: 1.0, glowIntensity: 'high' },
+	msgLabel: { color: PEACH_GLOW, duration: 400, spread: 1.0, glowIntensity: 'high' },
 	msgContent: { color: 'dynamic', duration: 1200, spread: 1.0, glowIntensity: 'variable', initialTimeOffset: 50 },
 	tps: { color: ORANGE_GLOW, duration: 120, spread: 0.5, glowIntensity: 'medium' },
 };
@@ -249,7 +247,7 @@ export type ScrambleMode = 'stream' | 'cascade' | 'ripple' | 'illuminate';
 export { selectScrambleChar };
 export { ILLUMINATE_CONFIGS };
 export type { IlluminateConfig };
-export { CYAN_GLOW, PURPLE_GLOW, PINK_GLOW, GOLD_GLOW, MINT_GLOW, ORANGE_GLOW, WHITE_GLOW, BOLD_ON, BOLD_OFF, RESET_COLOR };
+export { CYAN_GLOW, WARM_GLOW, PEACH_GLOW, ORANGE_GLOW, WHITE_GLOW, BOLD_ON, BOLD_OFF, RESET_COLOR };
 
 export const DEFAULT_MODE: ScrambleMode = 'illuminate';
 
@@ -587,69 +585,44 @@ function illuminatePrefix(depth: number, elapsed: number, dur: number, config: I
 		const life = 1 - progress;
 		const intensity = heat * life * (1 - 0.25 * heat);
 
-		// 12-zone continuous truecolor gradient: cyan → mint → purple → orange → white
-		// with interpolated sub-zones for liquid, band-free transitions
+		// 7-zone continuous truecolor gradient: cyan → warm #f97c7c → peach #f4c1c1 → white
+		// with smooth sub-zone blends for liquid, band-free transitions
 		let r: number, g: number, b: number;
-		if (intensity < 0.10) {
-			const t = smoothstep(0, 0.10, intensity);
-			r = lerp(0, 60, t);
-			g = lerp(230, 245, t);
-			b = lerp(220, 200, t);
-		} else if (intensity < 0.20) {
-			const t = smoothstep(0.10, 0.20, intensity);
-			r = lerp(60, 100, t);
-			g = lerp(245, 255, t);
-			b = lerp(200, 180, t);
-		} else if (intensity < 0.28) {
-			const t = smoothstep(0.20, 0.28, intensity);
-			r = lerp(100, 140, t);
-			g = lerp(255, 180, t);
-			b = lerp(180, 220, t);
+		if (intensity < 0.18) {
+			const t = smoothstep(0, 0.18, intensity);
+			r = lerp(0, 125, t);
+			g = lerp(230, 177, t);
+			b = lerp(220, 172, t);
 		} else if (intensity < 0.36) {
-			const t = smoothstep(0.28, 0.36, intensity);
-			r = lerp(140, 170, t);
-			g = lerp(180, 80, t);
-			b = lerp(220, 255, t);
-		} else if (intensity < 0.44) {
-			const t = smoothstep(0.36, 0.44, intensity);
-			r = lerp(170, 215, t);
-			g = lerp(80, 130, t);
-			b = lerp(255, 150, t);
-		} else if (intensity < 0.52) {
-			const t = smoothstep(0.44, 0.52, intensity);
-			r = lerp(215, 255, t);
-			g = lerp(130, 160, t);
-			b = lerp(150, 40, t);
-		} else if (intensity < 0.60) {
-			const t = smoothstep(0.52, 0.60, intensity);
-			r = lerp(255, 255, t);
-			g = lerp(160, 230, t);
-			b = lerp(40, 180, t);
+			const t = smoothstep(0.18, 0.36, intensity);
+			r = lerp(125, 249, t);
+			g = lerp(177, 124, t);
+			b = lerp(172, 124, t);
+		} else if (intensity < 0.54) {
+			const t = smoothstep(0.36, 0.54, intensity);
+			r = lerp(249, 247, t);
+			g = lerp(124, 159, t);
+			b = lerp(124, 159, t);
 		} else if (intensity < 0.70) {
-			const t = smoothstep(0.60, 0.70, intensity);
-			r = lerp(255, 180, t);
-			g = lerp(230, 255, t);
-			b = lerp(180, 240, t);
-		} else if (intensity < 0.78) {
-			const t = smoothstep(0.70, 0.78, intensity);
-			r = lerp(180, 240, t);
-			g = 255;
-			b = lerp(240, 250, t);
-		} else if (intensity < 0.86) {
-			const t = smoothstep(0.78, 0.86, intensity);
-			r = lerp(240, 250, t);
-			g = 255;
-			b = lerp(250, 252, t);
+			const t = smoothstep(0.54, 0.70, intensity);
+			r = lerp(247, 244, t);
+			g = lerp(159, 193, t);
+			b = lerp(159, 193, t);
+		} else if (intensity < 0.84) {
+			const t = smoothstep(0.70, 0.84, intensity);
+			r = lerp(244, 250, t);
+			g = lerp(193, 224, t);
+			b = lerp(193, 224, t);
 		} else if (intensity < 0.94) {
-			const t = smoothstep(0.86, 0.94, intensity);
-			r = lerp(250, 252, t);
-			g = 255;
-			b = lerp(252, 254, t);
+			const t = smoothstep(0.84, 0.94, intensity);
+			r = lerp(250, 255, t);
+			g = lerp(224, 255, t);
+			b = lerp(224, 255, t);
 		} else {
 			const t = smoothstep(0.94, 1.0, intensity);
-			r = lerp(252, 255, t);
-			g = 255;
-			b = lerp(254, 255, t);
+			r = lerp(255, 255, t);
+			g = lerp(255, 255, t);
+			b = lerp(255, 255, t);
 		}
 
 		// Interference boost: overlapping ripples push color towards white (constructive)
@@ -800,7 +773,7 @@ export function applyRipples(
 			}
 		} else if (afterglowIntensity > 0 && config) {
 			const agPrefix = config.color === 'dynamic'
-				? DIM_ON + '\x1b[38;2;0;180;200m'
+				? DIM_ON + '\x1b[38;2;244;180;180m'
 				: DIM_ON + config.color;
 			if (!inColor || currentPrefix !== agPrefix) {
 				if (inColor) segments[segCount++] = ILLUMINATE_CLOSE;

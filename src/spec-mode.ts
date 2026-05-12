@@ -27,6 +27,13 @@ function extractTextFromContent(content: string | Array<{ type: string; text?: s
  * the appropriate prompt content each turn.
  */
 export function setupSpecMode(pi: ExtensionAPI): void {
+	pi.on("session_start", (event, _ctx: ExtensionContext) => {
+		if (event.reason === "new" || event.reason === "fork" || event.reason === "startup") {
+			setSpecModeActive(true);
+			resetSpecDeactivation();
+		}
+	});
+
 	pi.on("turn_end", (event: TurnEndEvent, ctx: ExtensionContext) => {
 		if (!_pendingSpecDeactivation || event.message?.role !== "assistant") return;
 		const text = extractTextFromContent(event.message.content);

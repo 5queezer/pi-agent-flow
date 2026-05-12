@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, ReplacedSessionContext, TurnEndEvent } from "@mariozechner/pi-coding-agent";
+
+interface SessionStartEvent {
+	type: "session_start";
+	reason: "startup" | "reload" | "new" | "resume" | "fork";
+	previousSessionFile?: string;
+}
 import { registeredCommands } from "../tests/__mocks__/pi-coding-agent.js";
 import { setupSpecMode, resetSpecDeactivation } from "../src/spec-mode.js";
 import {
@@ -10,7 +16,7 @@ import {
 	IMPLEMENT_PROMPT,
 } from "../src/sliding-prompt.js";
 
-function createMockPi(): ExtensionAPI & { emitTurnEnd(event: TurnEndEvent, ctx: ExtensionContext): void } {
+function createMockPi(): ExtensionAPI & { emitTurnEnd(event: TurnEndEvent, ctx: ExtensionContext): void; emitSessionStart(event: SessionStartEvent, ctx: ExtensionContext): void } {
 	const handlers: Record<string, Function[]> = {};
 	return {
 		registerFlag: vi.fn(),
@@ -24,6 +30,11 @@ function createMockPi(): ExtensionAPI & { emitTurnEnd(event: TurnEndEvent, ctx: 
 				h(event, ctx);
 			}
 		},
+		emitSessionStart: (event: SessionStartEvent, ctx: ExtensionContext) => {
+			for (const h of handlers["session_start"] ?? []) {
+				h(event, ctx);
+			}
+		},
 		registerTool: vi.fn(),
 		setActiveTools: vi.fn(),
 		getActiveTools: vi.fn(() => []),
@@ -32,7 +43,7 @@ function createMockPi(): ExtensionAPI & { emitTurnEnd(event: TurnEndEvent, ctx: 
 			registeredCommands.set(name, config);
 		}),
 		sendUserMessage: vi.fn(),
-	} as unknown as ExtensionAPI & { emitTurnEnd(event: TurnEndEvent, ctx: ExtensionContext): void };
+	} as unknown as ExtensionAPI & { emitTurnEnd(event: TurnEndEvent, ctx: ExtensionContext): void; emitSessionStart(event: SessionStartEvent, ctx: ExtensionContext): void };
 }
 
 function createMockCtx(options?: { newSessionCancelled?: boolean }) {
@@ -302,6 +313,64 @@ describe("setupSpecMode", () => {
 
 		// Old session assistant reply should NOT be captured
 		const extCtx = toExtensionContext(ctx);
+		pi.emitTurnEnd(
+			{ message: { role: "assistant", content: [{ type: "text", text: "Old plan" }] } },
+			extCtx,
+		);
+		expect(editorTexts).toHaveLength(0);
+	});
+
+	it("resets spec mode to default on session_start reason 'new'", async () => {
+		const pi = createMockPi();
+		setupSpecMode(pi);
+
+		setSpecModeActive(false);
+		expect(isSpecModeActive()).toBe(false);
+
+		const extCtx = toExtensionContext(createMockCtx().ctx);
+		pi.emitSessionStart({ type: "session_start", reason: "new" }, extCtx);
+		expect(isSpecModeActive()).toBe(true);
+	});
+
+	it("resets spec mode to default on session_start reason 'fork'", async () => {
+		const pi = createMockPi();
+		setupSpecMode(pi);
+
+		setSpecModeActive(false);
+		expect(isSpecModeActive()).toBe(false);
+
+		const extCtx = toExtensionContext(createMockCtx().ctx);
+		pi.emitSessionStart({ type: "session_start", reason: "fork" }, extCtx);
+		expect(isSpecModeActive()).toBe(true);
+	});
+
+	it("does NOT reset spec mode on session_start reason 'resume'", async () => {
+		const pi = createMockPi();
+		setupSpecMode(pi);
+
+		setSpecModeActive(false);
+		expect(isSpecModeActive()).toBe(false);
+
+		const extCtx = toExtensionContext(createMockCtx().ctx);
+		pi.emitSessionStart({ type: "session_start", reason: "resume" }, extCtx);
+		expect(isSpecModeActive()).toBe(false);
+	});
+
+	it("clears pending deactivation state on session_start reason 'new'", async () => {
+		const pi = createMockPi();
+		setupSpecMode(pi);
+		const command = registeredCommands.get("spec")!;
+		const { ctx, editorTexts } = createMockCtx();
+
+		// Toggle OFF to set _pendingSpecDeactivation
+		await command.handler("", ctx);
+		expect(isSpecModeActive()).toBe(true);
+
+		// Simulate /new — should clear pending state
+		const extCtx = toExtensionContext(ctx);
+		pi.emitSessionStart({ type: "session_start", reason: "new" }, extCtx);
+
+		// Old session assistant reply should NOT be captured because pending was cleared
 		pi.emitTurnEnd(
 			{ message: { role: "assistant", content: [{ type: "text", text: "Old plan" }] } },
 			extCtx,

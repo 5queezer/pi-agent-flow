@@ -12,8 +12,8 @@ import {
 	DEFAULT_MODE,
 	selectScrambleChar,
 	CYAN_GLOW,
-	PURPLE_GLOW,
-	GOLD_GLOW,
+	WARM_GLOW,
+	PEACH_GLOW,
 	ORANGE_GLOW,
 	WHITE_GLOW,
 	BOLD_ON,
@@ -1030,7 +1030,7 @@ describe('applyRipples with illuminate config', () => {
 		const ripple = { pos: 4, time: now - 100, dur: 666, spread: 1 };
 		const config = ILLUMINATE_CONFIGS.actLabel;
 		const result = applyRipples('hello world', [ripple], now, config);
-		expect(result).toContain(PURPLE_GLOW);
+		expect(result).toContain(WARM_GLOW);
 		expect(result).toContain(BOLD_ON);
 	});
 
@@ -1089,30 +1089,28 @@ describe('illuminatePrefix — 12-zone SGR transition', () => {
 		expect(hasDim || hasBold || result.includes('\x1b[38;2;')).toBe(true);
 	});
 
-	it('produces purple-orange mid-intensity colors', () => {
+	it('produces warm-coral mid-intensity colors', () => {
 		const now = Date.now();
-		// elapsed=250 at spread=1.5 on 14-char text hits purple-orange zone (0.36–0.44)
+		// elapsed=250 at spread=1.5 on 14-char text hits warm-peach zone (0.36–0.54)
 		const ripple = { pos: 7, time: now - 250, dur: 850, spread: 1.5 };
 		const config = ILLUMINATE_CONFIGS.msgContent;
 		const result = applyRipples('abcdefghijklmn', [ripple], now, config);
-		// Should produce truecolor codes — look for purple or orange signature RGBs
-		// Purple: R>100, G<120, B>200; Orange: R>200, G>100, B<80
+		// Should produce truecolor codes — look for warm-coral signature RGBs
+		// Warm-coral: high red (200-255), medium green (100-170), medium blue (80-160)
 		expect(result).toContain('\x1b[38;2;');
-		// Parse out some color codes and verify they fall in purple-orange range
 		const colorMatches = result.match(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g);
 		expect(colorMatches).not.toBeNull();
 		if (colorMatches) {
-			// At least one color should have strong red/blue (purple) or strong red/moderate green (orange)
-			const hasPurpleOrOrange = colorMatches.some((code) => {
+			const hasWarmCoral = colorMatches.some((code) => {
 				const match = code.match(/\x1b\[38;2;(\d+);(\d+);(\d+)m/);
 				if (!match) return false;
 				const r = parseInt(match[1], 10);
 				const g = parseInt(match[2], 10);
 				const b = parseInt(match[3], 10);
-				// Purple: high red+blue, low green; Orange: high red, moderate green, low blue
-				return (r > 120 && g < 130 && b > 150) || (r > 180 && g > 60 && b < 120);
+				// Warm-coral / peach: high red, medium green, medium blue
+				return (r > 200 && g > 100 && g < 200 && b > 80 && b < 180);
 			});
-			expect(hasPurpleOrOrange).toBe(true);
+			expect(hasWarmCoral).toBe(true);
 		}
 	});
 });
@@ -1174,14 +1172,14 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		expect(result.isAnimating).toBe(true);
 	});
 
-	it('updateAct uses illuminate config (purple glow)', () => {
+	it('updateAct uses illuminate config (warm glow)', () => {
 		const base = 2000000;
 		manager.updateAct(TEST_ID, 'read file.ts', base);
 		// Trigger change, then check when ripple wavefront is within text
 		manager.updateAct(TEST_ID, 'write other.ts', base + 1300);
 		const result = manager.updateAct(TEST_ID, 'write other.ts', base + 1400);
 		expect(manager.hasAnyActiveAnimations(base + 1400)).toBe(true);
-		expect(result.content).toContain(PURPLE_GLOW);
+		expect(result.content).toContain(WARM_GLOW);
 	});
 
 	it('TPS hysteresis prevents flash on tiny changes', () => {

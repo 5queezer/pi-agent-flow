@@ -20,8 +20,18 @@ export function setupSpecMode(pi: ExtensionAPI): void {
 				ctx.ui.notify?.("Spec mode activated", "info");
 			} else {
 				const next = !isSpecModeActive();
-				setSpecModeActive(next);
-				ctx.ui.notify?.(next ? "Spec mode activated" : "Spec mode deactivated", "info");
+				if (!next) {
+					const result = await ctx.newSession();
+					if (result.cancelled) {
+						return;
+					}
+					setSpecModeActive(false);
+					pi.sendUserMessage("Please read the spec from `.specs/` and proceed with implementation.");
+					ctx.ui.notify?.("Spec mode deactivated", "info");
+				} else {
+					setSpecModeActive(true);
+					ctx.ui.notify?.("Spec mode activated", "info");
+				}
 			}
 		},
 	});

@@ -30,7 +30,7 @@ function createMockPi(): ExtensionAPI {
 	} as unknown as ExtensionAPI;
 }
 
-function createMockCtx() {
+function createMockCtx(options?: { newSessionCancelled?: boolean }) {
 	const notifyCalls: { msg: string; type: string }[] = [];
 	const ctx = {
 		cwd: "/tmp/test",
@@ -44,6 +44,10 @@ function createMockCtx() {
 			input: vi.fn(async () => null),
 			custom: vi.fn(async () => undefined),
 		},
+		newSession: vi.fn(async () => ({ cancelled: options?.newSessionCancelled ?? false })),
+		navigateTree: vi.fn(async () => ({ cancelled: false })),
+		waitForIdle: vi.fn(async () => {}),
+		reload: vi.fn(async () => {}),
 	};
 	return { ctx, notifyCalls };
 }
@@ -71,7 +75,23 @@ describe("setupSpecMode", () => {
 		expect(isSpecModeActive()).toBe(true);
 		await command.handler("", ctx);
 		expect(isSpecModeActive()).toBe(false);
+		expect(ctx.newSession).toHaveBeenCalled();
 		expect(notifyCalls.some((n) => n.msg === "Spec mode deactivated")).toBe(true);
+		expect(pi.sendUserMessage).toHaveBeenCalledWith("Please read the spec from `.specs/` and proceed with implementation.");
+	});
+
+	it("stays in spec mode when newSession is cancelled", async () => {
+		const pi = createMockPi();
+		setupSpecMode(pi);
+		const command = registeredCommands.get("spec")!;
+		const { ctx, notifyCalls } = createMockCtx({ newSessionCancelled: true });
+
+		expect(isSpecModeActive()).toBe(true);
+		await command.handler("", ctx);
+		expect(isSpecModeActive()).toBe(true);
+		expect(ctx.newSession).toHaveBeenCalled();
+		expect(notifyCalls.some((n) => n.msg === "Spec mode deactivated")).toBe(false);
+		expect(pi.sendUserMessage).not.toHaveBeenCalled();
 	});
 
 	it("toggles spec mode on", async () => {
@@ -85,6 +105,7 @@ describe("setupSpecMode", () => {
 		await command.handler("", ctx);
 		expect(isSpecModeActive()).toBe(true);
 		expect(notifyCalls.some((n) => n.msg === "Spec mode activated")).toBe(true);
+		expect(pi.sendUserMessage).not.toHaveBeenCalled();
 	});
 
 	it("forwards a prompt and activates spec mode", async () => {

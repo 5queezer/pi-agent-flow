@@ -71,6 +71,10 @@ declare module "@mariozechner/pi-coding-agent" {
 			custom: <T>(factory: (...args: any[]) => any, options?: any) => Promise<T | undefined>;
 			onTerminalInput?: (handler: (data: string) => { consume?: boolean } | undefined) => (() => void);
 		};
+		newSession(opts?: { parentSession?: string }): Promise<{ cancelled: boolean }>;
+		navigateTree(targetId: string, opts?: { label?: string; summarize?: boolean }): Promise<{ cancelled: boolean }>;
+		waitForIdle(): Promise<void>;
+		reload(): Promise<void>;
 	}
 
 	/** Test-only exports provided by tests/__mocks__/pi-coding-agent.ts. */

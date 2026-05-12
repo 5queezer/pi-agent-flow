@@ -158,10 +158,10 @@ interface IlluminateConfig {
 }
 
 const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
-	aimLabel: { color: CYAN_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
-	actLabel: { color: PURPLE_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
-	msgLabel: { color: MINT_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
-	msgContent: { color: 'dynamic', duration: 1200, spread: 0.8, glowIntensity: 'variable', initialTimeOffset: 50 },
+	aimLabel: { color: CYAN_GLOW, duration: 400, spread: 1.0, glowIntensity: 'high' },
+	actLabel: { color: PURPLE_GLOW, duration: 400, spread: 1.0, glowIntensity: 'high' },
+	msgLabel: { color: MINT_GLOW, duration: 400, spread: 1.0, glowIntensity: 'high' },
+	msgContent: { color: 'dynamic', duration: 1200, spread: 1.0, glowIntensity: 'variable', initialTimeOffset: 50 },
 	tps: { color: ORANGE_GLOW, duration: 120, spread: 0.5, glowIntensity: 'medium' },
 };
 

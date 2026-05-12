@@ -408,12 +408,22 @@ function renderFlowCollapsed(
 			const displayAct = truncateChars(actFullText, budget);
 			actContent = scrambleManager.updateAct(id, displayAct, now, isComplete, true).content;
 		}
-		const actPrefix = `├─ act: [${r.usage.toolCalls}] - `;
+		let actKpi = String(r.usage.toolCalls);
+		const scrambledActKpi = scrambleManager.updateActKpi(id, actKpi, now, isComplete, true);
+		if (scrambledActKpi !== actKpi) {
+			actKpi = scrambledActKpi;
+		}
+		const actPrefix = `├─ act: [${actKpi}] - `;
 		container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(actContent)}`, 0, 0));
 	}
 
 	// msg: line (last assistant text or streaming)
-	const msgPrefixStub = `└─ msg: [${formatCompactTokenPair(r.usage)}] - `;
+	let msgKpi = formatCompactTokenPair(r.usage);
+	const scrambledMsgKpi = scrambleManager.updateMsgKpi(id, msgKpi, now, isComplete, false);
+	if (scrambledMsgKpi !== msgKpi) {
+		msgKpi = scrambledMsgKpi;
+	}
+	const msgPrefixStub = `└─ msg: [${msgKpi}] - `;
 	const msgBudget = getTruncationBudget(visibleLength(msgPrefixStub));
 
 	let rawMsg: string;
@@ -447,7 +457,7 @@ function renderFlowCollapsed(
 			msgContent = scrambleManager.updateMsg(id, displayMsg, now, isComplete, undefined, true).content;
 		}
 	}
-	const msgPrefix = `└─ msg: [${formatCompactTokenPair(r.usage)}] - `;
+	const msgPrefix = `└─ msg: [${msgKpi}] - `;
 	container.addChild(new TruncatedText(
 		`${theme.fg("dim", msgPrefix)}${theme.fg(useError ? "error" : "dim", italic(msgContent))}`,
 		0, 0,
@@ -638,12 +648,22 @@ function renderActivityPanel(
 				const displayAct = truncateChars(actFullText, budget);
 				actContent = scrambleManager.updateAct(flowId, displayAct, now, flowComplete, true).content;
 			}
-			const actPrefix = `${indent}├─ act: [${r.usage.toolCalls}] - `;
+			let actKpi = String(r.usage.toolCalls);
+			const scrambledActKpi = scrambleManager.updateActKpi(flowId, actKpi, now, flowComplete, false);
+			if (scrambledActKpi !== actKpi) {
+				actKpi = scrambledActKpi;
+			}
+			const actPrefix = `${indent}├─ act: [${actKpi}] - `;
 			container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(actContent)}`, 0, 0));
 		}
 
 		// msg: line (live streaming text or last assistant text)
-		const msgPrefixStub = `${indent}└─ msg: [${formatCompactTokenPair(r.usage)}] - `;
+		let msgKpi = formatCompactTokenPair(r.usage);
+		const scrambledMsgKpi = scrambleManager.updateMsgKpi(flowId, msgKpi, now, flowComplete, false);
+		if (scrambledMsgKpi !== msgKpi) {
+			msgKpi = scrambledMsgKpi;
+		}
+		const msgPrefixStub = `${indent}└─ msg: [${msgKpi}] - `;
 		const msgBudget = getTruncationBudget(visibleLength(msgPrefixStub));
 		const liveText = r.exitCode === -1 ? r.streamingText : undefined;
 		const lastText = liveText || getLastAssistantText(r.messages);
@@ -673,7 +693,7 @@ function renderActivityPanel(
 				msgContent = scrambleManager.updateMsg(flowId, displayMsg, now, flowComplete).content;
 			}
 		}
-		const msgPrefix = `${indent}└─ msg: [${formatCompactTokenPair(r.usage)}] - `;
+		const msgPrefix = `${indent}└─ msg: [${msgKpi}] - `;
 		container.addChild(new TruncatedText(
 			`${theme.fg("dim", msgPrefix)}${theme.fg(useError ? "error" : "dim", italic(msgContent))}`,
 			0, 0,

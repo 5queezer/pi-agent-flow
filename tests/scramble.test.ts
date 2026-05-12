@@ -928,6 +928,69 @@ describe('ScrambleStateManager — universal TPS hysteresis', () => {
 		const result = manager.updateTps(TEST_ID, '43.1', base + 2510);
 		expect(hasDimAnsi(result)).toBe(true);
 	});
+
+	it('TPS flash respects 3s cooldown — blocked within cooldown, fires after', () => {
+		const manager = new ScrambleStateManager();
+		manager.setMode('ripple');
+		const base = 6000000;
+		// First call: sets state, no flash (not staticLine)
+		manager.updateTps(TEST_ID, '42.3', base);
+		// Second call: large change triggers first flash
+		manager.updateTps(TEST_ID, '100.0', base + 100);
+		// Third call within 3s: same value, still animating from first flash
+		const duringCooldown = manager.updateTps(TEST_ID, '100.0', base + 110);
+		expect(hasDimAnsi(duringCooldown)).toBe(true);
+		// Fourth call with new value but within 3s cooldown: blocked
+		const blocked = manager.updateTps(TEST_ID, '200.0', base + 500);
+		expect(blocked).toBe('200.0'); // no flash
+		expect(hasDimAnsi(blocked)).toBe(false);
+		// Fifth call after 3s cooldown: flash allowed (render at t+10 to see scramble)
+		manager.updateTps(TEST_ID, '300.0', base + 3100);
+		const afterCooldown = manager.updateTps(TEST_ID, '300.0', base + 3110);
+		expect(hasDimAnsi(afterCooldown)).toBe(true);
+	});
+
+	it('act KPI flash respects 3s cooldown', () => {
+		const manager = new ScrambleStateManager();
+		manager.setMode('ripple');
+		const base = 6000000;
+		// First call: sets state, no flash (not staticLine)
+		manager.updateActKpi(TEST_ID, '12', base, false, false);
+		// Second call: value change triggers first flash (render at t+10 to see scramble)
+		manager.updateActKpi(TEST_ID, '15', base + 100, false, false);
+		expect(manager.hasAnyActiveAnimations(base + 110)).toBe(true);
+		const rendered = manager.updateActKpi(TEST_ID, '15', base + 110, false, false);
+		expect(hasDimAnsi(rendered)).toBe(true);
+		// Third call with new value but within 3s cooldown: blocked
+		const blocked = manager.updateActKpi(TEST_ID, '18', base + 500, false, false);
+		expect(blocked).toBe('18');
+		expect(hasDimAnsi(blocked)).toBe(false);
+		// Fourth call after 3s cooldown: flash allowed
+		manager.updateActKpi(TEST_ID, '21', base + 3100, false, false);
+		const afterCooldown = manager.updateActKpi(TEST_ID, '21', base + 3110, false, false);
+		expect(hasDimAnsi(afterCooldown)).toBe(true);
+	});
+
+	it('msg KPI flash respects 3s cooldown', () => {
+		const manager = new ScrambleStateManager();
+		manager.setMode('ripple');
+		const base = 6000000;
+		// First call: sets state, no flash (not staticLine)
+		manager.updateMsgKpi(TEST_ID, '↑ 1.0k · ↓ 0.5k', base, false, false);
+		// Second call: value change triggers first flash (render at t+200 for wide ripple)
+		manager.updateMsgKpi(TEST_ID, '↑ 2.0k · ↓ 1.0k', base + 100, false, false);
+		expect(manager.hasAnyActiveAnimations(base + 110)).toBe(true);
+		const rendered = manager.updateMsgKpi(TEST_ID, '↑ 2.0k · ↓ 1.0k', base + 200, false, false);
+		expect(hasDimAnsi(rendered)).toBe(true);
+		// Third call with new value but within 3s cooldown: blocked
+		const blocked = manager.updateMsgKpi(TEST_ID, '↑ 3.0k · ↓ 1.5k', base + 500, false, false);
+		expect(blocked).toBe('↑ 3.0k · ↓ 1.5k');
+		expect(hasDimAnsi(blocked)).toBe(false);
+		// Fourth call after 3s cooldown: flash allowed
+		manager.updateMsgKpi(TEST_ID, '↑ 4.0k · ↓ 2.0k', base + 3100, false, false);
+		const afterCooldown = manager.updateMsgKpi(TEST_ID, '↑ 4.0k · ↓ 2.0k', base + 3200, false, false);
+		expect(hasDimAnsi(afterCooldown)).toBe(true);
+	});
 });
 
 describe('ScrambleStateManager — memory bounds', () => {

@@ -198,6 +198,7 @@ const SECONDARY_RIPPLE_STRENGTH = 0.5;
 // TPS hysteresis
 const TPS_HYSTERESIS_PCT = 0.15;
 const TPS_HYSTERESIS_MS = 2000;
+const TPS_FLASH_COOLDOWN_MS = 3000;
 
 // Stream mode constants
 const STREAM_SPEED_MSG = 35;       // ms per char for msg: (~29 chars/sec)
@@ -357,6 +358,7 @@ interface ValueFlashState {
 	queueMaxEnd: number;
 	startTime: number;
 	lastValueChangeTime: number;
+	lastFlashTime: number;
 	completed: boolean;
 	// Ambient pulse: when last ripple expired
 	lastRippleEndTime: number;
@@ -1158,7 +1160,7 @@ function createLineState(): LineState {
 }
 
 function createValueFlashState(): ValueFlashState {
-	return { prev: '', ripples: [], queue: [], queueMaxEnd: 0, startTime: 0, lastValueChangeTime: 0, completed: false, lastRippleEndTime: 0 };
+	return { prev: '', ripples: [], queue: [], queueMaxEnd: 0, startTime: 0, lastValueChangeTime: 0, lastFlashTime: 0, completed: false, lastRippleEndTime: 0 };
 }
 
 function createTypewriterState(speed: number): TypewriterState {
@@ -1233,6 +1235,8 @@ export class ScrambleStateManager {
 	private mode: ScrambleMode = DEFAULT_MODE;
 	private cache = new Map<string, Record<LineKey, LineState>>();
 	private tpsState = new Map<string, ValueFlashState>();
+	private actKpiState = new Map<string, ValueFlashState>();
+	private msgKpiState = new Map<string, ValueFlashState>();
 	private streamState = new Map<string, { msg: TypewriterState; act: TypewriterState }>();
 	private genericCache = new Map<string, LineState>();
 	private randomPool: string[] = [];
@@ -1862,6 +1866,118 @@ export class ScrambleStateManager {
 	}
 
 	// -----------------------------------------------------------------------
+	// Value flash helpers (shared by TPS, act KPI, msg KPI)
+	// -----------------------------------------------------------------------
+
+	private _setupValueFlash(state: ValueFlashState, value: string, now: number): void {
+		if (this.mode === 'cascade') {
+			state.queue = buildQueue(state.prev, value, CASCADE_FLASH_MAX_START, CASCADE_FLASH_MAX_LENGTH);
+			state.startTime = now;
+			state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+		} else if (this.mode === 'illuminate') {
+			state.ripples = spawnTpsIlluminateRipples(randomizedCenter(value.length), now);
+			state.startTime = now;
+		} else {
+			state.ripples = spawnTpsRipples(randomizedCenter(value.length), now);
+		}
+	}
+
+	private _renderValueFlash(state: ValueFlashState, value: string, now: number): string {
+		if (this.mode === 'cascade') {
+			if (state.queue.length) {
+				const frame = Math.max(0, Math.floor((now - state.startTime) / CASCADE_FRAME_MS));
+				if (isCascadeComplete(state.queue, frame, state.queueMaxEnd)) {
+					state.queue = [];
+					state.startTime = now;
+					return value;
+				}
+				return computeCascadeFrame(state.queue, frame, () => this.poolRandomChar());
+			}
+			return value;
+		} else if (this.mode === 'illuminate') {
+			if (state.ripples.some(r => now - r.time < r.dur + AFTERGLOW_MS)) {
+				return applyRipples(value, state.ripples, now, ILLUMINATE_CONFIGS.tps);
+			}
+			state.ripples = [];
+			state.startTime = now;
+			return value;
+		} else {
+			if (state.ripples.some(r => now - r.time < r.dur + AFTERGLOW_MS)) {
+				return applyRipples(value, state.ripples, now);
+			}
+			state.ripples = [];
+			state.startTime = now;
+			return value;
+		}
+	}
+
+	private _updateValueKpi(
+		map: Map<string, ValueFlashState>,
+		id: string,
+		value: string,
+		now: number,
+		isComplete: boolean,
+		staticLine: boolean
+	): ValueFlashState {
+		if (isComplete) {
+			const s = map.get(id);
+			if (!s) {
+				const newState = createValueFlashState();
+				newState.completed = true;
+				map.set(id, newState);
+				return newState;
+			}
+			s.completed = true;
+			s.queue = [];
+			s.ripples = [];
+			return s;
+		}
+
+		let state = map.get(id);
+		const isFirstCall = !state;
+		if (!state) {
+			state = createValueFlashState();
+			state.prev = value;
+			state.lastValueChangeTime = now;
+			map.set(id, state);
+		}
+
+		// Reset if a previously-completed flow is now running again
+		if (!isComplete && state.completed) {
+			state.completed = false;
+			state.prev = '';
+			state.queue = [];
+			state.ripples = [];
+			state.startTime = 0;
+			state.lastRippleEndTime = 0;
+			state.lastFlashTime = 0;
+		}
+
+		if (state.completed) return state;
+
+		const cooldownElapsed = now - state.lastFlashTime >= TPS_FLASH_COOLDOWN_MS;
+
+		if (state.prev !== value) {
+			let shouldFlash = staticLine ? state.startTime === 0 : true;
+			state.lastValueChangeTime = now;
+			if (shouldFlash && cooldownElapsed) {
+				this._setupValueFlash(state, value, now);
+				state.lastFlashTime = now;
+			} else if (this.mode === 'cascade') {
+				state.queue = [];
+			}
+			state.prev = value;
+		}
+
+		if (isFirstCall && staticLine && state.startTime === 0 && cooldownElapsed) {
+			this._setupValueFlash(state, value, now);
+			state.lastFlashTime = now;
+		}
+
+		return state;
+	}
+
+	// -----------------------------------------------------------------------
 	// TPS flash (cascade/ripple modes only)
 	// -----------------------------------------------------------------------
 
@@ -1887,6 +2003,7 @@ export class ScrambleStateManager {
 			state.ripples = [];
 			state.startTime = 0;
 			state.lastRippleEndTime = 0;
+			state.lastFlashTime = 0;
 		}
 		if (isComplete) {
 			state.completed = true;
@@ -1894,6 +2011,7 @@ export class ScrambleStateManager {
 			state.ripples = [];
 		}
 		if (state.completed) return tpsText;
+		const cooldownElapsed = now - state.lastFlashTime >= TPS_FLASH_COOLDOWN_MS;
 		if (state.prev !== tpsText) {
 			// Hysteresis: only flash on significant change or after settle time
 			// Static line: only allow flash on the very first value change
@@ -1906,61 +2024,30 @@ export class ScrambleStateManager {
 				shouldFlash = deltaPct > TPS_HYSTERESIS_PCT || timeSinceLastChange > TPS_HYSTERESIS_MS;
 			}
 			state.lastValueChangeTime = now;
-			if (shouldFlash) {
-				if (this.mode === 'cascade') {
-					state.queue = buildQueue(state.prev, tpsText, CASCADE_FLASH_MAX_START, CASCADE_FLASH_MAX_LENGTH);
-					state.startTime = now;
-					state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
-				} else if (this.mode === 'illuminate') {
-					state.ripples = spawnTpsIlluminateRipples(randomizedCenter(tpsText.length), now);
-					state.startTime = now;
-				} else {
-					state.ripples = spawnTpsRipples(randomizedCenter(tpsText.length), now);
-				}
+			if (shouldFlash && cooldownElapsed) {
+				this._setupValueFlash(state, tpsText, now);
+				state.lastFlashTime = now;
 			} else if (this.mode === 'cascade') {
 				state.queue = []; // suppress old cascade when new value arrives without flash
 			}
 			state.prev = tpsText;
 		}
-		if (isFirstCall && staticLine && state.startTime === 0) {
+		if (isFirstCall && staticLine && state.startTime === 0 && cooldownElapsed) {
 			// Static line: trigger initial flash on first value even though prev was set
-			if (this.mode === 'cascade') {
-				state.queue = buildQueue('', tpsText, CASCADE_FLASH_MAX_START, CASCADE_FLASH_MAX_LENGTH);
-				state.startTime = now;
-				state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
-			} else if (this.mode === 'illuminate') {
-				state.ripples = spawnTpsIlluminateRipples(randomizedCenter(tpsText.length), now);
-				state.startTime = now;
-			} else {
-				state.ripples = spawnTpsRipples(randomizedCenter(tpsText.length), now);
-			}
+			this._setupValueFlash(state, tpsText, now);
+			state.lastFlashTime = now;
 		}
-		if (this.mode === 'cascade') {
-			if (state.queue.length) {
-				const frame = Math.max(0, Math.floor((now - state.startTime) / CASCADE_FRAME_MS));
-				if (isCascadeComplete(state.queue, frame, state.queueMaxEnd)) {
-					state.queue = [];
-					state.startTime = now;
-					return tpsText;
-				}
-				return computeCascadeFrame(state.queue, frame, () => this.poolRandomChar());
-			}
-			return tpsText;
-		} else if (this.mode === 'illuminate') {
-			if (state.ripples.some(r => now - r.time < r.dur + AFTERGLOW_MS)) {
-				return applyRipples(tpsText, state.ripples, now, ILLUMINATE_CONFIGS.tps);
-			}
-			state.ripples = [];
-			state.startTime = now;
-			return tpsText;
-		} else {
-			if (state.ripples.some(r => now - r.time < r.dur + AFTERGLOW_MS)) {
-				return applyRipples(tpsText, state.ripples, now);
-			}
-			state.ripples = [];
-			state.startTime = now;
-			return tpsText;
-		}
+		return this._renderValueFlash(state, tpsText, now);
+	}
+
+	updateActKpi(id: string, value: string, now: number, isComplete: boolean = false, staticLine: boolean = false): string {
+		const state = this._updateValueKpi(this.actKpiState, id, value, now, isComplete, staticLine);
+		return this._renderValueFlash(state, value, now);
+	}
+
+	updateMsgKpi(id: string, value: string, now: number, isComplete: boolean = false, staticLine: boolean = false): string {
+		const state = this._updateValueKpi(this.msgKpiState, id, value, now, isComplete, staticLine);
+		return this._renderValueFlash(state, value, now);
 	}
 
 	// -----------------------------------------------------------------------
@@ -2035,6 +2122,28 @@ export class ScrambleStateManager {
 				if (state.ripples.some(r => r.time + r.dur + AFTERGLOW_MS > now)) return true;
 			}
 		}
+		for (const state of this.actKpiState.values()) {
+			if (state.completed) continue;
+			if (this.mode === 'cascade') {
+				if (state.queue.length) {
+					const frame = Math.floor((now - state.startTime) / CASCADE_FRAME_MS);
+					if (!isCascadeComplete(state.queue, frame, state.queueMaxEnd)) return true;
+				}
+			} else {
+				if (state.ripples.some(r => r.time + r.dur + AFTERGLOW_MS > now)) return true;
+			}
+		}
+		for (const state of this.msgKpiState.values()) {
+			if (state.completed) continue;
+			if (this.mode === 'cascade') {
+				if (state.queue.length) {
+					const frame = Math.floor((now - state.startTime) / CASCADE_FRAME_MS);
+					if (!isCascadeComplete(state.queue, frame, state.queueMaxEnd)) return true;
+				}
+			} else {
+				if (state.ripples.some(r => r.time + r.dur + AFTERGLOW_MS > now)) return true;
+			}
+		}
 		for (const state of this.genericCache.values()) {
 			if (this.isLineAnimating(state, now)) return true;
 		}
@@ -2044,12 +2153,14 @@ export class ScrambleStateManager {
 	clear(): void {
 		this.cache.clear();
 		this.tpsState.clear();
+		this.actKpiState.clear();
+		this.msgKpiState.clear();
 		this.streamState.clear();
 		this.genericCache.clear();
 	}
 
 	private sweepCompletedEntries(): void {
-		if (this.cache.size <= MAX_FLOW_ENTRIES && this.streamState.size <= MAX_FLOW_ENTRIES && this.tpsState.size <= MAX_FLOW_ENTRIES && this.genericCache.size <= MAX_FLOW_ENTRIES * 2) {
+		if (this.cache.size <= MAX_FLOW_ENTRIES && this.streamState.size <= MAX_FLOW_ENTRIES && this.tpsState.size <= MAX_FLOW_ENTRIES && this.actKpiState.size <= MAX_FLOW_ENTRIES && this.msgKpiState.size <= MAX_FLOW_ENTRIES && this.genericCache.size <= MAX_FLOW_ENTRIES * 2) {
 			return;
 		}
 		for (const [id, record] of this.cache) {
@@ -2065,6 +2176,16 @@ export class ScrambleStateManager {
 		for (const [id, state] of this.tpsState) {
 			if (state.completed) {
 				this.tpsState.delete(id);
+			}
+		}
+		for (const [id, state] of this.actKpiState) {
+			if (state.completed) {
+				this.actKpiState.delete(id);
+			}
+		}
+		for (const [id, state] of this.msgKpiState) {
+			if (state.completed) {
+				this.msgKpiState.delete(id);
 			}
 		}
 		for (const [key, state] of this.genericCache) {
@@ -2101,6 +2222,18 @@ export class ScrambleStateManager {
 			tpsState.queue = [];
 			tpsState.ripples = [];
 			tpsState.lastRippleEndTime = 0;
+		}
+		const actKpiState = this.actKpiState.get(id);
+		if (actKpiState) {
+			actKpiState.completed = true;
+			actKpiState.queue = [];
+			actKpiState.ripples = [];
+		}
+		const msgKpiState = this.msgKpiState.get(id);
+		if (msgKpiState) {
+			msgKpiState.completed = true;
+			msgKpiState.queue = [];
+			msgKpiState.ripples = [];
 		}
 		const streamRecord = this.streamState.get(id);
 		if (streamRecord) {

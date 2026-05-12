@@ -1218,6 +1218,26 @@ describe('poolRandomChar — exhaustion behavior', () => {
 			expect(hasDimAnsi(result)).toBe(true);
 		}
 	});
+
+	it('manager instance pool is isolated from module-level pool', () => {
+		const manager1 = new ScrambleStateManager();
+		const manager2 = new ScrambleStateManager();
+		manager1.setMode('cascade');
+		manager2.setMode('cascade');
+		const base = 1000000;
+		// Both managers animate same text — each should produce valid output
+		manager1.updateMsg('id-1', 'hello world', base);
+		manager1.updateMsg('id-1', 'goodbye all', base + 300);
+		manager2.updateMsg('id-2', 'hello world', base);
+		manager2.updateMsg('id-2', 'goodbye all', base + 300);
+		const result1 = manager1.updateMsg('id-1', 'goodbye all', base + 400);
+		const result2 = manager2.updateMsg('id-2', 'goodbye all', base + 400);
+		// Both should have scramble chars (not crash)
+		expect(hasDimAnsi(result1.content)).toBe(true);
+		expect(hasDimAnsi(result2.content)).toBe(true);
+		expect(stripAnsi(result1.content).length).toBe('goodbye all'.length);
+		expect(stripAnsi(result2.content).length).toBe('goodbye all'.length);
+	});
 });
 
 // ---------------------------------------------------------------------------

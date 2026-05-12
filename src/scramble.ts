@@ -431,6 +431,7 @@ export function renderStreamText(
 	visibleRevealed: number,
 	scrambleWidth: number,
 	cursorChars: string[],
+	rng?: () => string,
 ): string {
 	if (visibleRevealed >= visibleText.length) return visibleText;
 
@@ -454,9 +455,10 @@ export function renderStreamText(
 				inDim = true;
 			}
 			const cursorIdx = i - visibleRevealed;
-			while (cursorChars.length <= cursorIdx) cursorChars.push(poolRandomChar());
+			const getChar = rng ?? poolRandomChar;
+			while (cursorChars.length <= cursorIdx) cursorChars.push(getChar());
 			if (Math.random() < STREAM_RERANDOMIZE_RATE || !cursorChars[cursorIdx]) {
-				cursorChars[cursorIdx] = poolRandomChar();
+				cursorChars[cursorIdx] = getChar();
 			}
 			result += cursorChars[cursorIdx];
 		} else {
@@ -465,7 +467,7 @@ export function renderStreamText(
 				result += DIM_ON;
 				inDim = true;
 			}
-			result += poolRandomChar();
+			result += (rng ?? poolRandomChar)();
 		}
 	}
 	if (inDim) {
@@ -506,10 +508,11 @@ export function buildQueue(
 	return queue;
 }
 
-export function computeCascadeFrame(queue: QueueItem[], frame: number): string {
+export function computeCascadeFrame(queue: QueueItem[], frame: number, rng?: () => string): string {
 	const clampedFrame = Math.max(0, frame);
 	let result = '';
 	let inDim = false;
+	const getChar = rng ?? poolRandomChar;
 	for (const item of queue) {
 		if (item.to === ' ') {
 			if (inDim) { result += DIM_OFF; inDim = false; }
@@ -521,14 +524,14 @@ export function computeCascadeFrame(queue: QueueItem[], frame: number): string {
 			result += item.to;
 		} else if (clampedFrame >= item.start) {
 			if (!inDim) { result += DIM_ON; inDim = true; }
-			result += poolRandomChar();
+			result += getChar();
 		} else {
 			if (item.from === ' ') {
 				if (inDim) { result += DIM_OFF; inDim = false; }
 				result += ' ';
 			} else {
 				if (!inDim) { result += DIM_ON; inDim = true; }
-				result += poolRandomChar();
+				result += getChar();
 			}
 		}
 	}
@@ -735,7 +738,7 @@ function randomizedCenter(length: number, jitterRatio = 0.2, rng?: FastRNG): num
 // Unified apply function (cascade/ripple/illuminate)
 // ---------------------------------------------------------------------------
 
-function applyScramble(text: string, state: LineState, now: number, mode: ScrambleMode, lineKey?: LineKey): string {
+function applyScramble(text: string, state: LineState, now: number, mode: ScrambleMode, lineKey?: LineKey, rng?: () => string): string {
 	if (mode === 'cascade') {
 		if (!state.queue.length) return text;
 		const frame = Math.floor((now - state.startTime) / CASCADE_FRAME_MS);
@@ -743,7 +746,7 @@ function applyScramble(text: string, state: LineState, now: number, mode: Scramb
 			state.queue = [];
 			return text;
 		}
-		return computeCascadeFrame(state.queue, frame);
+		return computeCascadeFrame(state.queue, frame, rng);
 	} else if (mode === 'illuminate') {
 		const displayText = state.displayedText ?? text;
 		const config = lineKey === 'msg'
@@ -957,6 +960,23 @@ export class ScrambleStateManager {
 	private tpsState = new Map<string, ValueFlashState>();
 	private streamState = new Map<string, { msg: TypewriterState; act: TypewriterState }>();
 	private genericCache = new Map<string, LineState>();
+	private randomPool: string[] = [];
+	private randomPoolIndex = 0;
+
+	private fillRandomPool(): void {
+		this.randomPool = new Array(RANDOM_POOL_SIZE);
+		for (let i = 0; i < RANDOM_POOL_SIZE; i++) {
+			this.randomPool[i] = SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+		}
+		this.randomPoolIndex = 0;
+	}
+
+	private poolRandomChar(): string {
+		if (this.randomPoolIndex >= this.randomPool.length - POOL_REFILL_THRESHOLD) {
+			this.fillRandomPool();
+		}
+		return this.randomPool[this.randomPoolIndex++];
+	}
 
 	setMode(mode: ScrambleMode): void {
 		if (!ScrambleStateManager.VALID_MODES.includes(mode)) {
@@ -1044,7 +1064,7 @@ export class ScrambleStateManager {
 		} else {
 			processLine(state, text, now, this.mode);
 		}
-		const content = applyScramble(text, state, now, this.mode);
+		const content = applyScramble(text, state, now, this.mode, undefined, () => this.poolRandomChar());
 		const isAnimating = this.isLineAnimating(state, now);
 		return { label: key, content, isAnimating };
 	}
@@ -1086,7 +1106,7 @@ export class ScrambleStateManager {
 		}
 		if (state.completed) return { label: 'act:', content: text, isAnimating: false };
 		processLine(state, text, now, this.mode, 'act');
-		const content = applyScramble(text, state, now, this.mode, 'act');
+		const content = applyScramble(text, state, now, this.mode, 'act', () => this.poolRandomChar());
 		const isAnimating = this.isLineAnimating(state, now);
 		return { label: 'act:', content, isAnimating };
 	}
@@ -1122,7 +1142,7 @@ export class ScrambleStateManager {
 		}
 		if (state.completed) return { label: 'msg:', content: visibleText, isAnimating: false };
 		processLine(state, visibleText, now, this.mode, 'msg');
-		const content = applyScramble(visibleText, state, now, this.mode, 'msg');
+		const content = applyScramble(visibleText, state, now, this.mode, 'msg', () => this.poolRandomChar());
 		const isAnimating = this.isLineAnimating(state, now);
 		return { label: 'msg:', content, isAnimating };
 	}
@@ -1366,7 +1386,7 @@ export class ScrambleStateManager {
 					state.startTime = now;
 					return tpsText;
 				}
-				return computeCascadeFrame(state.queue, frame);
+				return computeCascadeFrame(state.queue, frame, () => this.poolRandomChar());
 			}
 			return tpsText;
 		} else if (this.mode === 'illuminate') {

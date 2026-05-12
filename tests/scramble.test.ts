@@ -14,6 +14,7 @@ import {
 	CYAN_GLOW,
 	PURPLE_GLOW,
 	GOLD_GLOW,
+	ORANGE_GLOW,
 	WHITE_GLOW,
 	BOLD_ON,
 	ILLUMINATE_CONFIGS,
@@ -1052,10 +1053,10 @@ describe('applyRipples with illuminate config', () => {
 	});
 });
 
-describe('illuminatePrefix — 3-zone SGR transition', () => {
+describe('illuminatePrefix — 9-zone SGR transition', () => {
 	it('uses DIM prefix at low intensity', () => {
 		const now = Date.now();
-		// Early ripple = low intensity → dim zone
+		// Early ripple = low intensity → dim zone (threshold 0.25)
 		const ripple = { pos: 5, time: now - 10, dur: 850, spread: 1.5 };
 		const config = ILLUMINATE_CONFIGS.msgContent;
 		const result = applyRipples('abcdefghij', [ripple], now, config);
@@ -1065,7 +1066,7 @@ describe('illuminatePrefix — 3-zone SGR transition', () => {
 
 	it('uses no weight prefix at moderate intensity (normal zone)', () => {
 		const now = Date.now();
-		// Mid-ripple at moderate elapsed → normal zone (0.35–0.65)
+		// Mid-ripple at moderate elapsed → normal zone (0.25–0.75)
 		const ripple = { pos: 5, time: now - 300, dur: 850, spread: 1.5 };
 		const config = ILLUMINATE_CONFIGS.msgContent;
 		const result = applyRipples('abcdefghij', [ripple], now, config);
@@ -1074,7 +1075,7 @@ describe('illuminatePrefix — 3-zone SGR transition', () => {
 		expect(hasTruecolor).toBe(true);
 	});
 
-	it('produces valid 3-zone output with truecolor at all depths', () => {
+	it('produces valid 9-zone output with truecolor at all depths', () => {
 		const now = Date.now();
 		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
 		const config = ILLUMINATE_CONFIGS.msgContent;
@@ -1086,6 +1087,33 @@ describe('illuminatePrefix — 3-zone SGR transition', () => {
 		const hasDim = result.includes(DIM_ON);
 		const hasBold = result.includes(BOLD_ON);
 		expect(hasDim || hasBold || result.includes('\x1b[38;2;')).toBe(true);
+	});
+
+	it('produces purple-orange mid-intensity colors', () => {
+		const now = Date.now();
+		// elapsed=350 at spread=1.5 gives moderate intensity → purple-orange zone (0.38–0.50)
+		const ripple = { pos: 5, time: now - 350, dur: 850, spread: 1.5 };
+		const config = ILLUMINATE_CONFIGS.msgContent;
+		const result = applyRipples('abcdefghij', [ripple], now, config);
+		// Should produce truecolor codes — look for purple or orange signature RGBs
+		// Purple: R>100, G<120, B>200; Orange: R>200, G>100, B<80
+		expect(result).toContain('\x1b[38;2;');
+		// Parse out some color codes and verify they fall in purple-orange range
+		const colorMatches = result.match(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g);
+		expect(colorMatches).not.toBeNull();
+		if (colorMatches) {
+			// At least one color should have strong red/blue (purple) or strong red/moderate green (orange)
+			const hasPurpleOrOrange = colorMatches.some((code) => {
+				const match = code.match(/\x1b\[38;2;(\d+);(\d+);(\d+)m/);
+				if (!match) return false;
+				const r = parseInt(match[1], 10);
+				const g = parseInt(match[2], 10);
+				const b = parseInt(match[3], 10);
+				// Purple: high red+blue, low green; Orange: high red, moderate green, low blue
+				return (r > 120 && g < 130 && b > 150) || (r > 180 && g > 60 && b < 120);
+			});
+			expect(hasPurpleOrOrange).toBe(true);
+		}
 	});
 });
 
@@ -1175,7 +1203,7 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		// TPS text is short (4 chars) so ripple expands past it quickly;
 		// verify at an early time when wavefront is still within text
 		const result = manager.updateTps(TEST_ID, '55.0', base + 110);
-		expect(result).toContain(GOLD_GLOW);
+		expect(result).toContain(ORANGE_GLOW);
 	});
 
 	it('hasAnyActiveAnimations works for illuminate', () => {

@@ -131,6 +131,8 @@ const CYAN_GLOW = '\x1b[38;2;0;255;204m';
 const PURPLE_GLOW = '\x1b[38;2;191;0;255m';
 const PINK_GLOW = '\x1b[38;2;255;0;85m';
 const GOLD_GLOW = '\x1b[38;2;255;204;0m';
+const MINT_GLOW = '\x1b[38;2;100;255;180m';
+const ORANGE_GLOW = '\x1b[38;2;255;160;40m';
 const WHITE_GLOW = '\x1b[38;2;255;255;255m';
 const RESET_COLOR = '\x1b[39m';
 const BOLD_ON = '\x1b[1m';
@@ -158,9 +160,9 @@ interface IlluminateConfig {
 const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
 	aimLabel: { color: CYAN_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
 	actLabel: { color: PURPLE_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
-	msgLabel: { color: CYAN_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
+	msgLabel: { color: MINT_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
 	msgContent: { color: 'dynamic', duration: 1200, spread: 0.5, glowIntensity: 'variable', initialTimeOffset: 50 },
-	tps: { color: GOLD_GLOW, duration: 120, spread: 0.5, glowIntensity: 'medium' },
+	tps: { color: ORANGE_GLOW, duration: 120, spread: 0.5, glowIntensity: 'medium' },
 };
 
 // ---------------------------------------------------------------------------
@@ -247,7 +249,7 @@ export type ScrambleMode = 'stream' | 'cascade' | 'ripple' | 'illuminate';
 export { selectScrambleChar };
 export { ILLUMINATE_CONFIGS };
 export type { IlluminateConfig };
-export { CYAN_GLOW, PURPLE_GLOW, PINK_GLOW, GOLD_GLOW, WHITE_GLOW, BOLD_ON, BOLD_OFF, RESET_COLOR };
+export { CYAN_GLOW, PURPLE_GLOW, PINK_GLOW, GOLD_GLOW, MINT_GLOW, ORANGE_GLOW, WHITE_GLOW, BOLD_ON, BOLD_OFF, RESET_COLOR };
 
 export const DEFAULT_MODE: ScrambleMode = 'illuminate';
 
@@ -585,33 +587,53 @@ function illuminatePrefix(depth: number, elapsed: number, dur: number, config: I
 		const life = 1 - progress;
 		const intensity = heat * life;
 
-		// 5-zone continuous truecolor gradient: deep teal → vivid cyan → white → bright white
+		// 9-zone continuous truecolor gradient: deep teal → cyan → mint → purple → orange → white
 		let r: number, g: number, b: number;
-		if (intensity < 0.20) {
-			const t = smoothstep(0, 0.20, intensity);
+		if (intensity < 0.12) {
+			const t = smoothstep(0, 0.12, intensity);
 			r = lerp(0, 0, t);
-			g = lerp(140, 180, t);
-			b = lerp(110, 150, t);
-		} else if (intensity < 0.40) {
-			const t = smoothstep(0.20, 0.40, intensity);
-			r = lerp(0, 0, t);
-			g = lerp(180, 220, t);
-			b = lerp(150, 190, t);
-		} else if (intensity < 0.60) {
-			const t = smoothstep(0.40, 0.60, intensity);
-			r = lerp(0, 180, t);
-			g = lerp(220, 255, t);
-			b = lerp(190, 240, t);
-		} else if (intensity < 0.80) {
-			const t = smoothstep(0.60, 0.80, intensity);
+			g = lerp(140, 230, t);
+			b = lerp(110, 220, t);
+		} else if (intensity < 0.25) {
+			const t = smoothstep(0.12, 0.25, intensity);
+			r = lerp(0, 100, t);
+			g = lerp(230, 255, t);
+			b = lerp(220, 180, t);
+		} else if (intensity < 0.38) {
+			const t = smoothstep(0.25, 0.38, intensity);
+			r = lerp(100, 170, t);
+			g = lerp(255, 80, t);
+			b = lerp(180, 255, t);
+		} else if (intensity < 0.50) {
+			const t = smoothstep(0.38, 0.50, intensity);
+			r = lerp(170, 255, t);
+			g = lerp(80, 160, t);
+			b = lerp(255, 40, t);
+		} else if (intensity < 0.62) {
+			const t = smoothstep(0.50, 0.62, intensity);
+			r = lerp(255, 255, t);
+			g = lerp(160, 230, t);
+			b = lerp(40, 180, t);
+		} else if (intensity < 0.74) {
+			const t = smoothstep(0.62, 0.74, intensity);
+			r = lerp(255, 180, t);
+			g = lerp(230, 255, t);
+			b = lerp(180, 240, t);
+		} else if (intensity < 0.85) {
+			const t = smoothstep(0.74, 0.85, intensity);
 			r = lerp(180, 240, t);
 			g = 255;
 			b = lerp(240, 250, t);
-		} else {
-			const t = smoothstep(0.80, 1.0, intensity);
-			r = lerp(240, 255, t);
+		} else if (intensity < 0.93) {
+			const t = smoothstep(0.85, 0.93, intensity);
+			r = lerp(240, 250, t);
 			g = 255;
-			b = lerp(250, 255, t);
+			b = lerp(250, 252, t);
+		} else {
+			const t = smoothstep(0.93, 1.0, intensity);
+			r = lerp(250, 255, t);
+			g = 255;
+			b = lerp(252, 255, t);
 		}
 
 		// Interference boost: overlapping ripples push color towards white (constructive)
@@ -626,8 +648,8 @@ function illuminatePrefix(depth: number, elapsed: number, dur: number, config: I
 		// Soft prefix thresholds: dim at very low intensity, bold at very high
 		let prefix = '';
 		if (interferenceBoost > 0.3) prefix = BOLD_ON;  // Interference overrides to bold
-		else if (intensity < 0.30) prefix = DIM_ON;
-		else if (intensity > 0.70) prefix = BOLD_ON;
+		else if (intensity < 0.25) prefix = DIM_ON;
+		else if (intensity > 0.75) prefix = BOLD_ON;
 
 		return `${prefix}\x1b[38;2;${r};${g};${b}m`;
 	}
@@ -761,7 +783,7 @@ export function applyRipples(
 			}
 		} else if (afterglowIntensity > 0 && config) {
 			const agPrefix = config.color === 'dynamic'
-				? DIM_ON + '\x1b[38;2;100;160;140m'
+				? DIM_ON + '\x1b[38;2;50;200;170m'
 				: DIM_ON + config.color;
 			if (!inColor || currentPrefix !== agPrefix) {
 				if (inColor) segments[segCount++] = ILLUMINATE_CLOSE;

@@ -147,10 +147,10 @@ describe('ScrambleStateManager (stream mode)', () => {
 		expect(DEFAULT_MODE).toBe('illuminate');
 	});
 
-	it('updateAim animates on first call', () => {
+	it('updateAim returns plain text in stream mode', () => {
 		const result = manager.updateAim(TEST_ID, 'test', Date.now());
-		expect(result.content).not.toBe('test'); // scrambled on first call
-		expect(result.isAnimating).toBe(true);
+		expect(result.content).toBe('test'); // stream mode: no animation for static aim
+		expect(result.isAnimating).toBe(false);
 	});
 
 	it('streamAct reveals text progressively', () => {
@@ -593,12 +593,11 @@ describe('ScrambleStateManager (cascade mode)', () => {
 		expect(manager.getMode()).toBe('cascade');
 	});
 
-	it('updateAim never animates', () => {
+	it('updateAim animates on text change in cascade mode', () => {
 		const base = 1000000;
 		manager.updateAim(TEST_ID, 'initial text', base);
 		const result = manager.updateAim(TEST_ID, 'changed text', base + 300);
-		expect(result.content).toBe('changed text');
-		expect(result.isAnimating).toBe(false);
+		expect(result.isAnimating).toBe(true);
 	});
 
 	it('updateAct spawns cascade on text change', () => {
@@ -719,12 +718,11 @@ describe('ScrambleStateManager (ripple mode)', () => {
 		expect(hasDimAnsi(result.content)).toBe(true);
 	});
 
-	it('updateAim never animates', () => {
+	it('updateAim animates on text change in ripple mode', () => {
 		const base = 1000000;
 		manager.updateAim(TEST_ID, 'initial text', base);
 		const result = manager.updateAim(TEST_ID, 'changed text', base + 300);
-		expect(result.content).toBe('changed text');
-		expect(result.isAnimating).toBe(false);
+		expect(result.isAnimating).toBe(true);
 	});
 
 	it('updateAct spawns ripple on text change', () => {
@@ -1347,6 +1345,97 @@ describe('ScrambleStateManager — visible-window contract', () => {
 // ---------------------------------------------------------------------------
 // FastRNG and hashNoise tests
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Static line behavior tests
+// ---------------------------------------------------------------------------
+
+describe('ScrambleStateManager — staticLine behavior', () => {
+	let manager: ScrambleStateManager;
+
+	beforeEach(() => {
+		manager = new ScrambleStateManager();
+	});
+
+	it('updateText staticLine animates on first call', () => {
+		manager.setMode('cascade');
+		const base = 1000000;
+		const result = manager.updateText('id-1', 'header', 'hello world', base, false, true);
+		expect(result.isAnimating).toBe(true);
+		expect(stripAnsi(result.content)).not.toBe('hello world');
+	});
+
+	it('updateText staticLine does NOT re-animate on text change', () => {
+		manager.setMode('cascade');
+		const base = 1000000;
+		manager.updateText('id-1', 'header', 'hello world', base, false, true);
+		const result = manager.updateText('id-1', 'header', 'goodbye all', base + 300, false, true);
+		expect(result.isAnimating).toBe(false);
+		expect(stripAnsi(result.content)).toBe('goodbye all');
+	});
+
+	it('updateText non-staticLine still animates on text change', () => {
+		manager.setMode('cascade');
+		const base = 1000000;
+		manager.updateText('id-1', 'header', 'hello world', base, false, false);
+		const result = manager.updateText('id-1', 'header', 'goodbye all', base + 300, false, false);
+		expect(result.isAnimating).toBe(true);
+		expect(stripAnsi(result.content)).not.toBe('goodbye all');
+	});
+
+	it('updateAim staticLine animates on first call', () => {
+		manager.setMode('cascade');
+		const base = 1000000;
+		const result = manager.updateAim('id-1', 'test aim', base, false, true);
+		expect(result.isAnimating).toBe(true);
+	});
+
+	it('updateAim staticLine does NOT re-animate on text change', () => {
+		manager.setMode('cascade');
+		const base = 1000000;
+		manager.updateAim('id-1', 'test aim', base, false, true);
+		const result = manager.updateAim('id-1', 'changed aim', base + 300, false, true);
+		expect(result.isAnimating).toBe(false);
+		expect(stripAnsi(result.content)).toBe('changed aim');
+	});
+
+	it('updateAct staticLine does NOT re-animate on text change', () => {
+		manager.setMode('cascade');
+		const base = 1000000;
+		manager.updateAct('id-1', 'read file.ts', base, false, true);
+		const result = manager.updateAct('id-1', 'write file.ts', base + 300, false, true);
+		expect(result.isAnimating).toBe(false);
+		expect(stripAnsi(result.content)).toBe('write file.ts');
+	});
+
+	it('updateMsg staticLine does NOT re-animate on text change', () => {
+		manager.setMode('cascade');
+		const base = 1000000;
+		manager.updateMsg('id-1', 'first message', base, false, undefined, true);
+		const result = manager.updateMsg('id-1', 'second message', base + 300, false, undefined, true);
+		expect(result.isAnimating).toBe(false);
+		expect(stripAnsi(result.content)).toBe('second message');
+	});
+
+	it('updateTps staticLine only flashes on first value', () => {
+		manager.setMode('ripple');
+		const base = 1000000;
+		// First value triggers flash (verify via active animation detection)
+		manager.updateTps('id-1', '42.5', base + 50, false, true);
+		expect(manager.hasAnyActiveAnimations(base + 55)).toBe(true); // first flash active
+		const second = manager.updateTps('id-1', '43.0', base + 300, false, true);
+		expect(second).toBe('43.0'); // no re-flash
+		expect(manager.hasAnyActiveAnimations(base + 310)).toBe(false);
+	});
+
+	it('updateTps non-staticLine flashes on significant value change', () => {
+		manager.setMode('cascade');
+		const base = 1000000;
+		manager.updateTps('id-1', '42.5', base, false, false);
+		const result = manager.updateTps('id-1', '100.0', base + 300, false, false);
+		expect(result).not.toBe('100.0'); // significant change triggers flash
+	});
+});
 
 describe('FastRNG', () => {
 	it('produces deterministic sequence for same seed', () => {

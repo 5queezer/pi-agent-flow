@@ -271,14 +271,14 @@ function renderFlowExpanded(
 		const so = r.structuredOutput;
 		const statusColor = so.status === "complete" ? "success" : so.status === "partial" ? "warning" : "error";
 		const statusText = `[${so.status}] ${so.summary}`;
-		const statusResult = scrambleManager.updateText(id, 'report-status', statusText, now, isComplete);
+		const statusResult = scrambleManager.updateText(id, 'report-status', statusText, now, isComplete, false);
 		container.addChild(new Text(
 			statusResult.isAnimating ? `${theme.fg(statusColor, statusResult.content.split(' ')[0])} ${theme.fg("dim", statusResult.content.slice(statusResult.content.indexOf(' ') + 1))}` : `${theme.fg(statusColor, `[${so.status}]`)} ${theme.fg("dim", so.summary)}`,
 			0, 0,
 		));
 		if (so.files.length > 0) {
 			const filesText = `Files: ${so.files.map((f) => f.path).join(", ")}`;
-			const filesResult = scrambleManager.updateText(id, 'report-files', filesText, now, isComplete);
+			const filesResult = scrambleManager.updateText(id, 'report-files', filesText, now, isComplete, false);
 			container.addChild(new Text(filesResult.isAnimating ? theme.fg("dim", filesResult.content) : theme.fg("dim", filesText), 0, 0));
 		}
 		if (so.commands?.length > 0) {
@@ -287,7 +287,7 @@ function renderFlowExpanded(
 				return `${c.tool ?? "cmd"}: ${short}`;
 			});
 			const commandsText = `Commands: ${cmdLabels.join(", ")}`;
-			const commandsResult = scrambleManager.updateText(id, 'report-commands', commandsText, now, isComplete);
+			const commandsResult = scrambleManager.updateText(id, 'report-commands', commandsText, now, isComplete, false);
 			container.addChild(new Text(commandsResult.isAnimating ? theme.fg("dim", commandsResult.content) : theme.fg("dim", commandsText), 0, 0));
 		}
 		if (so.notDone.length > 0) {
@@ -299,12 +299,12 @@ function renderFlowExpanded(
 				].filter(Boolean).join("; ");
 				return details ? `${item.item} (${details})` : item.item;
 			}).join("; ")}`;
-			const notDoneResult = scrambleManager.updateText(id, 'report-notDone', notDoneText, now, isComplete);
+			const notDoneResult = scrambleManager.updateText(id, 'report-notDone', notDoneText, now, isComplete, false);
 			container.addChild(new Text(notDoneResult.isAnimating ? theme.fg("dim", notDoneResult.content) : theme.fg("dim", notDoneText), 0, 0));
 		}
 		if (so.nextSteps.length > 0) {
 			const nextStepsText = `Next: ${so.nextSteps.join("; ")}`;
-			const nextStepsResult = scrambleManager.updateText(id, 'report-nextSteps', nextStepsText, now, isComplete);
+			const nextStepsResult = scrambleManager.updateText(id, 'report-nextSteps', nextStepsText, now, isComplete, false);
 			container.addChild(new Text(nextStepsResult.isAnimating ? theme.fg("dim", nextStepsResult.content) : theme.fg("dim", nextStepsText), 0, 0));
 		}
 		container.addChild(new Spacer(1));
@@ -318,7 +318,7 @@ function renderFlowExpanded(
 		container.addChild(new Markdown(flowOutput.trim(), 0, 0, mdTheme));
 	} else {
 		const summary = getFlowSummaryText(r);
-		const summaryResult = scrambleManager.updateText(id, 'output-summary', summary, now, isComplete);
+		const summaryResult = scrambleManager.updateText(id, 'output-summary', summary, now, isComplete, false);
 		container.addChild(new Text(summaryResult.isAnimating ? theme.fg("muted", summaryResult.content) : theme.fg("muted", summary), 0, 0));
 	}
 
@@ -364,7 +364,7 @@ function renderFlowCollapsed(
 	const tpsMatch = stats.match(/tps:\s*(\S+)/);
 	let displayStats = stats;
 	if (tpsMatch) {
-		const scrambledTps = scrambleManager.updateTps(id, tpsMatch[1], now, isComplete);
+		const scrambledTps = scrambleManager.updateTps(id, tpsMatch[1], now, isComplete, true);
 		if (scrambledTps !== tpsMatch[1]) {
 			displayStats = stats.replace(tpsMatch[1], scrambledTps);
 		}
@@ -376,7 +376,7 @@ function renderFlowCollapsed(
 	if (error && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 	// Scramble header on first render; show full styled header when complete
 	const plainHeader = typeName + (modelLabel ? ` - ${modelLabel} - ` : " - ") + stripAnsi(displayStats) + (error && r.stopReason ? ` [${r.stopReason}]` : "");
-	const headerResult = scrambleManager.updateText(id, 'header', plainHeader, now, isComplete);
+	const headerResult = scrambleManager.updateText(id, 'header', plainHeader, now, isComplete, true);
 	const headerDisplay = headerResult.isAnimating ? theme.fg("accent", headerResult.content) : header;
 	container.addChild(new TruncatedText(headerDisplay, 0, 0));
 
@@ -389,7 +389,7 @@ function renderFlowCollapsed(
 			: `${treePrefix} aim: `;
 		const budget = getTruncationBudget(visibleLength(aimPrefix));
 		const displayAim = truncateChars(lowerFirstWord(r.aim), budget);
-		const aimResult = scrambleManager.updateAim(id, displayAim, now, isComplete);
+		const aimResult = scrambleManager.updateAim(id, displayAim, now, isComplete, true);
 		const aimContent = aimResult.content;
 		container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(aimContent))}`, 0, 0));
 	}
@@ -406,7 +406,7 @@ function renderFlowCollapsed(
 			actContent = scrambleManager.streamAct(id, actFullText, now, isComplete, budget);
 		} else {
 			const displayAct = truncateChars(actFullText, budget);
-			actContent = scrambleManager.updateAct(id, displayAct, now, isComplete).content;
+			actContent = scrambleManager.updateAct(id, displayAct, now, isComplete, true).content;
 		}
 		const actPrefix = `├─ act: [${r.usage.toolCalls}] - `;
 		container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(actContent)}`, 0, 0));
@@ -440,11 +440,11 @@ function renderFlowCollapsed(
 		// For active (incomplete) flows, pass full text to keep animation stable.
 		// TruncatedText handles display truncation. Completed flows truncate as before.
 		if (!isComplete) {
-			msgContent = scrambleManager.updateMsg(id, rawMsg, now, isComplete, msgBudget).content;
+			msgContent = scrambleManager.updateMsg(id, rawMsg, now, isComplete, msgBudget, true).content;
 		} else {
 			const needsTail = (r.exitCode === -1 && streamingText) || streamingText;
 			const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);
-			msgContent = scrambleManager.updateMsg(id, displayMsg, now, isComplete).content;
+			msgContent = scrambleManager.updateMsg(id, displayMsg, now, isComplete, undefined, true).content;
 		}
 	}
 	const msgPrefix = `└─ msg: [${formatCompactTokenPair(r.usage)}] - `;
@@ -510,26 +510,26 @@ function renderMultiFlowExpanded(
 
 		container.addChild(new Spacer(1));
 		// Per-flow header: ─── EXPLORER (no icon)
-		const headerResult = scrambleManager.updateText(flowId, 'header', typeName, now, isComplete);
+		const headerResult = scrambleManager.updateText(flowId, 'header', typeName, now, isComplete, true);
 		container.addChild(new Text(headerResult.isAnimating ? theme.fg("muted", headerResult.content) : theme.fg("muted", sectionHeader(typeName)), 0, 0));
 
 		// Stats: dashboard format
 		const flowStats = formatCompactStats(r.usage, r.model);
-		const statsResult = scrambleManager.updateText(flowId, 'stats', stripAnsi(flowStats), now, isComplete);
+		const statsResult = scrambleManager.updateText(flowId, 'stats', stripAnsi(flowStats), now, isComplete, true);
 		container.addChild(new Text(statsResult.isAnimating ? theme.fg("dim", statsResult.content) : theme.fg("dim", flowStats), 0, 0));
 
 		// Intent: just show text, no prefix
-		const intentResult = scrambleManager.updateText(flowId, 'intent', r.intent, now, isComplete);
+		const intentResult = scrambleManager.updateText(flowId, 'intent', r.intent, now, isComplete, true);
 		container.addChild(new Text(intentResult.isAnimating ? theme.fg("dim", intentResult.content) : theme.fg("dim", r.intent), 0, 0));
 
 		if (r.acceptance) {
-			const acceptanceResult = scrambleManager.updateText(flowId, 'acceptance', r.acceptance, now, isComplete);
+			const acceptanceResult = scrambleManager.updateText(flowId, 'acceptance', r.acceptance, now, isComplete, true);
 			container.addChild(new Text(acceptanceResult.isAnimating ? theme.fg("dim", acceptanceResult.content) : theme.fg("dim", `Acceptance: ${r.acceptance}`), 0, 0));
 		}
 
 		// Output: animate streaming text; show clean markdown when complete
 		if (!isComplete && r.streamingText) {
-			const scrambled = scrambleManager.updateMsg(flowId, stripAnsi(r.streamingText), now, isComplete).content;
+			const scrambled = scrambleManager.updateMsg(flowId, stripAnsi(r.streamingText), now, isComplete, undefined, true).content;
 			container.addChild(new Text(scrambled, 0, 0));
 		} else if (flowOutput) {
 			container.addChild(new Spacer(1));
@@ -586,7 +586,7 @@ function renderActivityPanel(
 		const flowComplete = r.exitCode !== -1;
 		let displayStats = stats;
 		if (tpsMatch) {
-			const scrambledTps = scrambleManager.updateTps(flowId, tpsMatch[1], now, flowComplete);
+			const scrambledTps = scrambleManager.updateTps(flowId, tpsMatch[1], now, flowComplete, true);
 			if (scrambledTps !== tpsMatch[1]) {
 				displayStats = stats.replace(tpsMatch[1], scrambledTps);
 			}
@@ -603,7 +603,7 @@ function renderActivityPanel(
 			headerLine += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 		}
 		const plainHeader = headerPrefix + " " + typeName + (modelLabel ? ` - ${modelLabel} - ` : " - ") + stripAnsi(displayStats) + (error && r.stopReason ? ` [${r.stopReason}]` : "");
-		const headerResult = scrambleManager.updateText(flowId, 'header', plainHeader, now, flowComplete);
+		const headerResult = scrambleManager.updateText(flowId, 'header', plainHeader, now, flowComplete, true);
 		const headerDisplay = headerResult.isAnimating ? theme.fg("accent", headerResult.content) : headerLine;
 		container.addChild(new TruncatedText(headerDisplay, 0, 0));
 
@@ -619,7 +619,7 @@ function renderActivityPanel(
 				: `${treePrefix} aim: `;
 			const budget = getTruncationBudget(visibleLength(aimPrefix));
 			const displayAim = truncateChars(lowerFirstWord(r.aim), budget);
-			const aimResult = scrambleManager.updateAim(flowId, displayAim, now, flowComplete);
+			const aimResult = scrambleManager.updateAim(flowId, displayAim, now, flowComplete, true);
 			const aimContent = aimResult.content;
 			container.addChild(new TruncatedText(`${theme.fg("dim", aimPrefix)}${theme.fg("dim", italic(aimContent))}`, 0, 0));
 		}
@@ -636,7 +636,7 @@ function renderActivityPanel(
 				actContent = scrambleManager.streamAct(flowId, actFullText, now, flowComplete, budget);
 			} else {
 				const displayAct = truncateChars(actFullText, budget);
-				actContent = scrambleManager.updateAct(flowId, displayAct, now, flowComplete).content;
+				actContent = scrambleManager.updateAct(flowId, displayAct, now, flowComplete, true).content;
 			}
 			const actPrefix = `${indent}├─ act: [${r.usage.toolCalls}] - `;
 			container.addChild(new TruncatedText(`${theme.fg("dim", actPrefix)}${italic(actContent)}`, 0, 0));
@@ -666,7 +666,7 @@ function renderActivityPanel(
 			// For active (incomplete) flows, pass full text to keep animation stable.
 			// TruncatedText handles display truncation. Completed flows truncate as before.
 			if (!flowComplete) {
-				msgContent = scrambleManager.updateMsg(flowId, rawMsg, now, flowComplete, msgBudget).content;
+				msgContent = scrambleManager.updateMsg(flowId, rawMsg, now, flowComplete, msgBudget, true).content;
 			} else {
 				const needsTail = Boolean(liveText || lastText);
 				const displayMsg = needsTail ? tailText(rawMsg, msgBudget) : truncateChars(rawMsg, msgBudget);

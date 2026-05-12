@@ -1023,7 +1023,7 @@ export class ScrambleStateManager {
 		return state;
 	}
 
-	updateText(id: string, key: string, text: string, now: number, isComplete: boolean = false): ScrambleResult {
+	updateText(id: string, key: string, text: string, now: number, isComplete: boolean = false, staticLine: boolean = false): ScrambleResult {
 		if (isComplete) {
 			const state = this.genericCache.get(`${id}#${key}`);
 			if (!state) return { label: key, content: text, isAnimating: false };
@@ -1061,6 +1061,15 @@ export class ScrambleStateManager {
 			} else {
 				state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
 			}
+		} else if (staticLine && state.initialized) {
+			// Static line: silently update text, clear any ongoing animation
+			state.lastText = text;
+			state.queue = [];
+			state.ripples = [];
+			if (this.mode === 'illuminate') {
+				state.displayedText = text;
+				state.pendingText = '';
+			}
 		} else {
 			processLine(state, text, now, this.mode);
 		}
@@ -1073,7 +1082,7 @@ export class ScrambleStateManager {
 	// aim: — cascade/ripple/illuminate on text change
 	// -----------------------------------------------------------------------
 
-	updateAim(id: string, text: string, now: number, isComplete: boolean = false): ScrambleResult {
+	updateAim(id: string, text: string, now: number, isComplete: boolean = false, staticLine: boolean = false): ScrambleResult {
 		if (isComplete) {
 			const record = this.cache.get(id);
 			if (!record) return { label: 'aim:', content: text, isAnimating: false };
@@ -1097,7 +1106,35 @@ export class ScrambleStateManager {
 			state.ripples = [];
 		}
 		if (state.completed) return { label: 'aim:', content: text, isAnimating: false };
-		processLine(state, text, now, this.mode);
+		// Stream mode: aim is static text, no typewriter animation
+		if (this.mode === 'stream') {
+			return { label: 'aim:', content: text, isAnimating: false };
+		}
+		// Trigger initial reveal animation for aim on first call
+		if (!state.initialized) {
+			state.lastText = text;
+			state.initialized = true;
+			state.lastAnimTime = now;
+			if (this.mode === 'cascade') {
+				state.queue = buildQueue('', text);
+				state.startTime = now;
+				state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+			} else if (this.mode === 'illuminate') {
+				state.ripples.push(spawnIlluminateRipple(randomizedCenter(text.length), now, ILLUMINATE_CONFIGS.aimLabel));
+			} else {
+				state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
+			}
+		} else if (staticLine && state.initialized) {
+			state.lastText = text;
+			state.queue = [];
+			state.ripples = [];
+			if (this.mode === 'illuminate') {
+				state.displayedText = text;
+				state.pendingText = '';
+			}
+		} else {
+			processLine(state, text, now, this.mode);
+		}
 		const content = applyScramble(text, state, now, this.mode, undefined, () => this.poolRandomChar());
 		const isAnimating = this.isLineAnimating(state, now);
 		return { label: 'aim:', content, isAnimating };
@@ -1107,7 +1144,7 @@ export class ScrambleStateManager {
 	// act: — stream/cascade/ripple on text change
 	// -----------------------------------------------------------------------
 
-	updateAct(id: string, text: string, now: number, isComplete: boolean = false): ScrambleResult {
+	updateAct(id: string, text: string, now: number, isComplete: boolean = false, staticLine: boolean = false): ScrambleResult {
 		if (isComplete) {
 			const record = this.cache.get(id);
 			if (!record) return { label: 'act:', content: text, isAnimating: false };
@@ -1131,7 +1168,17 @@ export class ScrambleStateManager {
 			state.ripples = [];
 		}
 		if (state.completed) return { label: 'act:', content: text, isAnimating: false };
-		processLine(state, text, now, this.mode, 'act');
+		if (staticLine && state.initialized) {
+			state.lastText = text;
+			state.queue = [];
+			state.ripples = [];
+			if (this.mode === 'illuminate') {
+				state.displayedText = text;
+				state.pendingText = '';
+			}
+		} else {
+			processLine(state, text, now, this.mode, 'act');
+		}
 		const content = applyScramble(text, state, now, this.mode, 'act', () => this.poolRandomChar());
 		const isAnimating = this.isLineAnimating(state, now);
 		return { label: 'act:', content, isAnimating };
@@ -1141,7 +1188,7 @@ export class ScrambleStateManager {
 	// msg: — stream/cascade/ripple on text change
 	// -----------------------------------------------------------------------
 
-	updateMsg(id: string, text: string, now: number, isComplete: boolean = false, budget?: number): ScrambleResult {
+	updateMsg(id: string, text: string, now: number, isComplete: boolean = false, budget?: number, staticLine: boolean = false): ScrambleResult {
 		const visibleText = budget !== undefined ? tailText(text, budget) : text;
 
 		if (isComplete) {
@@ -1167,7 +1214,17 @@ export class ScrambleStateManager {
 			state.ripples = [];
 		}
 		if (state.completed) return { label: 'msg:', content: visibleText, isAnimating: false };
-		processLine(state, visibleText, now, this.mode, 'msg');
+		if (staticLine && state.initialized) {
+			state.lastText = visibleText;
+			state.queue = [];
+			state.ripples = [];
+			if (this.mode === 'illuminate') {
+				state.displayedText = visibleText;
+				state.pendingText = '';
+			}
+		} else {
+			processLine(state, visibleText, now, this.mode, 'msg');
+		}
 		const content = applyScramble(visibleText, state, now, this.mode, 'msg', () => this.poolRandomChar());
 		const isAnimating = this.isLineAnimating(state, now);
 		return { label: 'msg:', content, isAnimating };
@@ -1350,13 +1407,14 @@ export class ScrambleStateManager {
 	// TPS flash (cascade/ripple modes only)
 	// -----------------------------------------------------------------------
 
-	updateTps(id: string, tpsText: string, now: number, isComplete: boolean = false): string {
+	updateTps(id: string, tpsText: string, now: number, isComplete: boolean = false, staticLine: boolean = false): string {
 		if (!tpsText || tpsText.trim() === '-') return tpsText;
 		if (isComplete) {
 			const s = this.tpsState.get(id);
 			if (!s) return tpsText;
 		}
 		let state = this.tpsState.get(id);
+		const isFirstCall = !state;
 		if (!state) {
 			state = createValueFlashState();
 			state.prev = tpsText;
@@ -1379,7 +1437,8 @@ export class ScrambleStateManager {
 		if (state.completed) return tpsText;
 		if (state.prev !== tpsText) {
 			// Hysteresis: only flash on significant change or after settle time
-			let shouldFlash = true;
+			// Static line: only allow flash on the very first value change
+			let shouldFlash = staticLine ? state.startTime === 0 : true;
 			const prevVal = parseFloat(state.prev);
 			const newVal = parseFloat(tpsText);
 			if (!isNaN(prevVal) && !isNaN(newVal) && prevVal !== 0) {
@@ -1403,6 +1462,19 @@ export class ScrambleStateManager {
 				state.queue = []; // suppress old cascade when new value arrives without flash
 			}
 			state.prev = tpsText;
+		}
+		if (isFirstCall && staticLine && state.startTime === 0) {
+			// Static line: trigger initial flash on first value even though prev was set
+			if (this.mode === 'cascade') {
+				state.queue = buildQueue('', tpsText, CASCADE_FLASH_MAX_START, CASCADE_FLASH_MAX_LENGTH);
+				state.startTime = now;
+				state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+			} else if (this.mode === 'illuminate') {
+				state.ripple = spawnIlluminateRipple(randomizedCenter(tpsText.length), now, ILLUMINATE_CONFIGS.tps);
+				state.startTime = now;
+			} else {
+				state.ripple = spawnRipple(randomizedCenter(tpsText.length), now, TPS_FLASH_DUR, TPS_FLASH_SPREAD);
+			}
 		}
 		if (this.mode === 'cascade') {
 			if (state.queue.length) {

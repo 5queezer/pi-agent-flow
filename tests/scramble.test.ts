@@ -1034,10 +1034,10 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 	it('updateMsg buffers phrases and flushes at boundaries', () => {
 		const base = 2000000;
 		manager.updateMsg(TEST_ID, 'Hello world', base);
-		// Same text — no flush; first-render ripple still active
+		// Same text — no flush; msg: in illuminate mode initializes silently
 		const same = manager.updateMsg(TEST_ID, 'Hello world', base + 100);
-		expect(same.isAnimating).toBe(true);
-		// New text with phrase boundary — triggers flush
+		expect(same.isAnimating).toBe(false);
+		// New text with phrase boundary — triggers flush and ripple
 		manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 300);
 		// Ripple is active for 850ms — verify animation is detected
 		expect(manager.hasAnyActiveAnimations(base + 400)).toBe(true);
@@ -1098,9 +1098,12 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 	it('hasAnyActiveAnimations works for illuminate', () => {
 		const base = 7000000;
 		manager.updateMsg(TEST_ID, 'init', base);
-		// First call creates ripple animation
-		expect(manager.hasAnyActiveAnimations(base)).toBe(true);
-		manager.updateMsg(TEST_ID, 'changed text here.', base + 300);
+		// msg: in illuminate mode initializes silently (phrase buffering)
+		expect(manager.hasAnyActiveAnimations(base)).toBe(false);
+		// Trigger a flash via act: which does animate on first render
+		manager.updateAct(TEST_ID, 'read file.ts', base + 10);
+		expect(manager.hasAnyActiveAnimations(base + 10)).toBe(true);
+		manager.updateAct(TEST_ID, 'write file.ts', base + 300);
 		expect(manager.hasAnyActiveAnimations(base + 300)).toBe(true);
 	});
 
@@ -1122,10 +1125,10 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		const stripped = stripAnsi(result.content);
 		// Should NOT be the raw new text immediately
 		expect(stripped).not.toBe('world today is nice');
-		// Should show buffered old text (may have scramble chars from first-render ripple)
+		// Should show buffered old text (no scramble yet — phrase buffering)
 		expect(stripped.length).toBe('hello world today'.length);
-		// Verify state: old text is still displayed, new text is pending
-		expect(result.isAnimating).toBe(true);
+		// Verify state: old text is still displayed, new text is pending, no animation yet
+		expect(result.isAnimating).toBe(false);
 	});
 
 	it('updateMsg flushes on slide after timeout', () => {
@@ -1380,13 +1383,13 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 		expect(stripAnsi(result.content)).not.toBe('hello world');
 	});
 
-	it('updateText staticLine does NOT re-animate on text change', () => {
+	it('updateText staticLine re-animates on text change', () => {
 		manager.setMode('cascade');
 		const base = 1000000;
 		manager.updateText('id-1', 'header', 'hello world', base, false, true);
 		const result = manager.updateText('id-1', 'header', 'goodbye all', base + 300, false, true);
-		expect(result.isAnimating).toBe(false);
-		expect(stripAnsi(result.content)).toBe('goodbye all');
+		expect(result.isAnimating).toBe(true);
+		expect(stripAnsi(result.content)).not.toBe('goodbye all');
 	});
 
 	it('updateText non-staticLine still animates on text change', () => {
@@ -1405,31 +1408,31 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 		expect(result.isAnimating).toBe(true);
 	});
 
-	it('updateAim staticLine does NOT re-animate on text change', () => {
+	it('updateAim staticLine re-animates on text change', () => {
 		manager.setMode('cascade');
 		const base = 1000000;
 		manager.updateAim('id-1', 'test aim', base, false, true);
 		const result = manager.updateAim('id-1', 'changed aim', base + 300, false, true);
-		expect(result.isAnimating).toBe(false);
-		expect(stripAnsi(result.content)).toBe('changed aim');
+		expect(result.isAnimating).toBe(true);
+		expect(stripAnsi(result.content)).not.toBe('changed aim');
 	});
 
-	it('updateAct staticLine does NOT re-animate on text change', () => {
+	it('updateAct staticLine re-animates on text change', () => {
 		manager.setMode('cascade');
 		const base = 1000000;
 		manager.updateAct('id-1', 'read file.ts', base, false, true);
 		const result = manager.updateAct('id-1', 'write file.ts', base + 300, false, true);
-		expect(result.isAnimating).toBe(false);
-		expect(stripAnsi(result.content)).toBe('write file.ts');
+		expect(result.isAnimating).toBe(true);
+		expect(stripAnsi(result.content)).not.toBe('write file.ts');
 	});
 
-	it('updateMsg staticLine does NOT re-animate on text change', () => {
+	it('updateMsg staticLine re-animates on text change', () => {
 		manager.setMode('cascade');
 		const base = 1000000;
 		manager.updateMsg('id-1', 'first message', base, false, undefined, true);
 		const result = manager.updateMsg('id-1', 'second message', base + 300, false, undefined, true);
-		expect(result.isAnimating).toBe(false);
-		expect(stripAnsi(result.content)).toBe('second message');
+		expect(result.isAnimating).toBe(true);
+		expect(stripAnsi(result.content)).not.toBe('second message');
 	});
 
 	it('updateTps staticLine only flashes on first value', () => {

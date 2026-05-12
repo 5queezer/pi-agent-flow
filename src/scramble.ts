@@ -1076,7 +1076,20 @@ export class ScrambleStateManager {
 				state.displayedText = text;
 				state.pendingText = '';
 			}
-			if (textChanged || !this.isLineAnimating(state, now)) {
+			if (textChanged) {
+				state.lastAnimTime = now;
+				if (this.mode === 'cascade') {
+					state.queue = buildQueue('', text);
+					state.startTime = now;
+					state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+				} else if (this.mode === 'illuminate') {
+					state.ripples = [];
+					state.ripples.push(spawnIlluminateRipple(randomizedCenter(text.length), now, ILLUMINATE_CONFIGS.msgContent));
+				} else {
+					state.ripples = [];
+					state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
+				}
+			} else if (!this.isLineAnimating(state, now)) {
 				state.queue = [];
 				state.ripples = [];
 			}
@@ -1141,7 +1154,20 @@ export class ScrambleStateManager {
 				state.displayedText = text;
 				state.pendingText = '';
 			}
-			if (textChanged || !this.isLineAnimating(state, now)) {
+			if (textChanged) {
+				state.lastAnimTime = now;
+				if (this.mode === 'cascade') {
+					state.queue = buildQueue('', text);
+					state.startTime = now;
+					state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+				} else if (this.mode === 'illuminate') {
+					state.ripples = [];
+					state.ripples.push(spawnIlluminateRipple(randomizedCenter(text.length), now, ILLUMINATE_CONFIGS.aimLabel));
+				} else {
+					state.ripples = [];
+					state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
+				}
+			} else if (!this.isLineAnimating(state, now)) {
 				state.queue = [];
 				state.ripples = [];
 			}
@@ -1202,7 +1228,20 @@ export class ScrambleStateManager {
 				state.displayedText = text;
 				state.pendingText = '';
 			}
-			if (textChanged || !this.isLineAnimating(state, now)) {
+			if (textChanged) {
+				state.lastAnimTime = now;
+				if (this.mode === 'cascade') {
+					state.queue = buildQueue('', text);
+					state.startTime = now;
+					state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+				} else if (this.mode === 'illuminate') {
+					state.ripples = [];
+					state.ripples.push(spawnIlluminateRipple(randomizedCenter(text.length), now, ILLUMINATE_CONFIGS.actLabel));
+				} else {
+					state.ripples = [];
+					state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
+				}
+			} else if (!this.isLineAnimating(state, now)) {
 				state.queue = [];
 				state.ripples = [];
 			}
@@ -1253,7 +1292,6 @@ export class ScrambleStateManager {
 				state.startTime = now;
 				state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
 			} else if (this.mode === 'illuminate') {
-				state.ripples.push(spawnIlluminateRipple(randomizedCenter(visibleText.length), now, ILLUMINATE_CONFIGS.msgContent));
 				state.displayedText = visibleText;
 			} else {
 				state.ripples.push(spawnRipple(randomizedCenter(visibleText.length), now));
@@ -1265,7 +1303,20 @@ export class ScrambleStateManager {
 				state.displayedText = visibleText;
 				state.pendingText = '';
 			}
-			if (textChanged || !this.isLineAnimating(state, now)) {
+			if (textChanged) {
+				state.lastAnimTime = now;
+				if (this.mode === 'cascade') {
+					state.queue = buildQueue('', visibleText);
+					state.startTime = now;
+					state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+				} else if (this.mode === 'illuminate') {
+					state.ripples = [];
+					state.ripples.push(spawnIlluminateRipple(randomizedCenter(visibleText.length), now, ILLUMINATE_CONFIGS.msgContent));
+				} else {
+					state.ripples = [];
+					state.ripples.push(spawnRipple(randomizedCenter(visibleText.length), now));
+				}
+			} else if (!this.isLineAnimating(state, now)) {
 				state.queue = [];
 				state.ripples = [];
 			}

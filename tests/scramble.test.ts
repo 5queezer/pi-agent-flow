@@ -1465,6 +1465,28 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 		expect(manager.hasAnyActiveAnimations(base + 700)).toBe(false);
 	});
 
+	it('staticLine minor-mutation guard suppresses re-flash beyond cooldown', () => {
+		manager.setMode('ripple');
+		const base = 1000000;
+		// First call triggers initial flash
+		manager.updateText('id-1', 'header', 'scout - lite - tps: 12', base, false, true);
+		// Minor trailing-digit change after cooldown (300ms > 250ms) should NOT spawn a new ripple
+		manager.updateText('id-1', 'header', 'scout - lite - tps: 15', base + 300, false, true);
+		// Initial ripple expires at base+666; no new ripple means inactive by base+700
+		expect(manager.hasActiveAnimations('id-1', base + 700)).toBe(false);
+	});
+
+	it('staticLine still flashes on major rewrite beyond cooldown', () => {
+		manager.setMode('ripple');
+		const base = 1000000;
+		// First call triggers initial flash
+		manager.updateText('id-1', 'header', 'scout - lite - tps: 12', base, false, true);
+		// Major text change after cooldown should spawn a new ripple
+		manager.updateText('id-1', 'header', 'build - heavy - tps: 99', base + 300, false, true);
+		// New ripple spawned at base+300, expires at base+966, so still active at base+700
+		expect(manager.hasActiveAnimations('id-1', base + 700)).toBe(true);
+	});
+
 	it('staticLine cooldown guard suppresses rapid re-flash', () => {
 		manager.setMode('cascade');
 		const base = 1000000;

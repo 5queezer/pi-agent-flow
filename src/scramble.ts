@@ -958,6 +958,23 @@ function computeOverlapLen(oldStr: string, newStr: string): number {
 	return len;
 }
 
+/**
+ * For static lines, detect whether a text change is a minor mutation
+ * (most characters remain in the same positions). Used to suppress
+ * re-flashing when embedded stats (TPS, tokens) change at the end of
+ * a header line while the prefix (flow name, model) stays stable.
+ */
+function isMinorStaticMutation(oldStr: string, newStr: string): boolean {
+	const maxLen = Math.max(oldStr.length, newStr.length);
+	if (maxLen === 0) return true;
+	let same = 0;
+	const minLen = Math.min(oldStr.length, newStr.length);
+	for (let i = 0; i < minLen; i++) {
+		if (oldStr[i] === newStr[i]) same++;
+	}
+	return same / maxLen >= 0.5;
+}
+
 const MAX_FLOW_ENTRIES = 128;
 const MAX_CACHE_AGE_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -1078,10 +1095,8 @@ export class ScrambleStateManager {
 				state.pendingText = '';
 			}
 			if (textChanged) {
-				const overlap = computeOverlapLen(oldText, text);
-				const minLen = Math.min(oldText.length, text.length);
-				if (overlap > 0 && overlap >= minLen * 0.5) {
-					// slide — don't restart animation
+				if (isMinorStaticMutation(oldText, text)) {
+					// minor mutation (e.g. trailing stat digit) — don't restart animation
 				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
 					state.lastAnimTime = now;
 					if (this.mode === 'cascade') {
@@ -1163,10 +1178,8 @@ export class ScrambleStateManager {
 				state.pendingText = '';
 			}
 			if (textChanged) {
-				const overlap = computeOverlapLen(oldText, text);
-				const minLen = Math.min(oldText.length, text.length);
-				if (overlap > 0 && overlap >= minLen * 0.5) {
-					// slide — don't restart animation
+				if (isMinorStaticMutation(oldText, text)) {
+					// minor mutation — don't restart animation
 				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
 					state.lastAnimTime = now;
 					if (this.mode === 'cascade') {
@@ -1244,10 +1257,8 @@ export class ScrambleStateManager {
 				state.pendingText = '';
 			}
 			if (textChanged) {
-				const overlap = computeOverlapLen(oldText, text);
-				const minLen = Math.min(oldText.length, text.length);
-				if (overlap > 0 && overlap >= minLen * 0.5) {
-					// slide — don't restart animation
+				if (isMinorStaticMutation(oldText, text)) {
+					// minor mutation — don't restart animation
 				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
 					state.lastAnimTime = now;
 					if (this.mode === 'cascade') {
@@ -1326,10 +1337,8 @@ export class ScrambleStateManager {
 				state.pendingText = '';
 			}
 			if (textChanged) {
-				const overlap = computeOverlapLen(oldText, visibleText);
-				const minLen = Math.min(oldText.length, visibleText.length);
-				if (overlap > 0 && overlap >= minLen * 0.5) {
-					// slide — don't restart animation
+				if (isMinorStaticMutation(oldText, visibleText)) {
+					// minor mutation — don't restart animation
 				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
 					state.lastAnimTime = now;
 					if (this.mode === 'cascade') {

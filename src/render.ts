@@ -226,9 +226,11 @@ function renderSingleFlowResult(
 	const icon = flowStatusIcon(r, theme);
 	const displayItems = getFlowDisplayItems(r.messages);
 	const flowOutput = getFlowOutput(r.messages);
+	const now = Date.now();
+	const isComplete = r.exitCode !== -1;
 
 	if (expanded) {
-		return renderFlowExpanded(r, icon, error, displayItems, flowOutput, theme);
+		return renderFlowExpanded(r, icon, error, displayItems, flowOutput, theme, id, now, isComplete, streamingText);
 	}
 	return renderFlowCollapsed(r, icon, error, flowOutput, theme, streamingText, id);
 }
@@ -240,6 +242,10 @@ function renderFlowExpanded(
 	displayItems: DisplayItem[],
 	flowOutput: string,
 	theme: FlowTheme,
+	id: string,
+	now: number,
+	isComplete: boolean,
+	streamingText?: string,
 ): Container {
 	const mdTheme = getMarkdownTheme();
 	const container = new Container();
@@ -308,19 +314,33 @@ function renderFlowExpanded(
 		container.addChild(new Spacer(1));
 	}
 
-	if (flowOutput) {
+	// Output: animate streaming text; show clean markdown when complete
+	if (!isComplete && streamingText) {
+		const scrambled = scrambleManager.updateMsg(id, stripAnsi(streamingText), now, isComplete).content;
+		container.addChild(new Text(scrambled, 0, 0));
+	} else if (flowOutput) {
 		container.addChild(new Markdown(flowOutput.trim(), 0, 0, mdTheme));
 	} else {
 		const summary = getFlowSummaryText(r);
 		container.addChild(new Text(theme.fg("muted", summary), 0, 0));
 	}
 
-	// Tool traces (expanded only)
-	const toolTraces = renderToolTraces(displayItems, theme);
-	if (toolTraces) {
+	// Tool traces (expanded only) — per-line scramble
+	const toolCallItems = displayItems.filter((item) => item.type === "toolCall");
+	if (toolCallItems.length > 0) {
 		container.addChild(new Spacer(1));
 		container.addChild(new Text(theme.fg("muted", sectionHeader("tool calls")), 0, 0));
-		container.addChild(new Text(toolTraces, 0, 0));
+		for (let i = 0; i < toolCallItems.length; i++) {
+			const item = toolCallItems[i] as Extract<DisplayItem, { type: "toolCall" }>;
+			const lineText = theme.fg("muted", "→ ") + formatFlowToolCall(item.name, item.args, theme.fg.bind(theme));
+			const plainText = stripAnsi(lineText);
+			const scrambled = scrambleManager.updateText(id, `tool#${i}`, plainText, now, isComplete).content;
+			container.addChild(new Text(scrambled, 0, 0));
+		}
+	}
+
+	if (isComplete) {
+		scrambleManager.completeFlow(id);
 	}
 
 	return container;
@@ -452,9 +472,10 @@ function renderMultiFlowResult(
 	const successCount = results.filter((r) => isFlowSuccess(r)).length;
 	const failCount = results.filter((r) => isFlowError(r)).length;
 	const icon = failCount > 0 ? theme.fg("warning", "◐") : theme.fg("success", "✔");
+	const now = Date.now();
 
 	if (expanded) {
-		return renderMultiFlowExpanded(results, successCount, icon, theme);
+		return renderMultiFlowExpanded(results, successCount, icon, theme, baseId, now);
 	}
 	return renderMultiFlowCollapsed(results, theme, baseId);
 }
@@ -464,6 +485,8 @@ function renderMultiFlowExpanded(
 	successCount: number,
 	icon: string,
 	theme: FlowTheme,
+	baseId: string,
+	now: number,
 ): Container {
 	const mdTheme = getMarkdownTheme();
 	const container = new Container();
@@ -474,7 +497,10 @@ function renderMultiFlowExpanded(
 		0, 0,
 	));
 
-	for (const r of results) {
+	for (let flowIdx = 0; flowIdx < results.length; flowIdx++) {
+		const r = results[flowIdx];
+		const flowId = `${baseId}#${flowIdx}`;
+		const isComplete = r.exitCode !== -1;
 		const displayItems = getFlowDisplayItems(r.messages);
 		const flowOutput = getFlowOutput(r.messages);
 		const typeName = formatFlowTypeName(r.type);
@@ -494,17 +520,31 @@ function renderMultiFlowExpanded(
 			container.addChild(new Text(theme.fg("dim", `Acceptance: ${r.acceptance}`), 0, 0));
 		}
 
-		if (flowOutput) {
+		// Output: animate streaming text; show clean markdown when complete
+		if (!isComplete && r.streamingText) {
+			const scrambled = scrambleManager.updateMsg(flowId, stripAnsi(r.streamingText), now, isComplete).content;
+			container.addChild(new Text(scrambled, 0, 0));
+		} else if (flowOutput) {
 			container.addChild(new Spacer(1));
 			container.addChild(new Markdown(flowOutput.trim(), 0, 0, mdTheme));
 		}
 
-		// Tool traces in expanded view
-		const toolTraces = renderToolTraces(displayItems, theme);
-		if (toolTraces) {
+		// Tool traces in expanded view — per-line scramble
+		const toolCallItems = displayItems.filter((item) => item.type === "toolCall");
+		if (toolCallItems.length > 0) {
 			container.addChild(new Spacer(1));
 			container.addChild(new Text(theme.fg("muted", sectionHeader("tool calls")), 0, 0));
-			container.addChild(new Text(toolTraces, 0, 0));
+			for (let i = 0; i < toolCallItems.length; i++) {
+				const item = toolCallItems[i] as Extract<DisplayItem, { type: "toolCall" }>;
+				const lineText = theme.fg("muted", "→ ") + formatFlowToolCall(item.name, item.args, theme.fg.bind(theme));
+				const plainText = stripAnsi(lineText);
+				const scrambled = scrambleManager.updateText(flowId, `tool#${i}`, plainText, now, isComplete).content;
+				container.addChild(new Text(scrambled, 0, 0));
+			}
+		}
+
+		if (isComplete) {
+			scrambleManager.completeFlow(flowId);
 		}
 	}
 

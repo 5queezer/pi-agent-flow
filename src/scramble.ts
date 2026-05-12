@@ -791,6 +791,7 @@ export class ScrambleStateManager {
 	private cache = new Map<string, Record<LineKey, LineState>>();
 	private tpsState = new Map<string, ValueFlashState>();
 	private streamState = new Map<string, { msg: TypewriterState; act: TypewriterState }>();
+	private genericCache = new Map<string, LineState>();
 
 	setMode(mode: ScrambleMode): void {
 		if (!ScrambleStateManager.VALID_MODES.includes(mode)) {
@@ -820,6 +821,49 @@ export class ScrambleStateManager {
 			this.streamState.set(id, record);
 		}
 		return record[key];
+	}
+
+	// -----------------------------------------------------------------------
+	// Generic text animation (any key, any text)
+	// -----------------------------------------------------------------------
+
+	private getGenericState(id: string, key: string): LineState {
+		const cacheKey = `${id}#${key}`;
+		let state = this.genericCache.get(cacheKey);
+		if (!state) {
+			state = createLineState();
+			this.genericCache.set(cacheKey, state);
+		}
+		return state;
+	}
+
+	updateText(id: string, key: string, text: string, now: number, isComplete: boolean = false): ScrambleResult {
+		if (isComplete) {
+			const state = this.genericCache.get(`${id}#${key}`);
+			if (!state) return { label: key, content: text, isAnimating: false };
+		}
+		const state = this.getGenericState(id, key);
+		// Reset if a previously-completed flow is now running again
+		if (!isComplete && state.completed) {
+			state.completed = false;
+			state.queue = [];
+			state.ripples = [];
+			state.lastText = '';
+			state.initialized = false;
+			state.phraseBuffer = '';
+			state.displayedText = '';
+			state.lastFlushTime = 0;
+		}
+		if (isComplete) {
+			state.completed = true;
+			state.queue = [];
+			state.ripples = [];
+		}
+		if (state.completed) return { label: key, content: text, isAnimating: false };
+		processLine(state, text, now, this.mode);
+		const content = applyScramble(text, state, now, this.mode);
+		const isAnimating = this.isLineAnimating(state, now);
+		return { label: key, content, isAnimating };
 	}
 
 	// -----------------------------------------------------------------------
@@ -1175,9 +1219,15 @@ export class ScrambleStateManager {
 		}
 		// Cascade/ripple/illuminate
 		const record = this.cache.get(id);
-		if (!record) return false;
-		for (const key of ['aim', 'act', 'msg'] as LineKey[]) {
-			if (this.isLineAnimating(record[key], now)) return true;
+		if (record) {
+			for (const key of ['aim', 'act', 'msg'] as LineKey[]) {
+				if (this.isLineAnimating(record[key], now)) return true;
+			}
+		}
+		// Generic cache entries for this id
+		const prefix = `${id}#`;
+		for (const [key, state] of this.genericCache) {
+			if (key.startsWith(prefix) && this.isLineAnimating(state, now)) return true;
 		}
 		return false;
 	}
@@ -1208,6 +1258,9 @@ export class ScrambleStateManager {
 				if (state.ripple && state.ripple.time + state.ripple.dur > now) return true;
 			}
 		}
+		for (const state of this.genericCache.values()) {
+			if (this.isLineAnimating(state, now)) return true;
+		}
 		return false;
 	}
 
@@ -1215,10 +1268,11 @@ export class ScrambleStateManager {
 		this.cache.clear();
 		this.tpsState.clear();
 		this.streamState.clear();
+		this.genericCache.clear();
 	}
 
 	private sweepCompletedEntries(): void {
-		if (this.cache.size <= MAX_FLOW_ENTRIES && this.streamState.size <= MAX_FLOW_ENTRIES && this.tpsState.size <= MAX_FLOW_ENTRIES) {
+		if (this.cache.size <= MAX_FLOW_ENTRIES && this.streamState.size <= MAX_FLOW_ENTRIES && this.tpsState.size <= MAX_FLOW_ENTRIES && this.genericCache.size <= MAX_FLOW_ENTRIES * 2) {
 			return;
 		}
 		for (const [id, record] of this.cache) {
@@ -1234,6 +1288,11 @@ export class ScrambleStateManager {
 		for (const [id, state] of this.tpsState) {
 			if (state.completed) {
 				this.tpsState.delete(id);
+			}
+		}
+		for (const [key, state] of this.genericCache) {
+			if (state.completed) {
+				this.genericCache.delete(key);
 			}
 		}
 	}
@@ -1262,6 +1321,15 @@ export class ScrambleStateManager {
 			streamRecord.msg.revealedCount = streamRecord.msg.lastVisibleText?.length ?? streamRecord.msg.fullText.length;
 			streamRecord.act.completed = true;
 			streamRecord.act.revealedCount = streamRecord.act.fullText.length;
+		}
+		// Mark generic entries for this id as completed
+		const prefix = `${id}#`;
+		for (const [key, state] of this.genericCache) {
+			if (key.startsWith(prefix)) {
+				state.completed = true;
+				state.queue = [];
+				state.ripples = [];
+			}
 		}
 		this.sweepCompletedEntries();
 	}

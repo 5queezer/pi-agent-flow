@@ -10,6 +10,8 @@ import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
 import { Type, type TUnsafe } from "@sinclair/typebox";
 import { appendStrategicHintOnce } from "./tool-utils.js";
 import { setPendingDecision } from "./notify-state.js";
+import { scrambleManager, runScrambleTimer } from "./scramble.js";
+import { stripAnsi } from "./render-utils.js";
 import {
    Container,
    type Component,
@@ -1726,11 +1728,18 @@ export function createAskUserTool() {
          return new Text(text, 0, 0);
       },
 
-      renderResult(result: any, options: any, theme: any) {
+      renderResult(result: any, options: any, theme: any, args?: Record<string, unknown>) {
          const details = result.details as (AskToolDetails & { error?: string }) | undefined;
+         const canAnimate = !!(args as any)?.invalidate && !!(args as any)?.state;
+         const now = Date.now();
+         const id = (args as any)?.toolCallId || (args as any)?.id || "ask_user";
 
          if (details?.error) {
-            return new Text(theme.fg("error", `✖ ${details.error}`), 0, 0);
+            const line = theme.fg("error", `✖ ${details.error}`);
+            if (!canAnimate) return new Text(line, 0, 0);
+            const scrambled = scrambleManager.updateText(id, "result", stripAnsi(line), now, false).content;
+            runScrambleTimer(args as Record<string, any> | undefined);
+            return new Text(scrambled, 0, 0);
          }
 
          if (options.isPartial) {
@@ -1739,11 +1748,19 @@ export function createAskUserTool() {
                .map((part: { text?: string }) => part.text ?? "")
                .join("\n")
                .trim() || "Waiting for user input...";
-            return new Text(theme.fg("muted", waitingText), 0, 0);
+            const line = theme.fg("muted", waitingText);
+            if (!canAnimate) return new Text(line, 0, 0);
+            const scrambled = scrambleManager.updateText(id, "result", stripAnsi(line), now, false).content;
+            runScrambleTimer(args as Record<string, any> | undefined);
+            return new Text(scrambled, 0, 0);
          }
 
          if (!details || details.cancelled || !details.response) {
-            return new Text(theme.fg("warning", "Cancelled"), 0, 0);
+            const line = theme.fg("warning", "Cancelled");
+            if (!canAnimate) return new Text(line, 0, 0);
+            const scrambled = scrambleManager.updateText(id, "result", stripAnsi(line), now, false).content;
+            runScrambleTimer(args as Record<string, any> | undefined);
+            return new Text(scrambled, 0, 0);
          }
 
          const response = details.response;
@@ -1773,7 +1790,10 @@ export function createAskUserTool() {
             }
          }
 
-         return new Text(text, 0, 0);
+         if (!canAnimate) return new Text(text, 0, 0);
+         const scrambled = scrambleManager.updateText(id, "result", stripAnsi(text), now, false).content;
+         runScrambleTimer(args as Record<string, any> | undefined);
+         return new Text(scrambled, 0, 0);
       },
    };
 }

@@ -168,7 +168,7 @@ const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
 
 const RIPPLE_DUR_DEFAULT = 1200;
 const RIPPLE_SPREAD_DEFAULT = 1;
-const MIN_RIPPLE_INTERVAL = 500;
+const MIN_RIPPLE_INTERVAL = 1200;
 const DEPTH_BAND_MAX = 6;
 const TPS_FLASH_DUR = 150;
 const TPS_FLASH_SPREAD = 0.5;
@@ -179,7 +179,7 @@ const CASCADE_FLASH_MAX_START = 5;
 const CASCADE_FLASH_MAX_LENGTH = 8;
 
 // Illuminate phrase buffering
-const MAX_PHRASE_BUFFER_TIME = 500;
+const MAX_PHRASE_BUFFER_TIME = 1200;
 const MIN_PHRASE_LENGTH = 15;
 
 // TPS hysteresis
@@ -854,6 +854,12 @@ function processLine(
 			return;
 		}
 		if (state.lastText === newText) {
+			return;
+		}
+		// Prevent overlapping ripples: block new spawn while previous is still active
+		const hasActiveRipples = state.ripples.some((rp) => rp.time + rp.dur > now);
+		if (hasActiveRipples) {
+			state.lastText = newText;
 			return;
 		}
 		const cooledDown = now - state.lastAnimTime > MIN_RIPPLE_INTERVAL;

@@ -633,8 +633,8 @@ describe('ScrambleStateManager (cascade mode)', () => {
 	it('updateMsg cascade self-terminates', () => {
 		const base = 2000000;
 		manager.updateMsg(TEST_ID, 'initial', base);
-		manager.updateMsg(TEST_ID, 'changed text', base + 600);
-		const result = manager.updateMsg(TEST_ID, 'changed text', base + 600 + 1500);
+		manager.updateMsg(TEST_ID, 'changed text', base + 1300);
+		const result = manager.updateMsg(TEST_ID, 'changed text', base + 1300 + 1500);
 		expect(result.isAnimating).toBe(false);
 		expect(stripAnsi(result.content)).toBe('changed text');
 	});
@@ -657,9 +657,9 @@ describe('ScrambleStateManager (cascade mode)', () => {
 		manager.updateMsg(TEST_ID, 'text one', base);
 		manager.updateMsg(TEST_ID, 'text two', base + 300);
 		manager.updateMsg(TEST_ID, 'text three', base + 400);
-		const result = manager.updateMsg(TEST_ID, 'text three', base + 600);
+		const result = manager.updateMsg(TEST_ID, 'text three', base + 1300);
 		expect(result.isAnimating).toBe(true);
-		const done = manager.updateMsg(TEST_ID, 'text three', base + 2000);
+		const done = manager.updateMsg(TEST_ID, 'text three', base + 3000);
 		expect(done.isAnimating).toBe(false);
 	});
 
@@ -1040,11 +1040,11 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		const same = manager.updateMsg(TEST_ID, 'Hello world', base + 100);
 		expect(same.isAnimating).toBe(false);
 		// New text with phrase boundary — triggers flush and ripple
-		manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 600);
+		manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 1300);
 		// Ripple is active for 850ms — verify animation is detected
-		expect(manager.hasAnyActiveAnimations(base + 700)).toBe(true);
+		expect(manager.hasAnyActiveAnimations(base + 1400)).toBe(true);
 		// Content should show scramble chars once ripple has expanded
-		const result = manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 800);
+		const result = manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 1500);
 		// Smooth truecolor uses \x1b[38;2;R;G;Bm instead of hard threshold constants
 		expect(result.content).toContain('\x1b[38;2;');
 	});
@@ -1060,8 +1060,8 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 	it('updateMsg flushes after max buffer time even without boundary', () => {
 		const base = 2000000;
 		manager.updateMsg(TEST_ID, 'Hello', base);
-		// Wait longer than MAX_PHRASE_BUFFER_TIME (500ms)
-		const result = manager.updateMsg(TEST_ID, 'Hello world how are', base + 600);
+		// Wait longer than MAX_PHRASE_BUFFER_TIME (1200ms)
+		const result = manager.updateMsg(TEST_ID, 'Hello world how are', base + 1300);
 		expect(result.isAnimating).toBe(true);
 	});
 
@@ -1069,9 +1069,9 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		const base = 2000000;
 		manager.updateAct(TEST_ID, 'read file.ts', base);
 		// Trigger change, then check when ripple wavefront is within text
-		manager.updateAct(TEST_ID, 'write other.ts', base + 600);
-		const result = manager.updateAct(TEST_ID, 'write other.ts', base + 700);
-		expect(manager.hasAnyActiveAnimations(base + 700)).toBe(true);
+		manager.updateAct(TEST_ID, 'write other.ts', base + 1300);
+		const result = manager.updateAct(TEST_ID, 'write other.ts', base + 1400);
+		expect(manager.hasAnyActiveAnimations(base + 1400)).toBe(true);
 		expect(result.content).toContain(PURPLE_GLOW);
 	});
 
@@ -1105,8 +1105,8 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		// Trigger a flash via act: which does animate on first render
 		manager.updateAct(TEST_ID, 'read file.ts', base + 10);
 		expect(manager.hasAnyActiveAnimations(base + 10)).toBe(true);
-		manager.updateAct(TEST_ID, 'write file.ts', base + 600);
-		expect(manager.hasAnyActiveAnimations(base + 600)).toBe(true);
+		manager.updateAct(TEST_ID, 'write file.ts', base + 1300);
+		expect(manager.hasAnyActiveAnimations(base + 1400)).toBe(true);
 	});
 
 	it('updateMsg does not flush on tail-view slide (high overlap)', () => {
@@ -1136,8 +1136,8 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 	it('updateMsg flushes on slide after timeout', () => {
 		const base = 9000000;
 		manager.updateMsg(TEST_ID, 'lo world foo bar', base);
-		// Wait past MAX_PHRASE_BUFFER_TIME (500ms) with a sliding window
-		const result = manager.updateMsg(TEST_ID, 'world foo bar baz', base + 600);
+		// Wait past MAX_PHRASE_BUFFER_TIME (1200ms) with a sliding window
+		const result = manager.updateMsg(TEST_ID, 'world foo bar baz', base + 1300);
 		// Timeout should force flush
 		expect(result.isAnimating).toBe(true);
 	});
@@ -1818,9 +1818,11 @@ describe('ScrambleStateManager (ripple mode) — sentence-start coexistence', ()
 		const base = 3000000;
 		const text = 'First sentence. Second sentence. Third here.';
 		manager.updateMsg(TEST_ID, text, base, false, undefined, true);
-		// Wait for first ripple to end (1200ms), then change text — ensures a fresh ripple
+		// Warm-up call triggers hadRipples cleanup + cooldown reset after expiry
+		manager.updateMsg(TEST_ID, text, base + 1300, false, undefined, true);
+		// Wait for cooldown (1200ms) after reset, then change text — ensures a fresh ripple
 		const changed = 'First sentence. Second changed. Third here.';
-		const result = manager.updateMsg(TEST_ID, changed, base + 1300, false, undefined, true);
+		const result = manager.updateMsg(TEST_ID, changed, base + 2600, false, undefined, true);
 		expect(result.isAnimating).toBe(true);
 		// The ripple position should be a sentence start (0, 16, or 32)
 		// We verify by checking the scramble is not concentrated at center
@@ -1869,9 +1871,9 @@ describe('ScrambleStateManager (illuminate mode) — ripple coexistence', () => 
 		const base = 5000000;
 		manager.updateMsg(TEST_ID, 'Hello world. How are you?', base, false, undefined, true);
 		// After cooldown, change text with a significant rewrite (not a minor mutation)
-		manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 600, false, undefined, true);
+		manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 1300, false, undefined, true);
 		// Evaluate at a later time when ripple has expanded enough to scramble
-		const result = manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 900, false, undefined, true);
+		const result = manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 1600, false, undefined, true);
 		expect(result.isAnimating).toBe(true);
 		// Should contain truecolor ANSI (illuminate signature)
 		expect(result.content).toContain('\x1b[38;2;');
@@ -1914,11 +1916,11 @@ describe('ScrambleStateManager — lastFlushTime init', () => {
 		manager.setMode('illuminate');
 		const base = 1_000_000;
 		manager.updateMsg(TEST_ID, 'Hello world.', base, false, undefined, true);
-		// Wait past timeout (500ms) to force flush + ripple
-		const r1 = manager.updateMsg(TEST_ID, 'Hello world. How are you today?', base + 600, false, undefined, true);
+		// Wait past timeout (1200ms) to force flush + ripple
+		const r1 = manager.updateMsg(TEST_ID, 'Hello world. How are you today?', base + 1300, false, undefined, true);
 		expect(r1.isAnimating).toBe(true);
 		// Ripple at elapsed=0 has radius=0; check again later when expanded
-		const r2 = manager.updateMsg(TEST_ID, 'Hello world. How are you today?', base + 900, false, undefined, true);
+		const r2 = manager.updateMsg(TEST_ID, 'Hello world. How are you today?', base + 1600, false, undefined, true);
 		expect(r2.content).toContain('\x1b[38;2;');
 	});
 });

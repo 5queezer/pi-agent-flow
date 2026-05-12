@@ -1126,6 +1126,18 @@ describe('applyRipples — spread < 1 radius proportionality', () => {
 		const scrambled = stripped.split('').filter(c => !'hello'.includes(c)).length;
 		expect(scrambled).toBeLessThan(5);
 	});
+
+	it('spatial skip with many ripples preserves correctness', () => {
+		const now = Date.now();
+		const ripples = [];
+		for (let i = 0; i < 20; i++) {
+			ripples.push({ pos: i, time: now - 50, dur: 666, spread: 1 });
+		}
+		const result = applyRipples('a'.repeat(20), ripples, now);
+		const stripped = stripAnsi(result);
+		expect(stripped.length).toBe(20);
+		expect(hasDimAnsi(result)).toBe(true);
+	});
 });
 
 // ---------------------------------------------------------------------------

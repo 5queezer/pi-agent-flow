@@ -397,6 +397,19 @@ function poolRandomChar(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Pre-allocated segment buffer — reused across frames to reduce GC pressure
+// ---------------------------------------------------------------------------
+
+let segmentBuffer: string[] = [];
+
+function getSegmentBuffer(minSize: number): string[] {
+	if (segmentBuffer.length < minSize) {
+		segmentBuffer = new Array(Math.max(minSize, 512));
+	}
+	return segmentBuffer;
+}
+
+// ---------------------------------------------------------------------------
 // Pure algorithm: STREAM (typewriter progressive reveal)
 // ---------------------------------------------------------------------------
 
@@ -591,14 +604,18 @@ export function applyRipples(
 
 	// Pre-compute radius per ripple to avoid O(n·m) recomputation inside char loop
 	const radii = new Float64Array(activeCount);
+	const leftBounds = new Int32Array(activeCount);
+	const rightBounds = new Int32Array(activeCount);
 	for (let i = 0; i < activeCount; i++) {
 		const r = activeRipples[i];
 		const elapsed = Math.min(1, (now - r.time) / r.dur);
 		const maxDist = Math.max(r.pos, len - r.pos - 1);
 		radii[i] = easeOutCubic(elapsed) * maxDist * r.spread;
+		leftBounds[i] = Math.max(0, Math.floor(r.pos - radii[i]));
+		rightBounds[i] = Math.min(len - 1, Math.ceil(r.pos + radii[i]));
 	}
 
-	const segments: string[] = new Array(len * 3);
+	let segments: string[] = getSegmentBuffer(len * 3);
 	let segCount = 0;
 	let inColor = false;
 	let currentPrefix = '';
@@ -622,6 +639,7 @@ export function applyRipples(
 		let bestIdx = 0;
 
 		for (let i = 0; i < activeCount; i++) {
+			if (idx < leftBounds[i] || idx > rightBounds[i]) continue;
 			const dist = Math.abs(idx - activeRipples[i].pos);
 			const depth = radii[i] - dist;
 			if (depth > 0) {
@@ -673,8 +691,7 @@ export function applyRipples(
 		segments[segCount++] = config ? ILLUMINATE_CLOSE : RESET_COLOR + DIM_OFF;
 	}
 
-	segments.length = segCount;
-	return segments.join('');
+	return segments.slice(0, segCount).join('');
 }
 
 function spawnRipple(

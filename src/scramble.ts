@@ -151,6 +151,12 @@ function easeInQuad(t: number): number {
 	return t * t;
 }
 
+/** Ease-out quadratic: fast start, gentle deceleration — used for
+ *  distributing cascade start frames more evenly across the range. */
+function easeOutQuad(t: number): number {
+	return 1 - (1 - t) * (1 - t);
+}
+
 // ---------------------------------------------------------------------------
 // Mode type
 // ---------------------------------------------------------------------------
@@ -195,6 +201,8 @@ interface LineState {
 	phraseBuffer: string;
 	displayedText: string;
 	lastFlushTime: number;
+	// Age tracking for cache eviction
+	lastAccessTime: number;
 }
 
 /** Phrase boundary detection for illuminate msg: streaming */
@@ -393,7 +401,7 @@ export function buildQueue(
 	for (let i = 0; i < length; i++) {
 		const from = oldText[i] || '';
 		const to = newText[i] || '';
-		const start = Math.floor(easeInQuad(Math.random()) * maxStart);
+		const start = Math.floor(Math.random() * maxStart);
 		const end = start + Math.floor(Math.random() * maxLength);
 		queue.push({ from, to, start, end });
 	}
@@ -402,32 +410,38 @@ export function buildQueue(
 
 export function computeCascadeFrame(queue: QueueItem[], frame: number): string {
 	const clampedFrame = Math.max(0, frame);
-	const output: string[] = new Array(queue.length);
-	let outIdx = 0;
+	let result = '';
+	let inDim = false;
 	for (const item of queue) {
 		if (item.to === ' ') {
-			output[outIdx++] = ' ';
+			if (inDim) { result += DIM_OFF; inDim = false; }
+			result += ' ';
 			continue;
 		}
 		if (clampedFrame >= item.end) {
-			output[outIdx++] = item.to;
+			if (inDim) { result += DIM_OFF; inDim = false; }
+			result += item.to;
 		} else if (clampedFrame >= item.start) {
-			output[outIdx++] = `${DIM_ON}${poolRandomChar()}${DIM_OFF}`;
+			if (!inDim) { result += DIM_ON; inDim = true; }
+			result += poolRandomChar();
 		} else {
 			if (item.from === ' ') {
-				output[outIdx++] = ' ';
+				if (inDim) { result += DIM_OFF; inDim = false; }
+				result += ' ';
 			} else {
-				output[outIdx++] = `${DIM_ON}${poolRandomChar()}${DIM_OFF}`;
+				if (!inDim) { result += DIM_ON; inDim = true; }
+				result += poolRandomChar();
 			}
 		}
 	}
-	output.length = outIdx;
-	return output.join('');
+	if (inDim) result += DIM_OFF;
+	return result;
 }
 
 function isCascadeComplete(queue: QueueItem[], frame: number): boolean {
+	const clampedFrame = Math.max(0, frame);
 	for (const item of queue) {
-		if (frame < item.end) return false;
+		if (clampedFrame < item.end) return false;
 	}
 	return true;
 }
@@ -445,25 +459,20 @@ function illuminatePrefix(depth: number, elapsed: number, dur: number, config: I
 		const life = 1 - progress;
 		const intensity = heat * life;
 
-		// Smooth truecolor gradient across full 0..1 intensity using smoothstep
+		// Smooth truecolor gradient with single DIM→BOLD transition at 0.5
 		let r: number, g: number, b: number;
 		let prefix = '';
-		if (intensity < 0.3) {
-			const t = smoothstep(0, 0.3, intensity);
+		if (intensity < 0.5) {
+			const t = smoothstep(0, 0.5, intensity);
 			r = lerp(0, 0, t);
 			g = lerp(160, 255, t);
 			b = lerp(128, 204, t);
 			prefix = DIM_ON;
-		} else if (intensity < 0.7) {
-			const t = smoothstep(0.3, 0.7, intensity);
-			r = lerp(0, 180, t);
-			g = 255;
-			b = lerp(204, 245, t);
 		} else {
-			const t = smoothstep(0.7, 1.0, intensity);
-			r = lerp(180, 255, t);
+			const t = smoothstep(0.5, 1.0, intensity);
+			r = lerp(0, 255, t);
 			g = 255;
-			b = lerp(245, 255, t);
+			b = lerp(204, 255, t);
 			prefix = BOLD_ON;
 		}
 		return `${prefix}\x1b[38;2;${r};${g};${b}m`;
@@ -758,6 +767,7 @@ function createLineState(): LineState {
 		phraseBuffer: '',
 		displayedText: '',
 		lastFlushTime: 0,
+		lastAccessTime: Date.now(),
 	};
 }
 
@@ -813,6 +823,7 @@ function computeOverlapLen(oldStr: string, newStr: string): number {
 }
 
 const MAX_FLOW_ENTRIES = 128;
+const MAX_CACHE_AGE_MS = 5 * 60 * 1000; // 5 minutes
 
 export class ScrambleStateManager {
 	private static readonly VALID_MODES: readonly ScrambleMode[] = ['stream', 'cascade', 'ripple', 'illuminate'];
@@ -856,13 +867,14 @@ export class ScrambleStateManager {
 	// Generic text animation (any key, any text)
 	// -----------------------------------------------------------------------
 
-	private getGenericState(id: string, key: string): LineState {
+	private getGenericState(id: string, key: string, now: number): LineState {
 		const cacheKey = `${id}#${key}`;
 		let state = this.genericCache.get(cacheKey);
 		if (!state) {
 			state = createLineState();
 			this.genericCache.set(cacheKey, state);
 		}
+		state.lastAccessTime = now;
 		return state;
 	}
 
@@ -871,7 +883,7 @@ export class ScrambleStateManager {
 			const state = this.genericCache.get(`${id}#${key}`);
 			if (!state) return { label: key, content: text, isAnimating: false };
 		}
-		const state = this.getGenericState(id, key);
+		const state = this.getGenericState(id, key, now);
 		// Reset if a previously-completed flow is now running again
 		if (!isComplete && state.completed) {
 			state.completed = false;
@@ -1210,6 +1222,7 @@ export class ScrambleStateManager {
 				const frame = Math.max(0, Math.floor((now - state.startTime) / CASCADE_FRAME_MS));
 				if (isCascadeComplete(state.queue, frame)) {
 					state.queue = [];
+					state.startTime = now;
 					return tpsText;
 				}
 				return computeCascadeFrame(state.queue, frame);
@@ -1220,12 +1233,14 @@ export class ScrambleStateManager {
 				return applyRipples(tpsText, [state.ripple], now, ILLUMINATE_CONFIGS.tps);
 			}
 			state.ripple = null;
+			state.startTime = now;
 			return tpsText;
 		} else {
 			if (state.ripple && now - state.ripple.time < state.ripple.dur) {
 				return applyRipples(tpsText, [state.ripple], now);
 			}
 			state.ripple = null;
+			state.startTime = now;
 			return tpsText;
 		}
 	}
@@ -1339,6 +1354,13 @@ export class ScrambleStateManager {
 				this.genericCache.delete(key);
 			}
 		}
+		// Age-based eviction for orphaned never-completed generic entries
+		const now = Date.now();
+		for (const [key, state] of this.genericCache) {
+			if (now - state.lastAccessTime > MAX_CACHE_AGE_MS) {
+				this.genericCache.delete(key);
+			}
+		}
 	}
 
 	completeFlow(id: string): void {
@@ -1400,7 +1422,7 @@ export function runScrambleTimer(args: Record<string, any> | undefined): void {
 
 		if (hasActive) {
 			if (!s.animTimer) {
-				const interval = scrambleManager.getMode() === 'cascade' ? CASCADE_FRAME_MS : 50;
+				const interval = scrambleManager.getMode() === 'cascade' ? CASCADE_FRAME_MS : 33;
 				s.animTimer = setTimeout(() => {
 					s.animTimer = undefined;
 					args.invalidate!();

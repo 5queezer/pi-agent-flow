@@ -146,6 +146,11 @@ function lerp(a: number, b: number, t: number): number {
 	return Math.round(a + (b - a) * Math.max(0, Math.min(1, t)));
 }
 
+/** Ease-in quadratic: gentle start, accelerating into the main wave */
+function easeInQuad(t: number): number {
+	return t * t;
+}
+
 // ---------------------------------------------------------------------------
 // Mode type
 // ---------------------------------------------------------------------------
@@ -290,7 +295,7 @@ function randomChar(): string {
 // Fast random char pool — pre-filled to reduce Math.random() calls ~80%
 // ---------------------------------------------------------------------------
 
-const RANDOM_POOL_SIZE = 64;
+const RANDOM_POOL_SIZE = 512;
 let randomPool: string[] = [];
 let randomPoolIndex = 0;
 
@@ -388,7 +393,7 @@ export function buildQueue(
 	for (let i = 0; i < length; i++) {
 		const from = oldText[i] || '';
 		const to = newText[i] || '';
-		const start = Math.floor(Math.random() * maxStart);
+		const start = Math.floor(easeInQuad(Math.random()) * maxStart);
 		const end = start + Math.floor(Math.random() * maxLength);
 		queue.push({ from, to, start, end });
 	}
@@ -397,27 +402,26 @@ export function buildQueue(
 
 export function computeCascadeFrame(queue: QueueItem[], frame: number): string {
 	const clampedFrame = Math.max(0, frame);
-	const output: string[] = [];
+	const output: string[] = new Array(queue.length);
+	let outIdx = 0;
 	for (const item of queue) {
 		if (item.to === ' ') {
-			output.push(' ');
+			output[outIdx++] = ' ';
 			continue;
 		}
 		if (clampedFrame >= item.end) {
-			output.push(item.to);
+			output[outIdx++] = item.to;
 		} else if (clampedFrame >= item.start) {
-			if (!item.char || Math.random() < 0.28) {
-				item.char = poolRandomChar();
-			}
-			output.push(`${DIM_ON}${item.char}${DIM_OFF}`);
+			output[outIdx++] = `${DIM_ON}${poolRandomChar()}${DIM_OFF}`;
 		} else {
 			if (item.from === ' ') {
-				output.push(' ');
+				output[outIdx++] = ' ';
 			} else {
-				output.push(`${DIM_ON}${poolRandomChar()}${DIM_OFF}`);
+				output[outIdx++] = `${DIM_ON}${poolRandomChar()}${DIM_OFF}`;
 			}
 		}
 	}
+	output.length = outIdx;
 	return output.join('');
 }
 
@@ -441,22 +445,22 @@ function illuminatePrefix(depth: number, elapsed: number, dur: number, config: I
 		const life = 1 - progress;
 		const intensity = heat * life;
 
-		// Smooth truecolor interpolation: dim cyan → bright cyan → white → bold white
+		// Smooth truecolor gradient across full 0..1 intensity using smoothstep
 		let r: number, g: number, b: number;
 		let prefix = '';
-		if (intensity < 0.25) {
-			const t = intensity / 0.25;
+		if (intensity < 0.3) {
+			const t = smoothstep(0, 0.3, intensity);
 			r = lerp(0, 0, t);
 			g = lerp(160, 255, t);
 			b = lerp(128, 204, t);
 			prefix = DIM_ON;
-		} else if (intensity < 0.6) {
-			const t = (intensity - 0.25) / 0.35;
+		} else if (intensity < 0.7) {
+			const t = smoothstep(0.3, 0.7, intensity);
 			r = lerp(0, 180, t);
 			g = 255;
 			b = lerp(204, 245, t);
 		} else {
-			const t = (intensity - 0.6) / 0.4;
+			const t = smoothstep(0.7, 1.0, intensity);
 			r = lerp(180, 255, t);
 			g = 255;
 			b = lerp(245, 255, t);
@@ -480,41 +484,53 @@ export function applyRipples(
 	const len = text.length;
 	if (len === 0) return text;
 
-	// Pre-filter active ripples inline (avoids Array.filter overhead)
-	const active: Ripple[] = [];
-	for (const r of ripples) {
-		if (now - r.time < r.dur) active.push(r);
+	// In-place swap-and-pop to filter expired / future ripples
+	let activeCount = 0;
+	for (let i = 0; i < ripples.length; i++) {
+		const r = ripples[i];
+		if (r.time <= now && now - r.time < r.dur) {
+			ripples[activeCount++] = r;
+		}
 	}
-	if (!active.length) return text;
+	ripples.length = activeCount;
+	if (!activeCount) return text;
 
-	const segments: string[] = [];
+	// Pre-compute radius per ripple to avoid O(n·m) recomputation inside char loop
+	const radii = new Float64Array(activeCount);
+	for (let i = 0; i < activeCount; i++) {
+		const r = ripples[i];
+		const elapsed = Math.min(1, (now - r.time) / r.dur);
+		const maxDist = Math.max(r.pos, len - r.pos - 1);
+		radii[i] = easeOutCubic(elapsed) * maxDist * r.spread;
+	}
+
+	const segments: string[] = new Array(len * 3);
+	let segCount = 0;
 	let inColor = false;
 	let currentPrefix = '';
 
 	for (let idx = 0; idx < len; idx++) {
 		const origChar = text[idx];
 		if (origChar === ' ') {
-			segments.push(origChar);
+			segments[segCount++] = origChar;
 			continue;
 		}
 
 		let maxDepth = 0;
 		let bestElapsed = 0;
 		let bestDist = 0;
-		let bestDur = active[0].dur;
+		let bestDur = ripples[0].dur;
 
-		for (const ripple of active) {
-			const elapsed = Math.max(0, now - ripple.time);
-			const maxDist = Math.max(ripple.pos, len - ripple.pos - 1);
-			const radius = easeOutCubic(Math.min(elapsed / ripple.dur, 1)) * maxDist * ripple.spread;
-			const dist = Math.abs(idx - ripple.pos);
-			const depth = radius - dist;
-			if (dist <= radius && depth > 0 && depth <= DEPTH_BAND_MAX) {
-				if (depth > maxDepth) {
-					maxDepth = depth;
-					bestElapsed = elapsed;
+		for (let i = 0; i < activeCount; i++) {
+			const dist = Math.abs(idx - ripples[i].pos);
+			const depth = radii[i] - dist;
+			if (depth > 0) {
+				const fade = 1 - smoothstep(DEPTH_BAND_MAX - 0.5, DEPTH_BAND_MAX + 2, depth);
+				if (fade > 0 && depth > maxDepth) {
+					maxDepth = Math.min(depth, DEPTH_BAND_MAX);
+					bestElapsed = now - ripples[i].time;
 					bestDist = dist;
-					bestDur = ripple.dur;
+					bestDur = ripples[i].dur;
 				}
 			}
 		}
@@ -525,34 +541,35 @@ export function applyRipples(
 			if (config) {
 				const prefix = illuminatePrefix(maxDepth, bestElapsed, bestDur, config);
 				if (!inColor || currentPrefix !== prefix) {
-					if (inColor) segments.push(ILLUMINATE_CLOSE);
-					segments.push(prefix);
+					if (inColor) segments[segCount++] = ILLUMINATE_CLOSE;
+					segments[segCount++] = prefix;
 					inColor = true;
 					currentPrefix = prefix;
 				}
-				segments.push(char);
+				segments[segCount++] = char;
 			} else {
 				if (!inColor) {
-					segments.push(DIM_ON);
+					segments[segCount++] = DIM_ON;
 					inColor = true;
 					currentPrefix = DIM_ON;
 				}
-				segments.push(char);
+				segments[segCount++] = char;
 			}
 		} else {
 			if (inColor) {
-				segments.push(config ? ILLUMINATE_CLOSE : BOLD_OFF + RESET_COLOR + DIM_OFF);
+				segments[segCount++] = config ? ILLUMINATE_CLOSE : BOLD_OFF + RESET_COLOR + DIM_OFF;
 				inColor = false;
 				currentPrefix = '';
 			}
-			segments.push(origChar);
+			segments[segCount++] = origChar;
 		}
 	}
 
 	if (inColor) {
-		segments.push(config ? ILLUMINATE_CLOSE : BOLD_OFF + RESET_COLOR + DIM_OFF);
+		segments[segCount++] = config ? ILLUMINATE_CLOSE : BOLD_OFF + RESET_COLOR + DIM_OFF;
 	}
 
+	segments.length = segCount;
 	return segments.join('');
 }
 
@@ -676,7 +693,13 @@ function processLine(
 				state.ripples.push(spawnRipple(randomizedCenter(newText.length), now));
 			}
 		}
-		state.ripples = state.ripples.filter((r) => now - r.time < r.dur);
+		let keep = 0;
+		for (let i = 0; i < state.ripples.length; i++) {
+			if (now - state.ripples[i].time < state.ripples[i].dur) {
+				state.ripples[keep++] = state.ripples[i];
+			}
+		}
+		state.ripples.length = keep;
 		return;
 	}
 
@@ -709,7 +732,13 @@ function processLine(
 		}
 	}
 	if (mode === 'ripple') {
-		state.ripples = state.ripples.filter((r) => now - r.time < r.dur);
+		let keep = 0;
+		for (let i = 0; i < state.ripples.length; i++) {
+			if (now - state.ripples[i].time < state.ripples[i].dur) {
+				state.ripples[keep++] = state.ripples[i];
+			}
+		}
+		state.ripples.length = keep;
 	}
 }
 
@@ -1371,10 +1400,11 @@ export function runScrambleTimer(args: Record<string, any> | undefined): void {
 
 		if (hasActive) {
 			if (!s.animTimer) {
+				const interval = scrambleManager.getMode() === 'cascade' ? CASCADE_FRAME_MS : 50;
 				s.animTimer = setTimeout(() => {
 					s.animTimer = undefined;
 					args.invalidate!();
-				}, 50);
+				}, interval);
 			}
 		} else if (s.animTimer) {
 			clearTimeout(s.animTimer);

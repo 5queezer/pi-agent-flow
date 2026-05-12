@@ -478,6 +478,19 @@ function spawnIlluminateRipple(pos: number, now: number, config: IlluminateConfi
 	return { pos, time: now, dur: config.duration, spread: config.spread };
 }
 
+/**
+ * Compute a ripple spawn center with random jitter.
+ * The position is anchored at the text center but randomized by up to
+ * `jitterRatio` of the text length (default ±20%), clamped to [0, len-1].
+ */
+function randomizedCenter(length: number, jitterRatio = 0.2): number {
+	const base = Math.floor(length / 2);
+	if (length <= 1) return base;
+	const maxJitter = Math.max(1, Math.floor(length * jitterRatio));
+	const offset = Math.floor(Math.random() * (maxJitter * 2 + 1)) - maxJitter;
+	return Math.max(0, Math.min(length - 1, base + offset));
+}
+
 // ---------------------------------------------------------------------------
 // Unified apply function (cascade/ripple/illuminate)
 // ---------------------------------------------------------------------------
@@ -544,8 +557,7 @@ function processLine(
 				state.lastText = newText;
 				state.lastFlushTime = now;
 				state.lastAnimTime = now;
-				const center = Math.floor(newText.length / 2);
-				state.ripples.push(spawnIlluminateRipple(center, now, ILLUMINATE_CONFIGS.msgContent));
+				state.ripples.push(spawnIlluminateRipple(randomizedCenter(newText.length), now, ILLUMINATE_CONFIGS.msgContent));
 			} else {
 				// Text changed but no flush yet — update lastText for tracking
 				state.lastText = newText;
@@ -558,9 +570,9 @@ function processLine(
 			state.lastAnimTime = now;
 			const config = lineKey === 'act' ? ILLUMINATE_CONFIGS.actLabel : undefined;
 			if (config) {
-				state.ripples.push(spawnIlluminateRipple(Math.floor(newText.length / 2), now, config));
+				state.ripples.push(spawnIlluminateRipple(randomizedCenter(newText.length), now, config));
 			} else {
-				state.ripples.push(spawnRipple(Math.floor(newText.length / 2), now));
+				state.ripples.push(spawnRipple(randomizedCenter(newText.length), now));
 			}
 		}
 		state.ripples = state.ripples.filter((r) => now - r.time < r.dur);
@@ -584,8 +596,7 @@ function processLine(
 			state.queue = buildQueue(oldText, newText);
 			state.startTime = now;
 		} else {
-			const center = Math.floor(newText.length / 2);
-			state.ripples.push(spawnRipple(center, now));
+			state.ripples.push(spawnRipple(randomizedCenter(newText.length), now));
 		}
 	}
 	if (mode === 'ripple') {
@@ -902,10 +913,10 @@ export class ScrambleStateManager {
 					state.queue = buildQueue(state.prev, tpsText, CASCADE_FLASH_MAX_START, CASCADE_FLASH_MAX_LENGTH);
 					state.startTime = now;
 				} else if (this.mode === 'illuminate') {
-					state.ripple = spawnIlluminateRipple(Math.floor(tpsText.length / 2), now, ILLUMINATE_CONFIGS.tps);
+					state.ripple = spawnIlluminateRipple(randomizedCenter(tpsText.length), now, ILLUMINATE_CONFIGS.tps);
 					state.startTime = now;
 				} else {
-					state.ripple = spawnRipple(Math.floor(tpsText.length / 2), now, TPS_FLASH_DUR, TPS_FLASH_SPREAD);
+					state.ripple = spawnRipple(randomizedCenter(tpsText.length), now, TPS_FLASH_DUR, TPS_FLASH_SPREAD);
 				}
 			}
 			state.prev = tpsText;

@@ -1070,24 +1070,31 @@ export class ScrambleStateManager {
 				state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
 			}
 		} else if (staticLine && state.initialized) {
-			const textChanged = state.lastText !== text;
+			const oldText = state.lastText;
+			const textChanged = oldText !== text;
 			state.lastText = text;
 			if (this.mode === 'illuminate') {
 				state.displayedText = text;
 				state.pendingText = '';
 			}
 			if (textChanged) {
-				state.lastAnimTime = now;
-				if (this.mode === 'cascade') {
-					state.queue = buildQueue('', text);
-					state.startTime = now;
-					state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
-				} else if (this.mode === 'illuminate') {
-					state.ripples = [];
-					state.ripples.push(spawnIlluminateRipple(randomizedCenter(text.length), now, ILLUMINATE_CONFIGS.msgContent));
-				} else {
-					state.ripples = [];
-					state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
+				const overlap = computeOverlapLen(oldText, text);
+				const minLen = Math.min(oldText.length, text.length);
+				if (overlap > 0 && overlap >= minLen * 0.5) {
+					// slide — don't restart animation
+				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
+					state.lastAnimTime = now;
+					if (this.mode === 'cascade') {
+						state.queue = buildQueue('', text);
+						state.startTime = now;
+						state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+					} else if (this.mode === 'illuminate') {
+						state.ripples = [];
+						state.ripples.push(spawnIlluminateRipple(randomizedCenter(text.length), now, ILLUMINATE_CONFIGS.msgContent));
+					} else {
+						state.ripples = [];
+						state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
+					}
 				}
 			} else if (!this.isLineAnimating(state, now)) {
 				state.queue = [];
@@ -1148,24 +1155,31 @@ export class ScrambleStateManager {
 				state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
 			}
 		} else if (staticLine && state.initialized) {
-			const textChanged = state.lastText !== text;
+			const oldText = state.lastText;
+			const textChanged = oldText !== text;
 			state.lastText = text;
 			if (this.mode === 'illuminate') {
 				state.displayedText = text;
 				state.pendingText = '';
 			}
 			if (textChanged) {
-				state.lastAnimTime = now;
-				if (this.mode === 'cascade') {
-					state.queue = buildQueue('', text);
-					state.startTime = now;
-					state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
-				} else if (this.mode === 'illuminate') {
-					state.ripples = [];
-					state.ripples.push(spawnIlluminateRipple(randomizedCenter(text.length), now, ILLUMINATE_CONFIGS.aimLabel));
-				} else {
-					state.ripples = [];
-					state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
+				const overlap = computeOverlapLen(oldText, text);
+				const minLen = Math.min(oldText.length, text.length);
+				if (overlap > 0 && overlap >= minLen * 0.5) {
+					// slide — don't restart animation
+				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
+					state.lastAnimTime = now;
+					if (this.mode === 'cascade') {
+						state.queue = buildQueue('', text);
+						state.startTime = now;
+						state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+					} else if (this.mode === 'illuminate') {
+						state.ripples = [];
+						state.ripples.push(spawnIlluminateRipple(randomizedCenter(text.length), now, ILLUMINATE_CONFIGS.aimLabel));
+					} else {
+						state.ripples = [];
+						state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
+					}
 				}
 			} else if (!this.isLineAnimating(state, now)) {
 				state.queue = [];
@@ -1222,24 +1236,31 @@ export class ScrambleStateManager {
 				state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
 			}
 		} else if (staticLine && state.initialized) {
-			const textChanged = state.lastText !== text;
+			const oldText = state.lastText;
+			const textChanged = oldText !== text;
 			state.lastText = text;
 			if (this.mode === 'illuminate') {
 				state.displayedText = text;
 				state.pendingText = '';
 			}
 			if (textChanged) {
-				state.lastAnimTime = now;
-				if (this.mode === 'cascade') {
-					state.queue = buildQueue('', text);
-					state.startTime = now;
-					state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
-				} else if (this.mode === 'illuminate') {
-					state.ripples = [];
-					state.ripples.push(spawnIlluminateRipple(randomizedCenter(text.length), now, ILLUMINATE_CONFIGS.actLabel));
-				} else {
-					state.ripples = [];
-					state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
+				const overlap = computeOverlapLen(oldText, text);
+				const minLen = Math.min(oldText.length, text.length);
+				if (overlap > 0 && overlap >= minLen * 0.5) {
+					// slide — don't restart animation
+				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
+					state.lastAnimTime = now;
+					if (this.mode === 'cascade') {
+						state.queue = buildQueue('', text);
+						state.startTime = now;
+						state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+					} else if (this.mode === 'illuminate') {
+						state.ripples = [];
+						state.ripples.push(spawnIlluminateRipple(randomizedCenter(text.length), now, ILLUMINATE_CONFIGS.actLabel));
+					} else {
+						state.ripples = [];
+						state.ripples.push(spawnRipple(randomizedCenter(text.length), now));
+					}
 				}
 			} else if (!this.isLineAnimating(state, now)) {
 				state.queue = [];
@@ -1297,24 +1318,31 @@ export class ScrambleStateManager {
 				state.ripples.push(spawnRipple(randomizedCenter(visibleText.length), now));
 			}
 		} else if (staticLine && state.initialized) {
-			const textChanged = state.lastText !== visibleText;
+			const oldText = state.lastText;
+			const textChanged = oldText !== visibleText;
 			state.lastText = visibleText;
 			if (this.mode === 'illuminate') {
 				state.displayedText = visibleText;
 				state.pendingText = '';
 			}
 			if (textChanged) {
-				state.lastAnimTime = now;
-				if (this.mode === 'cascade') {
-					state.queue = buildQueue('', visibleText);
-					state.startTime = now;
-					state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
-				} else if (this.mode === 'illuminate') {
-					state.ripples = [];
-					state.ripples.push(spawnIlluminateRipple(randomizedCenter(visibleText.length), now, ILLUMINATE_CONFIGS.msgContent));
-				} else {
-					state.ripples = [];
-					state.ripples.push(spawnRipple(randomizedCenter(visibleText.length), now));
+				const overlap = computeOverlapLen(oldText, visibleText);
+				const minLen = Math.min(oldText.length, visibleText.length);
+				if (overlap > 0 && overlap >= minLen * 0.5) {
+					// slide — don't restart animation
+				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
+					state.lastAnimTime = now;
+					if (this.mode === 'cascade') {
+						state.queue = buildQueue('', visibleText);
+						state.startTime = now;
+						state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+					} else if (this.mode === 'illuminate') {
+						state.ripples = [];
+						state.ripples.push(spawnIlluminateRipple(randomizedCenter(visibleText.length), now, ILLUMINATE_CONFIGS.msgContent));
+					} else {
+						state.ripples = [];
+						state.ripples.push(spawnRipple(randomizedCenter(visibleText.length), now));
+					}
 				}
 			} else if (!this.isLineAnimating(state, now)) {
 				state.queue = [];

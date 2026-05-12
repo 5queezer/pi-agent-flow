@@ -1453,6 +1453,28 @@ describe('ScrambleStateManager — staticLine behavior', () => {
 		const result = manager.updateTps('id-1', '100.0', base + 300, false, false);
 		expect(result).not.toBe('100.0'); // significant change triggers flash
 	});
+
+	it('staticLine overlap guard suppresses re-flash on minor stat updates', () => {
+		manager.setMode('ripple');
+		const base = 1000000;
+		// First call triggers initial flash (ripple dur = 666ms)
+		manager.updateText('id-1', 'header', 'scout - [↑ 0.11M]', base, false, true);
+		// Minor digit change (>50% overlap) should NOT spawn a new ripple
+		manager.updateText('id-1', 'header', 'scout - [↑ 0.12M]', base + 50, false, true);
+		// Old ripple expires at base+666; if a new ripple had spawned at base+50 it would expire at base+716
+		expect(manager.hasAnyActiveAnimations(base + 700)).toBe(false);
+	});
+
+	it('staticLine cooldown guard suppresses rapid re-flash', () => {
+		manager.setMode('cascade');
+		const base = 1000000;
+		// First call triggers initial cascade (max ~1280ms)
+		manager.updateAim('id-1', 'test aim', base, false, true);
+		// Complete rewrite within cooldown (<250ms) should NOT start a new cascade
+		manager.updateAim('id-1', 'changed aim', base + 100, false, true);
+		// Old cascade ends by base+1280; new cascade (if allowed) would end by base+1380
+		expect(manager.hasAnyActiveAnimations(base + 1300)).toBe(false);
+	});
 });
 
 describe('FastRNG', () => {

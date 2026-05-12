@@ -36,6 +36,7 @@ export function setupSpecMode(pi: ExtensionAPI): void {
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const trimmed = args.trim();
 			if (trimmed) {
+				_waitingForSpecPlanSessionId = null;
 				setSpecModeActive(true);
 				pi.sendUserMessage(trimmed);
 				ctx.ui.notify?.("Spec mode activated", "info");
@@ -59,8 +60,16 @@ export function setupSpecMode(pi: ExtensionAPI): void {
 						return;
 					}
 				} else {
-					setSpecModeActive(true);
-					ctx.ui.notify?.("Spec mode activated", "info");
+					_waitingForSpecPlanSessionId = null;
+					const result = await ctx.newSession({
+						withSession: async (newCtx: ReplacedSessionContext) => {
+							setSpecModeActive(true);
+							newCtx.ui.notify?.("Spec mode activated", "info");
+						},
+					});
+					if (result.cancelled) {
+						return;
+					}
 				}
 			}
 		},

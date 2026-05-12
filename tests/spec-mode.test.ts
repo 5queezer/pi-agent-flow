@@ -32,7 +32,7 @@ function createMockPi(): ExtensionAPI & { emitTurnEnd(event: TurnEndEvent, ctx: 
 			registeredCommands.set(name, config);
 		}),
 		sendUserMessage: vi.fn(),
-	} as unknown as ExtensionAPI & { emitTurnEnd(event: TurnEndEvent, ctx: ExtensionCommandContext): void };
+	} as unknown as ExtensionAPI & { emitTurnEnd(event: TurnEndEvent, ctx: ExtensionContext): void };
 }
 
 function createMockCtx(options?: { newSessionCancelled?: boolean }) {
@@ -87,6 +87,12 @@ function createMockCtx(options?: { newSessionCancelled?: boolean }) {
 	return { ctx, notifyCalls, editorTexts, newCtx };
 }
 
+/** Strip a command context down to ExtensionContext (no newSession etc.) */
+function toExtensionContext(cmdCtx: ExtensionCommandContext): ExtensionContext {
+	const { newSession: _ns, navigateTree: _nt, waitForIdle: _wi, reload: _re, ...extCtx } = cmdCtx as any;
+	return extCtx as ExtensionContext;
+}
+
 describe("setupSpecMode", () => {
 	beforeEach(() => {
 		registeredCommands.clear();
@@ -103,7 +109,7 @@ describe("setupSpecMode", () => {
 		expect(pi.on).toHaveBeenCalledWith("turn_end", expect.any(Function));
 	});
 
-	it("toggles spec mode off and captures assistant plan into editor", async () => {
+	it("toggles spec mode off, captures assistant plan, and calls captured newSession in turn_end", async () => {
 		const pi = createMockPi();
 		setupSpecMode(pi);
 		const command = registeredCommands.get("spec")!;
@@ -113,19 +119,24 @@ describe("setupSpecMode", () => {
 		await command.handler("", ctx);
 		// Spec mode stays active while the plan is being crafted in the current session
 		expect(isSpecModeActive()).toBe(true);
+		// newSession should NOT be called yet (only captured for later)
 		expect(ctx.newSession).not.toHaveBeenCalled();
 		expect(pi.sendUserMessage).toHaveBeenCalledWith(
 			"Synthesize a full implementation plan from the conversation history. Output ONLY the complete markdown spec (no tool calls after you start writing). After you finish, the plan will be placed in the editor for review."
 		);
 
-		// Simulate assistant responding with the plan in the CURRENT session
+		// Simulate assistant responding with the plan in the CURRENT session.
+		// Pass a stripped ExtensionContext (no newSession) to match real runtime.
+		const extCtx = toExtensionContext(ctx);
 		pi.emitTurnEnd(
 			{ message: { role: "assistant", content: [{ type: "text", text: "# Plan\n\nImplement caching." }] } },
-			ctx,
+			extCtx,
 		);
 		expect(isSpecModeActive()).toBe(false);
 		expect(editorTexts).toContain("# Plan\n\nImplement caching.");
 		expect(notifyCalls.some((n) => n.msg === "Spec mode deactivated — plan ready in editor")).toBe(true);
+		// The captured newSession WAS called during turn_end
+		expect(ctx.newSession).toHaveBeenCalled();
 	});
 
 	it("does not capture non-assistant turns", async () => {
@@ -137,11 +148,13 @@ describe("setupSpecMode", () => {
 		await command.handler("", ctx);
 
 		// Simulate a user turn in the current session — should be ignored
+		const extCtx = toExtensionContext(ctx);
 		pi.emitTurnEnd(
 			{ message: { role: "user", content: "some user text" } },
-			ctx,
+			extCtx,
 		);
 		expect(editorTexts).toHaveLength(0);
+		expect(ctx.newSession).not.toHaveBeenCalled();
 	});
 
 	it("captures only the first assistant turn then stops listening", async () => {
@@ -152,22 +165,25 @@ describe("setupSpecMode", () => {
 
 		await command.handler("", ctx);
 
+		const extCtx = toExtensionContext(ctx);
 		pi.emitTurnEnd(
 			{ message: { role: "assistant", content: [{ type: "text", text: "First plan" }] } },
-			ctx,
+			extCtx,
 		);
 		expect(editorTexts).toContain("First plan");
+		expect(ctx.newSession).toHaveBeenCalledTimes(1);
 
 		// Second assistant turn in the current session should be ignored
 		pi.emitTurnEnd(
 			{ message: { role: "assistant", content: [{ type: "text", text: "Second plan" }] } },
-			ctx,
+			extCtx,
 		);
 		expect(editorTexts).toHaveLength(1);
 		expect(editorTexts).not.toContain("Second plan");
+		expect(ctx.newSession).toHaveBeenCalledTimes(1);
 	});
 
-	it("sets spec mode inactive and captures plan directly after assistant reply", async () => {
+	it("sets spec mode inactive and captures plan via newSession after assistant reply", async () => {
 		const pi = createMockPi();
 		setupSpecMode(pi);
 		const command = registeredCommands.get("spec")!;
@@ -181,13 +197,15 @@ describe("setupSpecMode", () => {
 		expect(pi.sendUserMessage).toHaveBeenCalled();
 
 		// Simulate assistant responding with the plan
+		const extCtx = toExtensionContext(ctx);
 		pi.emitTurnEnd(
 			{ message: { role: "assistant", content: [{ type: "text", text: "# Plan\n\nImplement caching." }] } },
-			ctx,
+			extCtx,
 		);
 		expect(isSpecModeActive()).toBe(false);
 		expect(editorTexts).toContain("# Plan\n\nImplement caching.");
 		expect(notifyCalls.some((n) => n.msg === "Spec mode deactivated — plan ready in editor")).toBe(true);
+		expect(ctx.newSession).toHaveBeenCalled();
 	});
 
 	it("toggles spec mode on", async () => {
@@ -251,7 +269,7 @@ describe("setupSpecMode", () => {
 		const command = registeredCommands.get("spec")!;
 		const { ctx, editorTexts } = createMockCtx();
 
-		// Toggle OFF (sets _pendingSpecDeactivation)
+		// Toggle OFF (sets _pendingSpecDeactivation + captures newSession)
 		await command.handler("", ctx);
 		expect(isSpecModeActive()).toBe(true);
 
@@ -260,9 +278,10 @@ describe("setupSpecMode", () => {
 		expect(isSpecModeActive()).toBe(true);
 
 		// Old session assistant reply should NOT be captured
+		const extCtx = toExtensionContext(ctx);
 		pi.emitTurnEnd(
 			{ message: { role: "assistant", content: [{ type: "text", text: "Old plan" }] } },
-			ctx,
+			extCtx,
 		);
 		expect(editorTexts).toHaveLength(0);
 	});
@@ -282,9 +301,10 @@ describe("setupSpecMode", () => {
 		expect(isSpecModeActive()).toBe(true);
 
 		// Old session assistant reply should NOT be captured
+		const extCtx = toExtensionContext(ctx);
 		pi.emitTurnEnd(
 			{ message: { role: "assistant", content: [{ type: "text", text: "Old plan" }] } },
-			ctx,
+			extCtx,
 		);
 		expect(editorTexts).toHaveLength(0);
 	});

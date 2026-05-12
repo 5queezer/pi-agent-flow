@@ -2,10 +2,12 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, ReplacedS
 import { isSpecModeActive, setSpecModeActive } from "./sliding-prompt.js";
 
 let _pendingSpecDeactivation = false;
+let _pendingNewSession: ExtensionCommandContext["newSession"] | null = null;
 
 /** Reset the pending-deactivation flag (used by tests for isolation). */
 export function resetSpecDeactivation(): void {
 	_pendingSpecDeactivation = false;
+	_pendingNewSession = null;
 }
 
 function extractTextFromContent(content: string | Array<{ type: string; text?: string }>): string {
@@ -29,10 +31,17 @@ export function setupSpecMode(pi: ExtensionAPI): void {
 		if (!_pendingSpecDeactivation || event.message?.role !== "assistant") return;
 		const text = extractTextFromContent(event.message.content);
 		setSpecModeActive(false);
-		if (text.trim()) {
-			ctx.ui.setEditorText?.(text);
+		if (_pendingNewSession) {
+			void _pendingNewSession({
+				withSession: async (newCtx: ReplacedSessionContext) => {
+					if (text.trim()) {
+						newCtx.ui.setEditorText?.(text);
+					}
+					newCtx.ui.notify?.("Spec mode deactivated — plan ready in editor", "info");
+				},
+			});
+			_pendingNewSession = null;
 		}
-		ctx.ui.notify?.("Spec mode deactivated — plan ready in editor", "info");
 		_pendingSpecDeactivation = false;
 	});
 
@@ -42,6 +51,7 @@ export function setupSpecMode(pi: ExtensionAPI): void {
 			const trimmed = args.trim();
 			if (trimmed) {
 				_pendingSpecDeactivation = false;
+				_pendingNewSession = null;
 				setSpecModeActive(true);
 				pi.sendUserMessage(trimmed);
 				ctx.ui.notify?.("Spec mode activated", "info");
@@ -50,10 +60,12 @@ export function setupSpecMode(pi: ExtensionAPI): void {
 				if (!next && !_pendingSpecDeactivation) {
 					// Deactivate: craft plan in current session, then switch
 					_pendingSpecDeactivation = true;
+					_pendingNewSession = ctx.newSession.bind(ctx);
 					pi.sendUserMessage("Synthesize a full implementation plan from the conversation history. Output ONLY the complete markdown spec (no tool calls after you start writing). After you finish, the plan will be placed in the editor for review.");
 				} else {
 					// Activate (or cancel a pending deactivation)
 					_pendingSpecDeactivation = false;
+					_pendingNewSession = null;
 					const result = await ctx.newSession({
 						withSession: async (newCtx: ReplacedSessionContext) => {
 							setSpecModeActive(true);

@@ -375,7 +375,9 @@ function randomChar(): string {
 // Fast random char pool — pre-filled to reduce Math.random() calls ~80%
 // ---------------------------------------------------------------------------
 
-const RANDOM_POOL_SIZE = 512;
+const RANDOM_POOL_SIZE = 2048;
+const POOL_REFILL_THRESHOLD = 512; // refill when 25% remaining
+
 let randomPool: string[] = [];
 let randomPoolIndex = 0;
 
@@ -392,7 +394,7 @@ function fillRandomPool(rng?: FastRNG): void {
 }
 
 function poolRandomChar(): string {
-	if (randomPoolIndex >= randomPool.length) {
+	if (randomPoolIndex >= randomPool.length - POOL_REFILL_THRESHOLD) {
 		fillRandomPool();
 	}
 	return randomPool[randomPoolIndex++];

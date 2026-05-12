@@ -1211,7 +1211,7 @@ describe('poolRandomChar — exhaustion behavior', () => {
 	it('renders stream text correctly across many frames (pool cycles)', () => {
 		const visibleText = 'abcdefghij';
 		const cursorChars: string[] = [];
-		// Render 200 frames — pool size is 64, so it will cycle multiple times
+		// Render 200 frames — pool size is 2048, so it will not exhaust
 		for (let i = 0; i < 200; i++) {
 			const result = renderStreamText(visibleText, 3, 3, cursorChars);
 			expect(stripAnsi(result).length).toBe(visibleText.length);

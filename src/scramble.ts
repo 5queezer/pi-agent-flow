@@ -73,7 +73,7 @@ const DIM_OFF = '\x1b[22m';
 
 /** Illuminate close: turns off bold (SGR 22 also kills dim), then re-applies
  *  dim (SGR 2) so enclosing dim context survives scramble transitions. */
-const ILLUMINATE_CLOSE = '\x1b[22m\x1b[2m\x1b[39m';
+const ILLUMINATE_CLOSE = '\x1b[22m\x1b[2m';
 
 // ---------------------------------------------------------------------------
 // Illuminate per-target effect configs
@@ -192,6 +192,7 @@ interface QueueItem {
 interface LineState {
 	lastText: string;
 	queue: QueueItem[];
+	queueMaxEnd: number;
 	startTime: number;
 	ripples: Ripple[];
 	lastAnimTime: number;
@@ -264,6 +265,7 @@ interface ValueFlashState {
 	prev: string;
 	ripple: Ripple | null;
 	queue: QueueItem[];
+	queueMaxEnd: number;
 	startTime: number;
 	completed: boolean;
 }
@@ -438,8 +440,9 @@ export function computeCascadeFrame(queue: QueueItem[], frame: number): string {
 	return result;
 }
 
-function isCascadeComplete(queue: QueueItem[], frame: number): boolean {
+function isCascadeComplete(queue: QueueItem[], frame: number, maxEnd?: number): boolean {
 	const clampedFrame = Math.max(0, frame);
+	if (maxEnd !== undefined) return clampedFrame >= maxEnd;
 	for (const item of queue) {
 		if (clampedFrame < item.end) return false;
 	}
@@ -493,21 +496,15 @@ export function applyRipples(
 	const len = text.length;
 	if (len === 0) return text;
 
-	// In-place swap-and-pop to filter expired / future ripples
-	let activeCount = 0;
-	for (let i = 0; i < ripples.length; i++) {
-		const r = ripples[i];
-		if (r.time <= now && now - r.time < r.dur) {
-			ripples[activeCount++] = r;
-		}
-	}
-	ripples.length = activeCount;
+	// Filter expired / future ripples into a new array — do not mutate caller's array
+	const activeRipples = ripples.filter(r => r.time <= now && now - r.time < r.dur);
+	const activeCount = activeRipples.length;
 	if (!activeCount) return text;
 
 	// Pre-compute radius per ripple to avoid O(n·m) recomputation inside char loop
 	const radii = new Float64Array(activeCount);
 	for (let i = 0; i < activeCount; i++) {
-		const r = ripples[i];
+		const r = activeRipples[i];
 		const elapsed = Math.min(1, (now - r.time) / r.dur);
 		const maxDist = Math.max(r.pos, len - r.pos - 1);
 		radii[i] = easeOutCubic(elapsed) * maxDist * r.spread;
@@ -521,6 +518,11 @@ export function applyRipples(
 	for (let idx = 0; idx < len; idx++) {
 		const origChar = text[idx];
 		if (origChar === ' ') {
+			if (inColor) {
+				segments[segCount++] = config ? ILLUMINATE_CLOSE : RESET_COLOR + DIM_OFF;
+				inColor = false;
+				currentPrefix = '';
+			}
 			segments[segCount++] = origChar;
 			continue;
 		}
@@ -528,18 +530,18 @@ export function applyRipples(
 		let maxDepth = 0;
 		let bestElapsed = 0;
 		let bestDist = 0;
-		let bestDur = ripples[0].dur;
+		let bestDur = activeRipples[0].dur;
 
 		for (let i = 0; i < activeCount; i++) {
-			const dist = Math.abs(idx - ripples[i].pos);
+			const dist = Math.abs(idx - activeRipples[i].pos);
 			const depth = radii[i] - dist;
 			if (depth > 0) {
 				const fade = 1 - smoothstep(DEPTH_BAND_MAX - 0.5, DEPTH_BAND_MAX + 2, depth);
 				if (fade > 0 && depth > maxDepth) {
 					maxDepth = Math.min(depth, DEPTH_BAND_MAX);
-					bestElapsed = now - ripples[i].time;
+					bestElapsed = now - activeRipples[i].time;
 					bestDist = dist;
-					bestDur = ripples[i].dur;
+					bestDur = activeRipples[i].dur;
 				}
 			}
 		}
@@ -566,7 +568,7 @@ export function applyRipples(
 			}
 		} else {
 			if (inColor) {
-				segments[segCount++] = config ? ILLUMINATE_CLOSE : BOLD_OFF + RESET_COLOR + DIM_OFF;
+				segments[segCount++] = config ? ILLUMINATE_CLOSE : RESET_COLOR + DIM_OFF;
 				inColor = false;
 				currentPrefix = '';
 			}
@@ -575,7 +577,7 @@ export function applyRipples(
 	}
 
 	if (inColor) {
-		segments[segCount++] = config ? ILLUMINATE_CLOSE : BOLD_OFF + RESET_COLOR + DIM_OFF;
+		segments[segCount++] = config ? ILLUMINATE_CLOSE : RESET_COLOR + DIM_OFF;
 	}
 
 	segments.length = segCount;
@@ -620,13 +622,13 @@ function applyScramble(text: string, state: LineState, now: number, mode: Scramb
 	if (mode === 'cascade') {
 		if (!state.queue.length) return text;
 		const frame = Math.floor((now - state.startTime) / CASCADE_FRAME_MS);
-		if (isCascadeComplete(state.queue, frame)) {
+		if (isCascadeComplete(state.queue, frame, state.queueMaxEnd)) {
 			state.queue = [];
 			return text;
 		}
 		return computeCascadeFrame(state.queue, frame);
 	} else if (mode === 'illuminate') {
-		const displayText = state.displayedText || text;
+		const displayText = state.displayedText ?? text;
 		const config = lineKey === 'msg'
 			? ILLUMINATE_CONFIGS.msgContent
 			: lineKey === 'act'
@@ -736,6 +738,7 @@ function processLine(
 		if (mode === 'cascade') {
 			state.queue = buildQueue(oldText, newText);
 			state.startTime = now;
+			state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
 		} else {
 			state.ripples.push(spawnRipple(randomizedCenter(newText.length), now));
 		}
@@ -759,6 +762,7 @@ function createLineState(): LineState {
 	return {
 		lastText: '',
 		queue: [],
+		queueMaxEnd: 0,
 		startTime: 0,
 		ripples: [],
 		lastAnimTime: 0,
@@ -772,7 +776,7 @@ function createLineState(): LineState {
 }
 
 function createValueFlashState(): ValueFlashState {
-	return { prev: '', ripple: null, queue: [], startTime: 0, completed: false };
+	return { prev: '', ripple: null, queue: [], queueMaxEnd: 0, startTime: 0, completed: false };
 }
 
 function createTypewriterState(speed: number): TypewriterState {
@@ -909,6 +913,7 @@ export class ScrambleStateManager {
 			if (this.mode === 'cascade') {
 				state.queue = buildQueue('', text);
 				state.startTime = now;
+				state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
 			} else if (this.mode === 'illuminate') {
 				state.ripples.push(spawnIlluminateRipple(randomizedCenter(text.length), now, ILLUMINATE_CONFIGS.msgContent));
 			} else {
@@ -1048,6 +1053,13 @@ export class ScrambleStateManager {
 			let overlapLen = 0;
 			if (state.fullText && cleanText.startsWith(state.fullText)) {
 				overlapLen = computeOverlapLen(oldVisibleText, newVisibleText);
+			} else if (oldVisibleText && newVisibleText) {
+				// Non-extension (backtracking/rephrasing): preserve revealed count if visible window still overlaps significantly
+				const candidateOverlap = computeOverlapLen(oldVisibleText, newVisibleText);
+				const minVisibleLen = Math.min(oldVisibleText.length, newVisibleText.length);
+				if (candidateOverlap >= minVisibleLen * 0.5) {
+					overlapLen = candidateOverlap;
+				}
 			}
 			const charsSlidOut = oldVisibleText.length - overlapLen;
 			state.revealedCount = Math.max(0, state.revealedCount - charsSlidOut);
@@ -1206,6 +1218,7 @@ export class ScrambleStateManager {
 				if (this.mode === 'cascade') {
 					state.queue = buildQueue(state.prev, tpsText, CASCADE_FLASH_MAX_START, CASCADE_FLASH_MAX_LENGTH);
 					state.startTime = now;
+					state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
 				} else if (this.mode === 'illuminate') {
 					state.ripple = spawnIlluminateRipple(randomizedCenter(tpsText.length), now, ILLUMINATE_CONFIGS.tps);
 					state.startTime = now;
@@ -1220,7 +1233,7 @@ export class ScrambleStateManager {
 		if (this.mode === 'cascade') {
 			if (state.queue.length) {
 				const frame = Math.max(0, Math.floor((now - state.startTime) / CASCADE_FRAME_MS));
-				if (isCascadeComplete(state.queue, frame)) {
+				if (isCascadeComplete(state.queue, frame, state.queueMaxEnd)) {
 					state.queue = [];
 					state.startTime = now;
 					return tpsText;
@@ -1254,7 +1267,7 @@ export class ScrambleStateManager {
 		if (this.mode === 'cascade') {
 			if (!state.queue.length) return false;
 			const frame = Math.floor((now - state.startTime) / CASCADE_FRAME_MS);
-			return !isCascadeComplete(state.queue, frame);
+			return !isCascadeComplete(state.queue, frame, state.queueMaxEnd);
 		} else {
 			return state.ripples.some((rp) => rp.time + rp.dur > now);
 		}
@@ -1311,7 +1324,7 @@ export class ScrambleStateManager {
 			if (this.mode === 'cascade') {
 				if (state.queue.length) {
 					const frame = Math.floor((now - state.startTime) / CASCADE_FRAME_MS);
-					if (!isCascadeComplete(state.queue, frame)) return true;
+					if (!isCascadeComplete(state.queue, frame, state.queueMaxEnd)) return true;
 				}
 			} else {
 				if (state.ripple && state.ripple.time + state.ripple.dur > now) return true;

@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionCommandContext, ReplacedSessionContext, TurnEndEvent } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, ReplacedSessionContext, TurnEndEvent } from "@mariozechner/pi-coding-agent";
 import { isSpecModeActive, setSpecModeActive } from "./sliding-prompt.js";
 
 let _pendingSpecDeactivation = false;
@@ -25,18 +25,14 @@ function extractTextFromContent(content: string | Array<{ type: string; text?: s
  * the appropriate prompt content each turn.
  */
 export function setupSpecMode(pi: ExtensionAPI): void {
-	pi.on("turn_end", (event: TurnEndEvent, ctx: ExtensionCommandContext) => {
+	pi.on("turn_end", (event: TurnEndEvent, ctx: ExtensionContext) => {
 		if (!_pendingSpecDeactivation || event.message?.role !== "assistant") return;
 		const text = extractTextFromContent(event.message.content);
 		setSpecModeActive(false);
-		void ctx.newSession({
-			withSession: async (newCtx: ReplacedSessionContext) => {
-				if (text.trim()) {
-					newCtx.ui.setEditorText?.(text);
-				}
-				newCtx.ui.notify?.("Spec mode deactivated — plan ready in editor", "info");
-			},
-		});
+		if (text.trim()) {
+			ctx.ui.setEditorText?.(text);
+		}
+		ctx.ui.notify?.("Spec mode deactivated — plan ready in editor", "info");
 		_pendingSpecDeactivation = false;
 	});
 

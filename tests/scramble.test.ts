@@ -1033,23 +1033,24 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		expect(manager.getMode()).toBe('illuminate');
 	});
 
-	it('updateMsg shows plain text while streaming, then ripples when stable', () => {
+	it('updateMsg shows plain text while buffering, ripples on chunk threshold', () => {
 		const base = 2000000;
 		manager.updateMsg(TEST_ID, 'Hello world', base);
-		// Same text — no ripple yet (needs debounce period)
+		// Same text — no ripple
 		const same = manager.updateMsg(TEST_ID, 'Hello world', base + 100);
 		expect(same.isAnimating).toBe(false);
 		expect(stripAnsi(same.content)).toBe('Hello world');
 
-		// Text changes while streaming — shows plain, no ripple
-		const streaming = manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 200);
-		expect(streaming.isAnimating).toBe(false);
-		expect(stripAnsi(streaming.content)).toBe('Hello world. How are you?');
+		// Text changes to short text without sentence boundary — no ripple (chunk too small)
+		const small = manager.updateMsg(TEST_ID, 'Hello world how are', base + 200);
+		expect(small.isAnimating).toBe(false);
+		expect(stripAnsi(small.content)).toBe('Hello world how are');
 
-		// After debounce (350ms) — ripple fires on stable text
-		const stable = manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 600);
-		expect(stable.isAnimating).toBe(true);
-		expect(stable.content).toContain('\x1b[38;2;');
+		// Text changes with sentence boundary — chunk threshold met, ripple fires immediately
+		const longText = 'Hello world. How are you doing today? The weather is nice and the sun is shining.';
+		const ripple = manager.updateMsg(TEST_ID, longText, base + 300);
+		expect(ripple.isAnimating).toBe(true);
+		expect(ripple.content).toContain('\x1b[38;2;');
 	});
 
 	it('updateMsg does not ripple while text is actively changing', () => {
@@ -1143,16 +1144,16 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		expect(result.isAnimating).toBe(false);
 	});
 
-	it('updateMsg ripples on slide after text stabilizes', () => {
+	it('updateMsg ripples on slide after buffer timeout', () => {
 		const base = 9000000;
 		manager.updateMsg(TEST_ID, 'lo world foo bar', base);
-		// Sliding window changes — text is plain while sliding
+		// Sliding window changes — text is plain while sliding, no immediate ripple
 		const sliding = manager.updateMsg(TEST_ID, 'world foo bar baz', base + 100);
 		expect(sliding.isAnimating).toBe(false);
 		expect(stripAnsi(sliding.content)).toBe('world foo bar baz');
 
-		// After debounce — ripple fires on stable text
-		const result = manager.updateMsg(TEST_ID, 'world foo bar baz', base + 500);
+		// After buffer timeout (800ms) — ripple fires on stable text
+		const result = manager.updateMsg(TEST_ID, 'world foo bar baz', base + 900);
 		expect(result.isAnimating).toBe(true);
 	});
 });
@@ -1881,16 +1882,11 @@ describe('ScrambleStateManager (illuminate mode) — ripple coexistence', () => 
 		expect(manager.getMode()).toBe('illuminate');
 	});
 
-	it('updateMsg staticLine shows plain text then ripples once when stable', () => {
+	it('updateMsg staticLine ripples immediately on text change with boundary', () => {
 		const base = 5000000;
 		manager.updateMsg(TEST_ID, 'Hello world. How are you?', base, false, undefined, true);
-		// Text changes rapidly — plain text, no ripple
-		const streaming = manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 100, false, undefined, true);
-		expect(streaming.isAnimating).toBe(false);
-		expect(stripAnsi(streaming.content)).toBe('Goodbye world. How is it?');
-
-		// After debounce — ripple fires on stable text
-		const result = manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 500, false, undefined, true);
+		// Text changes with sentence boundary — chunk threshold met, ripple fires immediately
+		const result = manager.updateMsg(TEST_ID, 'Goodbye world. How is it?', base + 100, false, undefined, true);
 		expect(result.isAnimating).toBe(true);
 		expect(result.content).toContain('\x1b[38;2;');
 	});
@@ -1898,20 +1894,23 @@ describe('ScrambleStateManager (illuminate mode) — ripple coexistence', () => 
 	it('updateMsg staticLine does not re-ripple unchanged stable text', () => {
 		const base = 6000000;
 		manager.setMode('illuminate');
-		// Initialize
+		// Initialize with short text
 		manager.updateMsg(TEST_ID, 'running...', base, false, undefined, true);
 
-		// Text changes — plain
+		// Text changes to short text — no ripple (chunk too small)
 		manager.updateMsg(TEST_ID, 'running... done', base + 100, false, undefined, true);
+		const preRipple = manager.updateMsg(TEST_ID, 'running... done', base + 500, false, undefined, true);
+		expect(preRipple.isAnimating).toBe(false);
 
-		// Stable after debounce — first ripple fires
-		const firstRipple = manager.updateMsg(TEST_ID, 'running... done', base + 500, false, undefined, true);
+		// Text changes with sentence boundary — chunk threshold met, ripple fires
+		const longText = 'running... done. Now we are processing the data and analyzing the results carefully.';
+		const firstRipple = manager.updateMsg(TEST_ID, longText, base + 600, false, undefined, true);
 		expect(firstRipple.isAnimating).toBe(true);
 
 		// Ripple finishes, text still stable — no re-ripple
-		const later = manager.updateMsg(TEST_ID, 'running... done', base + 1000, false, undefined, true);
+		const later = manager.updateMsg(TEST_ID, longText, base + 2000, false, undefined, true);
 		expect(later.isAnimating).toBe(false);
-		expect(stripAnsi(later.content)).toBe('running... done');
+		expect(stripAnsi(later.content)).toBe(longText);
 	});
 });
 
@@ -1947,17 +1946,17 @@ describe('ScrambleStateManager — lastFlushTime init', () => {
 		expect(result.isAnimating).toBe(true);
 	});
 
-	it('ripples on stable text after debounce in illuminate mode', () => {
+	it('ripples on buffer timeout in illuminate mode', () => {
 		manager.setMode('illuminate');
 		const base = 1_000_000;
 		manager.updateMsg(TEST_ID, 'Hello world.', base, false, undefined, true);
-		// Text streams in — plain
+		// Text streams in — plain, no ripple (chunk too small)
 		const r1 = manager.updateMsg(TEST_ID, 'Hello world. How are you today?', base + 100, false, undefined, true);
 		expect(r1.isAnimating).toBe(false);
 		expect(stripAnsi(r1.content)).toBe('Hello world. How are you today?');
 
-		// After debounce — ripple fires
-		const r2 = manager.updateMsg(TEST_ID, 'Hello world. How are you today?', base + 500, false, undefined, true);
+		// After buffer timeout (800ms) — ripple fires
+		const r2 = manager.updateMsg(TEST_ID, 'Hello world. How are you today?', base + 900, false, undefined, true);
 		expect(r2.isAnimating).toBe(true);
 		expect(r2.content).toContain('\x1b[38;2;');
 	});

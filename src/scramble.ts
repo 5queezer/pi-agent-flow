@@ -181,11 +181,7 @@ const CASCADE_FLASH_MAX_LENGTH = 8;
 
 // Illuminate phrase buffering
 const MAX_PHRASE_BUFFER_TIME = 550;
-const MIN_PHRASE_LENGTH = 15;
-
-// Debounce: how long msg: text must be stable before a ripple fires.
-// Text streams in as plain; one ripple animates when it stops changing.
-const MSG_STABLE_DEBOUNCE_MS = 350;
+const MIN_PHRASE_LENGTH = 60;
 
 // TPS hysteresis
 const TPS_HYSTERESIS_PCT = 0.15;
@@ -282,8 +278,6 @@ interface LineState {
 	resolvedMask: Set<number>;
 	// Age tracking for cache eviction
 	lastAccessTime: number;
-	// Debounce tracking for stable-text ripple (msg: illuminate only)
-	lastTextChangeTime: number;
 }
 
 /** Phrase boundary detection for illuminate msg: streaming */
@@ -825,16 +819,14 @@ function applyScramble(text: string, state: LineState, now: number, mode: Scramb
 		}
 		return computeCascadeFrame(state.queue, frame, rng);
 	} else if (mode === 'illuminate') {
-		const displayText = state.displayedText || text;
 		const config = lineKey === 'msg'
 			? ILLUMINATE_CONFIGS.msgContent
 			: lineKey === 'act'
 				? ILLUMINATE_CONFIGS.actLabel
 				: undefined;
-		return applyRipples(displayText, state.ripples, now, config);
+		return applyRipples(text, state.ripples, now, config);
 	} else {
-		const displayText = state.displayedText || text;
-		return applyRipples(displayText, state.ripples, now);
+		return applyRipples(text, state.ripples, now);
 	}
 }
 
@@ -857,7 +849,6 @@ function processLine(
 			state.lastText = newText;
 			state.initialized = true;
 			if (lineKey === 'msg') {
-				state.lastTextChangeTime = now;
 				state.displayedText = newText;
 				state.lastFlushTime = now;
 			} else {
@@ -868,15 +859,9 @@ function processLine(
 			return;
 		}
 
-		// msg: content — debounce-based stable ripple (plain while streaming)
+		// msg: content — chunk-based ripple (plain while buffering, ripple on chunk threshold)
 		if (lineKey === 'msg') {
 			const textChanged = state.lastText !== newText;
-			if (textChanged) {
-				state.lastText = newText;
-				state.displayedText = newText;
-				state.phraseBuffer = newText;
-				state.lastTextChangeTime = now;
-			}
 
 			// Clean up expired ripples
 			let keep = 0;
@@ -887,13 +872,20 @@ function processLine(
 			}
 			state.ripples.length = keep;
 
-			const isStable = now - (state.lastTextChangeTime || 0) > MSG_STABLE_DEBOUNCE_MS;
-			const noActiveAnimation = state.ripples.length === 0;
-			const textChangedSinceLastRipple = !state.lastAnimTime || (state.lastTextChangeTime || 0) > state.lastAnimTime;
+			const hasActiveRipples = state.ripples.length > 0;
 
-			if (isStable && noActiveAnimation && textChangedSinceLastRipple) {
-				state.lastAnimTime = now;
+			if (textChanged) {
+				state.lastText = newText;
+				state.phraseBuffer = newText;
+				// During active ripple, keep displayedText frozen (text being scrambled)
+				// Between ripples, displayedText stays as last rippled text for chunk detection
+			}
+
+			// If no active ripple and accumulated content meets chunk threshold → fire ripple
+			if (!hasActiveRipples && shouldFlushPhrase(newText, state.displayedText, state.lastFlushTime, now)) {
+				state.displayedText = newText;
 				state.lastFlushTime = now;
+				state.lastAnimTime = now;
 				state.ripples.push(spawnIlluminateRipple(randomizedCenter(newText.length), now, ILLUMINATE_CONFIGS.msgContent));
 			}
 			return;
@@ -1008,7 +1000,6 @@ function createLineState(): LineState {
 		targetText: '',
 		resolvedMask: new Set(),
 		lastAccessTime: Date.now(),
-		lastTextChangeTime: 0,
 	};
 }
 
@@ -1413,7 +1404,7 @@ export class ScrambleStateManager {
 			state.displayedText = '';
 			state.pendingText = '';
 			state.lastFlushTime = 0;
-			state.lastTextChangeTime = 0;
+
 		}
 		if (isComplete) {
 			state.completed = true;
@@ -1435,7 +1426,6 @@ export class ScrambleStateManager {
 			} else if (this.mode === 'illuminate') {
 				state.displayedText = visibleText;
 				state.phraseBuffer = visibleText;
-				state.lastTextChangeTime = now;
 				state.lastAnimTime = 0;
 			} else {
 				state.displayedText = visibleText;
@@ -1451,24 +1441,22 @@ export class ScrambleStateManager {
 				state.lastText = visibleText;
 				// stream mode: text displays directly, no buffering needed
 			} else if (this.mode === 'illuminate') {
-				// New behavior: plain text while streaming, ONE ripple when stable.
-				if (textChanged) {
-					state.lastText = visibleText;
-					state.displayedText = visibleText;
-					state.phraseBuffer = visibleText;
-					state.lastTextChangeTime = now;
-				}
-
+				// Chunk-based ripple: plain text while buffering, ripple on chunk threshold
 				// Clean up expired ripples
 				state.ripples = state.ripples.filter(r => now - r.time < r.dur);
 				state.queue = [];
 
-				// Only spawn a ripple when text has been stable for the debounce period
-				const isStable = now - (state.lastTextChangeTime || 0) > MSG_STABLE_DEBOUNCE_MS;
-				const noActiveAnimation = !this.isLineAnimating(state, now);
-				const textChangedSinceLastRipple = !state.lastAnimTime || (state.lastTextChangeTime || 0) > state.lastAnimTime;
+				const hasActiveRipples = state.ripples.length > 0;
 
-				if (isStable && noActiveAnimation && textChangedSinceLastRipple) {
+				if (textChanged) {
+					state.lastText = visibleText;
+					state.phraseBuffer = visibleText;
+				}
+
+				// If no active ripple and accumulated content meets chunk threshold → fire ripple
+				if (!hasActiveRipples && shouldFlushPhrase(visibleText, state.displayedText, state.lastFlushTime, now)) {
+					state.displayedText = visibleText;
+					state.lastFlushTime = now;
 					state.lastAnimTime = now;
 					state.ripples.push(spawnIlluminateRipple(randomSentenceStart(visibleText), now, ILLUMINATE_CONFIGS.msgContent));
 				}
@@ -1524,7 +1512,10 @@ export class ScrambleStateManager {
 		} else {
 			processLine(state, visibleText, now, this.mode, 'msg');
 		}
-		const displayText = this.mode === 'stream' ? visibleText : (state.displayedText || visibleText);
+		const hasActiveRipple = this.isLineAnimating(state, now);
+		const displayText = this.mode === 'stream'
+			? visibleText
+			: (hasActiveRipple ? (state.displayedText || visibleText) : visibleText);
 		const content = applyScramble(displayText, state, now, this.mode, 'msg', () => this.poolRandomChar());
 		const isAnimating = this.isLineAnimating(state, now);
 		return { label: 'msg:', content, isAnimating };

@@ -1,7 +1,12 @@
 import type { ExtensionAPI, ExtensionCommandContext, ReplacedSessionContext, TurnEndEvent } from "@mariozechner/pi-coding-agent";
 import { isSpecModeActive, setSpecModeActive } from "./sliding-prompt.js";
 
-let _waitingForSpecPlanSessionId: string | null = null;
+let _pendingSpecDeactivation = false;
+
+/** Reset the pending-deactivation flag (used by tests for isolation). */
+export function resetSpecDeactivation(): void {
+	_pendingSpecDeactivation = false;
+}
 
 function extractTextFromContent(content: string | Array<{ type: string; text?: string }>): string {
 	if (typeof content === "string") return content;
@@ -21,14 +26,18 @@ function extractTextFromContent(content: string | Array<{ type: string; text?: s
  */
 export function setupSpecMode(pi: ExtensionAPI): void {
 	pi.on("turn_end", (event: TurnEndEvent, ctx: ExtensionCommandContext) => {
-		if (!_waitingForSpecPlanSessionId || event.message?.role !== "assistant") return;
-		const sessionId = ctx.sessionManager?.getSessionId?.();
-		if (sessionId !== _waitingForSpecPlanSessionId) return;
+		if (!_pendingSpecDeactivation || event.message?.role !== "assistant") return;
 		const text = extractTextFromContent(event.message.content);
-		if (text.trim()) {
-			ctx.ui.setEditorText?.(text);
-		}
-		_waitingForSpecPlanSessionId = null;
+		setSpecModeActive(false);
+		void ctx.newSession({
+			withSession: async (newCtx: ReplacedSessionContext) => {
+				if (text.trim()) {
+					newCtx.ui.setEditorText?.(text);
+				}
+				newCtx.ui.notify?.("Spec mode deactivated — plan ready in editor", "info");
+			},
+		});
+		_pendingSpecDeactivation = false;
 	});
 
 	pi.registerCommand("spec", {
@@ -36,31 +45,19 @@ export function setupSpecMode(pi: ExtensionAPI): void {
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const trimmed = args.trim();
 			if (trimmed) {
-				_waitingForSpecPlanSessionId = null;
+				_pendingSpecDeactivation = false;
 				setSpecModeActive(true);
 				pi.sendUserMessage(trimmed);
 				ctx.ui.notify?.("Spec mode activated", "info");
 			} else {
 				const next = !isSpecModeActive();
-				if (!next) {
-					const result = await ctx.newSession({
-						withSession: async (newCtx: ReplacedSessionContext) => {
-							setSpecModeActive(false);
-							const sessionId = newCtx.sessionManager?.getSessionId?.();
-							if (sessionId) {
-								_waitingForSpecPlanSessionId = sessionId;
-							}
-							// Fire-and-forget: do NOT await sendUserMessage inside withSession.
-							// Awaiting it blocks the session transition and freezes the CLI UI.
-							void newCtx.sendUserMessage("Synthesize a full implementation plan from the conversation history. Output ONLY the complete markdown spec (no tool calls after you start writing). After you finish, the plan will be placed in the editor for review.");
-							newCtx.ui.notify?.("Spec mode deactivated", "info");
-						},
-					});
-					if (result.cancelled) {
-						return;
-					}
+				if (!next && !_pendingSpecDeactivation) {
+					// Deactivate: craft plan in current session, then switch
+					_pendingSpecDeactivation = true;
+					pi.sendUserMessage("Synthesize a full implementation plan from the conversation history. Output ONLY the complete markdown spec (no tool calls after you start writing). After you finish, the plan will be placed in the editor for review.");
 				} else {
-					_waitingForSpecPlanSessionId = null;
+					// Activate (or cancel a pending deactivation)
+					_pendingSpecDeactivation = false;
 					const result = await ctx.newSession({
 						withSession: async (newCtx: ReplacedSessionContext) => {
 							setSpecModeActive(true);

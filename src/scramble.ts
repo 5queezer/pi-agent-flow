@@ -158,7 +158,7 @@ const ILLUMINATE_CONFIGS: Record<string, IlluminateConfig> = {
 	aimLabel: { color: CYAN_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
 	actLabel: { color: PURPLE_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
 	msgLabel: { color: CYAN_GLOW, duration: 250, spread: 0.8, glowIntensity: 'high' },
-	msgContent: { color: 'dynamic', duration: 850, spread: 1.5, glowIntensity: 'variable' },
+	msgContent: { color: 'dynamic', duration: 1000, spread: 1.5, glowIntensity: 'variable' },
 	tps: { color: GOLD_GLOW, duration: 120, spread: 0.5, glowIntensity: 'medium' },
 };
 
@@ -1425,8 +1425,14 @@ export class ScrambleStateManager {
 				} else {
 					// Animation NOT active — clean up expired ripples/queues
 					// and handle text changes with cooldown check.
+					const hadRipples = state.ripples.length > 0;
 					state.ripples = state.ripples.filter(r => now - r.time < r.dur);
 					state.queue = [];
+					// If the last ripple just expired, start the cooldown from now
+					// so the next ripple doesn't fire the instant the animation ends.
+					if (hadRipples && state.ripples.length === 0) {
+						state.lastAnimTime = now;
+					}
 
 					if (!textChanged) {
 						if (state.displayedText !== visibleText) {

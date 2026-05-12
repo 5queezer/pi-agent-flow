@@ -24,7 +24,7 @@ export function setupSpecMode(pi: ExtensionAPI): void {
 					const result = await ctx.newSession({
 						withSession: async (newCtx: ReplacedSessionContext) => {
 							setSpecModeActive(false);
-							await newCtx.sendUserMessage("Please read the spec from `.specs/` and proceed with implementation.");
+							await newCtx.sendUserMessage("Review the conversation history, synthesize a full implementation plan from all the discussion, decisions, and context gathered. Write that complete plan to `.specs/{slug}/spec.md` (create the directory if needed), using the spec template. Then proceed with implementation.");
 							newCtx.ui.notify?.("Spec mode deactivated", "info");
 						},
 					});

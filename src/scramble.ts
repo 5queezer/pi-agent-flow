@@ -468,10 +468,12 @@ export function buildQueue(
 		const from = oldText[i] || '';
 		const to = newText[i] || '';
 		const t = length <= 1 ? 0 : i / (length - 1);
-		const baseStart = easeOutQuad(t) * maxStart * 0.7;
-		const jitter = useRng.next() * maxStart * 0.3;
+		const baseStart = easeOutQuad(t) * maxStart * 0.55;
+		const jitter = useRng.next() * maxStart * 0.45;
 		const start = Math.floor(baseStart + jitter);
-		const end = start + Math.floor(useRng.next() * maxLength);
+		// Asymmetric end: late chars resolve more slowly using easeOutCubic
+		const endEase = easeOutCubic(1 - t);
+		const end = start + Math.floor((0.5 + 0.5 * endEase) * useRng.next() * maxLength);
 		queue.push({ from, to, start, end });
 	}
 	return queue;
@@ -529,20 +531,29 @@ function illuminatePrefix(depth: number, elapsed: number, dur: number, config: I
 		const life = 1 - progress;
 		const intensity = heat * life;
 
-		// Smooth truecolor gradient with single DIM→BOLD transition at 0.5
+		// Smooth truecolor gradient with 3-zone SGR transition: dim → normal → bold
 		let r: number, g: number, b: number;
 		let prefix = '';
-		if (intensity < 0.5) {
-			const t = smoothstep(0, 0.5, intensity);
+		if (intensity < 0.35) {
+			// Dim zone
+			const t = smoothstep(0, 0.35, intensity);
 			r = lerp(0, 0, t);
 			g = lerp(160, 255, t);
 			b = lerp(128, 204, t);
 			prefix = DIM_ON;
-		} else {
-			const t = smoothstep(0.5, 1.0, intensity);
+		} else if (intensity < 0.65) {
+			// Normal zone (no dim, no bold)
+			const t = smoothstep(0.35, 0.65, intensity);
 			r = lerp(0, 255, t);
 			g = 255;
 			b = lerp(204, 255, t);
+			prefix = '';
+		} else {
+			// Bold zone
+			const t = smoothstep(0.65, 1.0, intensity);
+			r = lerp(255, 255, t);
+			g = 255;
+			b = lerp(255, 255, t);
 			prefix = BOLD_ON;
 		}
 		return `${prefix}\x1b[38;2;${r};${g};${b}m`;

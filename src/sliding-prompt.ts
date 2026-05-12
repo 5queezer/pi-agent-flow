@@ -49,8 +49,8 @@ export const SLIDING_PROMPT =
 	`### Build a mental map:\n` +
 	`- Tech stack, patterns, test coverage, constraints\n` +
 	`- What exists vs what needs to be built\n\n` +
-	\`## Phase 2: Discuss (2-3 questions via ask_user)\n\n\` +
-	\`Ask 2-3 targeted questions grounded in Phase 1 findings.\n\n\` +
+	`## Phase 2: Discuss (2-3 questions via ask_user)\n\n` +
+	`Ask 2-3 targeted questions grounded in Phase 1 findings.\n\n` +
 	`### Question styles (use ALL three):\n` +
 	`1. **Challenge assumptions** — "You asked for X, but codebase has Y. Extend Y or build X?"\n` +
 	`2. **Present trade-offs** — "Approach A [fast] vs B [extensible]. Which fits?"\n` +

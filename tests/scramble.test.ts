@@ -130,11 +130,11 @@ describe('ScrambleStateManager (stream mode)', () => {
 
 	beforeEach(() => {
 		manager = new ScrambleStateManager();
-		expect(manager.getMode()).toBe('stream');
+		manager.setMode('stream');
 	});
 
-	it('defaults to stream mode', () => {
-		expect(DEFAULT_MODE).toBe('stream');
+	it('defaults to ripple mode', () => {
+		expect(DEFAULT_MODE).toBe('ripple');
 	});
 
 	it('updateAim never animates', () => {
@@ -743,9 +743,9 @@ describe('ScrambleStateManager (ripple mode)', () => {
 // ---------------------------------------------------------------------------
 
 describe('ScrambleStateManager mode switching', () => {
-	it('defaults to stream mode', () => {
+	it('defaults to ripple mode', () => {
 		const manager = new ScrambleStateManager();
-		expect(manager.getMode()).toBe('stream');
+		expect(manager.getMode()).toBe('ripple');
 	});
 
 	it('setMode clears all state', () => {
@@ -761,12 +761,12 @@ describe('ScrambleStateManager mode switching', () => {
 
 	it('can switch between all three modes', () => {
 		const manager = new ScrambleStateManager();
-		expect(manager.getMode()).toBe('stream');
+		expect(manager.getMode()).toBe('ripple');
 		manager.setMode('cascade');
 		expect(manager.getMode()).toBe('cascade');
-		manager.setMode('ripple');
-		expect(manager.getMode()).toBe('ripple');
 		manager.setMode('stream');
 		expect(manager.getMode()).toBe('stream');
+		manager.setMode('ripple');
+		expect(manager.getMode()).toBe('ripple');
 	});
 });

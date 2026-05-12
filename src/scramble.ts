@@ -61,7 +61,7 @@ const DIM_OFF = '\x1b[22m';
 
 export type ScrambleMode = 'stream' | 'cascade' | 'ripple';
 
-export const DEFAULT_MODE: ScrambleMode = 'stream';
+export const DEFAULT_MODE: ScrambleMode = 'ripple';
 
 // ---------------------------------------------------------------------------
 // Types — shared

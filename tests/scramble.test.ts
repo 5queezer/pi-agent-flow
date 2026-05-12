@@ -1800,25 +1800,27 @@ describe('ScrambleStateManager (ripple mode) — sentence-start coexistence', ()
 		expect(manager.getMode()).toBe('ripple');
 	});
 
-	it('updateMsg staticLine keeps old ripples and adds new ones', () => {
+	it('updateMsg staticLine suppresses new ripple while old one is active', () => {
 		const base = 2000000;
 		manager.updateMsg(TEST_ID, 'Hello world. Second sentence.', base, false, undefined, true);
-		// First call initializes — one ripple spawned at center
+		// First call initializes — one ripple spawned
 		const result1 = manager.updateMsg(TEST_ID, 'Hello world. Second sentence.', base + 100, false, undefined, true);
 		expect(result1.isAnimating).toBe(true);
 
-		// Second call with changed text after cooldown — should ADD ripple, not replace
+		// Second call with changed text while old ripple still active — should SUPPRESS
 		const result2 = manager.updateMsg(TEST_ID, 'Hello world. Second changed.', base + 600, false, undefined, true);
 		expect(result2.isAnimating).toBe(true);
+		// Content should NOT show the new text since change was suppressed during animation
+		expect(stripAnsi(result2.content)).not.toBe('Hello world. Second changed.');
 	});
 
 	it('new ripple spawns at a sentence start, not always center', () => {
 		const base = 3000000;
 		const text = 'First sentence. Second sentence. Third here.';
 		manager.updateMsg(TEST_ID, text, base, false, undefined, true);
-		// After cooldown, change text
+		// Wait for first ripple to end (1200ms), then change text — ensures a fresh ripple
 		const changed = 'First sentence. Second changed. Third here.';
-		const result = manager.updateMsg(TEST_ID, changed, base + 600, false, undefined, true);
+		const result = manager.updateMsg(TEST_ID, changed, base + 1300, false, undefined, true);
 		expect(result.isAnimating).toBe(true);
 		// The ripple position should be a sentence start (0, 16, or 32)
 		// We verify by checking the scramble is not concentrated at center

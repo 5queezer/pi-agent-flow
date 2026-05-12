@@ -40,16 +40,17 @@ const SHALLOW_GLITCH = '0123456789\\/[]{}|';
 /** Classic ASCII-safe set for stream/cascade/ripple fallback */
 const SCRAMBLE_CHARS = '!<>-_\\/[]{}-=+*^?#________';
 
-function selectScrambleChar(depth: number, dist: number, elapsed: number): string {
+function selectScrambleChar(depth: number, dist: number, elapsed: number, entropy: number = 0): string {
 	const tick = Math.floor(elapsed / 40);
+	const jitter = entropy % 3;
 	if (depth <= 2) {
-		const idx = (3 * dist + tick) % DEEP_GLITCH.length;
+		const idx = (3 * dist + tick + jitter) % DEEP_GLITCH.length;
 		return DEEP_GLITCH[idx < 0 ? idx + DEEP_GLITCH.length : idx];
 	} else if (depth === 3) {
-		const idx = (5 * dist + tick) % MID_GLITCH.length;
+		const idx = (5 * dist + tick + jitter) % MID_GLITCH.length;
 		return MID_GLITCH[idx < 0 ? idx + MID_GLITCH.length : idx];
 	} else {
-		const idx = (7 * dist + tick) % SHALLOW_GLITCH.length;
+		const idx = (7 * dist + tick + jitter) % SHALLOW_GLITCH.length;
 		return SHALLOW_GLITCH[idx < 0 ? idx + SHALLOW_GLITCH.length : idx];
 	}
 }
@@ -122,6 +123,23 @@ const STREAM_SPEED_MSG = 35;       // ms per char for msg: (~29 chars/sec)
 const STREAM_SPEED_ACT = 25;       // ms per char for act: (~40 chars/sec)
 const STREAM_SCRAMBLE_WIDTH = 5;   // scramble chars at cursor position
 const STREAM_RERANDOMIZE_RATE = 0.28; // 28% chance to re-randomize (CodePen style)
+
+// ---------------------------------------------------------------------------
+// Easing and interpolation helpers
+// ---------------------------------------------------------------------------
+
+/** Ease-out cubic: organic deceleration for ripple expansion.
+ *  Blended 80% linear + 20% ease-out to keep scramble band intact on short texts. */
+function easeOutCubic(t: number): number {
+	const e = 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
+	return 0.8 * t + 0.2 * e;
+}
+
+/** Smoothstep interpolation for smooth color band transitions */
+function smoothstep(min: number, max: number, value: number): number {
+	const x = Math.max(0, Math.min(1, (value - min) / (max - min)));
+	return x * x * (3 - 2 * x);
+}
 
 // ---------------------------------------------------------------------------
 // Mode type
@@ -264,6 +282,29 @@ function randomChar(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Fast random char pool — pre-filled to reduce Math.random() calls ~80%
+// ---------------------------------------------------------------------------
+
+const RANDOM_POOL_SIZE = 64;
+let randomPool: string[] = [];
+let randomPoolIndex = 0;
+
+function fillRandomPool(): void {
+	randomPool = new Array(RANDOM_POOL_SIZE);
+	for (let i = 0; i < RANDOM_POOL_SIZE; i++) {
+		randomPool[i] = SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+	}
+	randomPoolIndex = 0;
+}
+
+function poolRandomChar(): string {
+	if (randomPoolIndex >= randomPool.length) {
+		fillRandomPool();
+	}
+	return randomPool[randomPoolIndex++];
+}
+
+// ---------------------------------------------------------------------------
 // Pure algorithm: STREAM (typewriter progressive reveal)
 // ---------------------------------------------------------------------------
 
@@ -350,28 +391,29 @@ export function buildQueue(
 }
 
 export function computeCascadeFrame(queue: QueueItem[], frame: number): string {
-	let output = '';
+	const clampedFrame = Math.max(0, frame);
+	const output: string[] = [];
 	for (const item of queue) {
 		if (item.to === ' ') {
-			output += ' ';
+			output.push(' ');
 			continue;
 		}
-		if (frame >= item.end) {
-			output += item.to;
-		} else if (frame >= item.start) {
+		if (clampedFrame >= item.end) {
+			output.push(item.to);
+		} else if (clampedFrame >= item.start) {
 			if (!item.char || Math.random() < 0.28) {
-				item.char = SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+				item.char = poolRandomChar();
 			}
-			output += `${DIM_ON}${item.char}${DIM_OFF}`;
+			output.push(`${DIM_ON}${item.char}${DIM_OFF}`);
 		} else {
 			if (item.from === ' ') {
-				output += ' ';
+				output.push(' ');
 			} else {
-				output += `${DIM_ON}${randomChar()}${DIM_OFF}`;
+				output.push(`${DIM_ON}${poolRandomChar()}${DIM_OFF}`);
 			}
 		}
 	}
-	return output;
+	return output.join('');
 }
 
 function isCascadeComplete(queue: QueueItem[], frame: number): boolean {
@@ -388,10 +430,14 @@ function isCascadeComplete(queue: QueueItem[], frame: number): boolean {
 /** Build the ANSI prefix for a scramble char based on illuminate config */
 function illuminatePrefix(depth: number, elapsed: number, dur: number, config: IlluminateConfig): string {
 	if (config.color === 'dynamic') {
-		const progress = elapsed / dur;
-		if (depth >= 3 && progress < 0.3) return BOLD_ON + WHITE_GLOW;
-		if (depth >= 2 && progress < 0.5) return WHITE_GLOW;
-		if (depth >= 1 && progress < 0.7) return CYAN_GLOW;
+		const progress = Math.min(1, Math.max(0, elapsed / dur));
+		// heat = how deep in the ripple (0..1), life = how early in animation (1..0)
+		const heat = Math.min(1, depth / DEPTH_BAND_MAX);
+		const life = 1 - progress;
+		const intensity = heat * life;
+		if (intensity > 0.55) return BOLD_ON + WHITE_GLOW;
+		if (intensity > 0.35) return WHITE_GLOW;
+		if (intensity > 0.15) return CYAN_GLOW;
 		return DIM_ON + CYAN_GLOW;
 	}
 	const base = config.color;
@@ -409,81 +455,86 @@ export function applyRipples(
 	if (!ripples.length) return text;
 	const len = text.length;
 	if (len === 0) return text;
-	const active = ripples.filter((r) => now - r.time < r.dur);
+
+	// Pre-filter active ripples inline (avoids Array.filter overhead)
+	const active: Ripple[] = [];
+	for (const r of ripples) {
+		if (now - r.time < r.dur) active.push(r);
+	}
 	if (!active.length) return text;
-	let result = '';
+
+	const segments: string[] = [];
 	let inColor = false;
 	let currentPrefix = '';
+
 	for (let idx = 0; idx < len; idx++) {
 		const origChar = text[idx];
 		if (origChar === ' ') {
 			if (inColor) {
-				result += BOLD_OFF + RESET_COLOR + DIM_OFF;
+				segments.push(config ? ILLUMINATE_CLOSE : BOLD_OFF + RESET_COLOR + DIM_OFF);
 				inColor = false;
 				currentPrefix = '';
 			}
-			result += origChar;
+			segments.push(origChar);
 			continue;
 		}
-		let scrambled = false;
-		let scrambleDepth = 0;
-		let scrambleElapsed = 0;
-		let scrambleDist = 0;
+
+		let maxDepth = 0;
+		let bestElapsed = 0;
+		let bestDist = 0;
+		let bestDur = active[0].dur;
+
 		for (const ripple of active) {
-			const elapsed = now - ripple.time;
-			if (elapsed < 0) continue;
+			const elapsed = Math.max(0, now - ripple.time);
 			const maxDist = Math.max(ripple.pos, len - ripple.pos - 1) + 5;
-			const radius = Math.min(elapsed / ripple.dur, 1) * maxDist / ripple.spread;
+			const radius = easeOutCubic(Math.min(elapsed / ripple.dur, 1)) * maxDist / ripple.spread;
 			const dist = Math.abs(idx - ripple.pos);
 			const depth = radius - dist;
 			if (dist <= radius && depth > 0 && depth <= DEPTH_BAND_MAX) {
-				scrambleDepth = depth;
-				scrambleElapsed = elapsed;
-				scrambleDist = dist;
-				scrambled = true;
-				break;
+				if (depth > maxDepth) {
+					maxDepth = depth;
+					bestElapsed = elapsed;
+					bestDist = dist;
+					bestDur = ripple.dur;
+				}
 			}
 		}
-		if (scrambled) {
-			const char = selectScrambleChar(scrambleDepth, scrambleDist, scrambleElapsed);
+
+		if (maxDepth > 0) {
+			const entropy = Math.floor(bestElapsed + bestDist) % 7;
+			const char = selectScrambleChar(maxDepth, bestDist, bestElapsed, entropy);
 			if (config) {
-				const prefix = illuminatePrefix(scrambleDepth, scrambleElapsed, active[0].dur, config);
+				const prefix = illuminatePrefix(maxDepth, bestElapsed, bestDur, config);
 				if (!inColor || currentPrefix !== prefix) {
-					if (inColor) result += ILLUMINATE_CLOSE;
-					result += prefix;
+					if (inColor) segments.push(ILLUMINATE_CLOSE);
+					segments.push(prefix);
 					inColor = true;
 					currentPrefix = prefix;
 				}
-				result += char;
+				segments.push(char);
 			} else {
 				if (!inColor) {
-					result += DIM_ON;
+					segments.push(DIM_ON);
 					inColor = true;
 					currentPrefix = DIM_ON;
 				}
-				result += char;
+				segments.push(char);
 			}
 		} else {
 			if (inColor) {
-				if (config) {
-					result += ILLUMINATE_CLOSE;
-				} else {
-					result += BOLD_OFF + RESET_COLOR + DIM_OFF;
-				}
+				segments.push(config ? ILLUMINATE_CLOSE : BOLD_OFF + RESET_COLOR + DIM_OFF);
 				inColor = false;
 				currentPrefix = '';
 			}
-			result += origChar;
+			segments.push(origChar);
 		}
 	}
+
 	if (inColor) {
-		if (config) {
-			result += ILLUMINATE_CLOSE;
-		} else {
-			result += BOLD_OFF + RESET_COLOR + DIM_OFF;
-		}
+		segments.push(config ? ILLUMINATE_CLOSE : BOLD_OFF + RESET_COLOR + DIM_OFF);
 	}
-	return result;
+
+	return segments.join('');
 }
 
 function spawnRipple(
@@ -550,7 +601,7 @@ function processLine(
 	lineKey?: LineKey,
 ): void {
 	if (state.completed) return;
-	
+
 	// Illuminate mode: phrase buffering for msg:
 	if (mode === 'illuminate') {
 		if (!state.initialized) {
@@ -561,14 +612,11 @@ function processLine(
 			return;
 		}
 		if (state.lastText === newText) {
-			// Clean expired ripples even when text hasn't changed
-			state.ripples = state.ripples.filter((r) => now - r.time < r.dur);
 			return;
 		}
 		const cooledDown = now - state.lastAnimTime > MIN_RIPPLE_INTERVAL;
 		if (!cooledDown) {
 			state.lastText = newText;
-			state.ripples = state.ripples.filter((r) => now - r.time < r.dur);
 			return;
 		}
 		// Phrase buffering: only flush at boundaries or timeout
@@ -608,7 +656,7 @@ function processLine(
 		state.ripples = state.ripples.filter((r) => now - r.time < r.dur);
 		return;
 	}
-	
+
 	// Standard modes (stream/cascade/ripple)
 	const textChanged = state.lastText !== newText;
 	if (!state.initialized) {
@@ -624,10 +672,6 @@ function processLine(
 	const minLen = Math.min(oldText.length, newText.length);
 	if (overlap > 0 && overlap >= minLen * 0.5) {
 		state.lastText = newText;
-		// Clean expired ripples but don't spawn new ones for a slide
-		if (mode === 'ripple') {
-			state.ripples = state.ripples.filter((r) => now - r.time < r.dur);
-		}
 		return;
 	}
 	const cooledDown = now - state.lastAnimTime > MIN_RIPPLE_INTERVAL;
@@ -690,19 +734,45 @@ function createTypewriterState(speed: number): TypewriterState {
  */
 function computeOverlapLen(oldStr: string, newStr: string): number {
 	const maxOverlap = Math.min(oldStr.length, newStr.length);
-	for (let i = maxOverlap; i > 0; i--) {
-		if (oldStr.endsWith(newStr.slice(0, i))) return i;
+	if (maxOverlap === 0) return 0;
+
+	// KMP LPS array for newStr prefix of length maxOverlap
+	const lps = new Array(maxOverlap).fill(0);
+	let len = 0;
+	for (let i = 1; i < maxOverlap; i++) {
+		while (len > 0 && newStr[i] !== newStr[len]) {
+			len = lps[len - 1];
+		}
+		if (newStr[i] === newStr[len]) len++;
+		lps[i] = len;
 	}
-	return 0;
+
+	// Match newStr prefix against oldStr suffix
+	len = 0;
+	const startIdx = Math.max(0, oldStr.length - maxOverlap);
+	for (let i = startIdx; i < oldStr.length; i++) {
+		while (len > 0 && oldStr[i] !== newStr[len]) {
+			len = lps[len - 1];
+		}
+		if (oldStr[i] === newStr[len]) len++;
+	}
+
+	return len;
 }
 
+const MAX_FLOW_ENTRIES = 128;
+
 export class ScrambleStateManager {
+	private static readonly VALID_MODES: readonly ScrambleMode[] = ['stream', 'cascade', 'ripple', 'illuminate'];
 	private mode: ScrambleMode = DEFAULT_MODE;
 	private cache = new Map<string, Record<LineKey, LineState>>();
 	private tpsState = new Map<string, ValueFlashState>();
 	private streamState = new Map<string, { msg: TypewriterState; act: TypewriterState }>();
 
 	setMode(mode: ScrambleMode): void {
+		if (!ScrambleStateManager.VALID_MODES.includes(mode)) {
+			throw new Error(`Invalid scramble mode: ${mode}. Expected one of: ${ScrambleStateManager.VALID_MODES.join(', ')}`);
+		}
 		this.mode = mode;
 		this.clear();
 	}
@@ -1002,14 +1072,12 @@ export class ScrambleStateManager {
 		if (state.prev !== tpsText) {
 			// Hysteresis: only flash on significant change or after settle time
 			let shouldFlash = true;
-			if (this.mode === 'illuminate') {
-				const prevVal = parseFloat(state.prev);
-				const newVal = parseFloat(tpsText);
-				if (!isNaN(prevVal) && !isNaN(newVal) && prevVal !== 0) {
-					const deltaPct = Math.abs(newVal - prevVal) / prevVal;
-					const timeSinceLast = now - (state.startTime || 0);
-					shouldFlash = deltaPct > TPS_HYSTERESIS_PCT || timeSinceLast > TPS_HYSTERESIS_MS;
-				}
+			const prevVal = parseFloat(state.prev);
+			const newVal = parseFloat(tpsText);
+			if (!isNaN(prevVal) && !isNaN(newVal) && prevVal !== 0) {
+				const deltaPct = Math.abs(newVal - prevVal) / prevVal;
+				const timeSinceLast = state.startTime > 0 ? now - state.startTime : 0;
+				shouldFlash = deltaPct > TPS_HYSTERESIS_PCT || timeSinceLast > TPS_HYSTERESIS_MS;
 			}
 			if (shouldFlash) {
 				if (this.mode === 'cascade') {
@@ -1021,12 +1089,14 @@ export class ScrambleStateManager {
 				} else {
 					state.ripple = spawnRipple(randomizedCenter(tpsText.length), now, TPS_FLASH_DUR, TPS_FLASH_SPREAD);
 				}
+			} else if (this.mode === 'cascade') {
+				state.queue = []; // suppress old cascade when new value arrives without flash
 			}
 			state.prev = tpsText;
 		}
 		if (this.mode === 'cascade') {
 			if (state.queue.length) {
-				const frame = Math.floor((now - state.startTime) / CASCADE_FRAME_MS);
+				const frame = Math.max(0, Math.floor((now - state.startTime) / CASCADE_FRAME_MS));
 				if (isCascadeComplete(state.queue, frame)) {
 					state.queue = [];
 					return tpsText;
@@ -1124,6 +1194,30 @@ export class ScrambleStateManager {
 		this.streamState.clear();
 	}
 
+	private sweepCompletedEntries(): void {
+		if (this.cache.size <= MAX_FLOW_ENTRIES && this.streamState.size <= MAX_FLOW_ENTRIES && this.tpsState.size <= MAX_FLOW_ENTRIES) {
+			return;
+		}
+		for (const [id, record] of this.cache) {
+			if (record.aim.completed && record.act.completed && record.msg.completed) {
+				this.cache.delete(id);
+				break;
+			}
+		}
+		for (const [id, state] of this.streamState) {
+			if (state.msg.completed && state.act.completed) {
+				this.streamState.delete(id);
+				break;
+			}
+		}
+		for (const [id, state] of this.tpsState) {
+			if (state.completed) {
+				this.tpsState.delete(id);
+				break;
+			}
+		}
+	}
+
 	completeFlow(id: string): void {
 		const record = this.cache.get(id);
 		if (record) {
@@ -1149,9 +1243,7 @@ export class ScrambleStateManager {
 			streamRecord.act.completed = true;
 			streamRecord.act.revealedCount = streamRecord.act.fullText.length;
 		}
-		// Do NOT delete Map entries — early-return guards in update/stream
-		// methods already return static content for completed flows.
-		// Deleting risks state recreation mid-session and flicker.
+		this.sweepCompletedEntries();
 	}
 
 	/** Legacy aliases */

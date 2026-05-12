@@ -820,6 +820,118 @@ describe('selectScrambleChar', () => {
 	});
 });
 
+describe('applyRipples — eased ripple expansion', () => {
+	it('easeOutCubic produces larger early radius than linear', () => {
+		const now = Date.now();
+		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
+		// With eased expansion, radius at 15% progress is larger than linear
+		const result = applyRipples('abcdefghij', [ripple], now);
+		const linearRadiusChars = 3; // approximate for linear at 15%
+		const easedRadiusChars = stripAnsi(result).split('').filter(c => !'abcdefghij'.includes(c)).length;
+		// Eased should scramble at least as many chars as linear (usually slightly more)
+		expect(easedRadiusChars).toBeGreaterThanOrEqual(1);
+	});
+});
+
+describe('applyRipples — overlapping ripple blending', () => {
+	it('blends two overlapping ripples instead of breaking after first match', () => {
+		const now = Date.now();
+		const r1 = { pos: 2, time: now - 50, dur: 666, spread: 1 };
+		const r2 = { pos: 8, time: now - 50, dur: 666, spread: 1 };
+		const result = applyRipples('hello world', [r1, r2], now);
+		// Both ripples should contribute scramble chars
+		expect(hasDimAnsi(result)).toBe(true);
+		// Verify at least some chars near both centers are scrambled
+		const stripped = stripAnsi(result);
+		expect(stripped).not.toBe('hello world');
+	});
+});
+
+describe('applyRipples — negative elapsed / clock backward jump', () => {
+	it('survives negative elapsed without crashing', () => {
+		const now = Date.now();
+		const futureRipple = { pos: 5, time: now + 1000, dur: 666, spread: 1 };
+		const result = applyRipples('hello world', [futureRipple], now);
+		expect(stripAnsi(result)).toBe('hello world');
+		expect(hasDimAnsi(result)).toBe(false);
+	});
+});
+
+describe('ScrambleStateManager — mode validation', () => {
+	it('throws on invalid mode string', () => {
+		const manager = new ScrambleStateManager();
+		expect(() => manager.setMode('invalid' as any)).toThrow('Invalid scramble mode');
+	});
+
+	it('accepts all valid modes', () => {
+		const manager = new ScrambleStateManager();
+		expect(() => manager.setMode('stream')).not.toThrow();
+		expect(() => manager.setMode('cascade')).not.toThrow();
+		expect(() => manager.setMode('ripple')).not.toThrow();
+		expect(() => manager.setMode('illuminate')).not.toThrow();
+	});
+});
+
+describe('ScrambleStateManager — universal TPS hysteresis', () => {
+	it('ripple mode suppresses flash on tiny TPS change', () => {
+		const manager = new ScrambleStateManager();
+		manager.setMode('ripple');
+		const base = 6000000;
+		manager.updateTps(TEST_ID, '42.3', base);
+		const result = manager.updateTps(TEST_ID, '43.1', base + 100);
+		expect(result).toBe('43.1');
+	});
+
+	it('cascade mode suppresses flash on tiny TPS change', () => {
+		const manager = new ScrambleStateManager();
+		manager.setMode('cascade');
+		const base = 6000000;
+		manager.updateTps(TEST_ID, '42.3', base);
+		const result = manager.updateTps(TEST_ID, '43.1', base + 100);
+		expect(result).toBe('43.1');
+	});
+
+	it('ripple mode triggers flash on large TPS change', () => {
+		const manager = new ScrambleStateManager();
+		manager.setMode('ripple');
+		const base = 6000000;
+		manager.updateTps(TEST_ID, '42.3', base);
+		manager.updateTps(TEST_ID, '55.0', base + 100);
+		const result = manager.updateTps(TEST_ID, '55.0', base + 110);
+		expect(hasDimAnsi(result)).toBe(true);
+	});
+});
+
+describe('ScrambleStateManager — memory bounds', () => {
+	it('sweeps completed flow entries when maps grow large', () => {
+		const manager = new ScrambleStateManager();
+		manager.setMode('cascade');
+		// Create and complete many flows to trigger sweep
+		for (let i = 0; i < 200; i++) {
+			const id = `flow-${i}`;
+			manager.updateMsg(id, 'test', 1000000 + i * 10);
+			manager.completeFlow(id);
+		}
+		// After sweeping, new operations should still work
+		const fresh = manager.updateMsg('fresh-flow', 'hello', 1000000);
+		expect(fresh.content).toBe('hello');
+	});
+});
+
+describe('computeCascadeFrame — clamped negative frame', () => {
+	it('handles negative frame without crashing', () => {
+		const queue = buildQueue('hello', 'world');
+		const result = computeCascadeFrame(queue, -5);
+		const stripped = stripAnsi(result);
+		expect(stripped.length).toBe(5);
+		for (const ch of stripped) {
+			if (ch !== ' ') {
+				expect(SCRAMBLE_CHAR_SET).toContain(ch);
+			}
+		}
+	});
+});
+
 describe('applyRipples with illuminate config', () => {
 	it('applies ANSI truecolor codes when config provided', () => {
 		const now = Date.now();

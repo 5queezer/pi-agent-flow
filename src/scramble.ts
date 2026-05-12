@@ -141,6 +141,11 @@ function smoothstep(min: number, max: number, value: number): number {
 	return x * x * (3 - 2 * x);
 }
 
+/** Linear interpolation between a and b by factor t (0..1) */
+function lerp(a: number, b: number, t: number): number {
+	return Math.round(a + (b - a) * Math.max(0, Math.min(1, t)));
+}
+
 // ---------------------------------------------------------------------------
 // Mode type
 // ---------------------------------------------------------------------------
@@ -345,9 +350,9 @@ export function renderStreamText(
 				inDim = true;
 			}
 			const cursorIdx = i - visibleRevealed;
-			while (cursorChars.length <= cursorIdx) cursorChars.push(randomChar());
+			while (cursorChars.length <= cursorIdx) cursorChars.push(poolRandomChar());
 			if (Math.random() < STREAM_RERANDOMIZE_RATE || !cursorChars[cursorIdx]) {
-				cursorChars[cursorIdx] = randomChar();
+				cursorChars[cursorIdx] = poolRandomChar();
 			}
 			result += cursorChars[cursorIdx];
 		} else {
@@ -356,7 +361,7 @@ export function renderStreamText(
 				result += DIM_ON;
 				inDim = true;
 			}
-			result += randomChar();
+			result += poolRandomChar();
 		}
 	}
 	if (inDim) {
@@ -435,10 +440,29 @@ function illuminatePrefix(depth: number, elapsed: number, dur: number, config: I
 		const heat = Math.min(1, depth / DEPTH_BAND_MAX);
 		const life = 1 - progress;
 		const intensity = heat * life;
-		if (intensity > 0.55) return BOLD_ON + WHITE_GLOW;
-		if (intensity > 0.35) return WHITE_GLOW;
-		if (intensity > 0.15) return CYAN_GLOW;
-		return DIM_ON + CYAN_GLOW;
+
+		// Smooth truecolor interpolation: dim cyan → bright cyan → white → bold white
+		let r: number, g: number, b: number;
+		let prefix = '';
+		if (intensity < 0.25) {
+			const t = intensity / 0.25;
+			r = lerp(0, 0, t);
+			g = lerp(160, 255, t);
+			b = lerp(128, 204, t);
+			prefix = DIM_ON;
+		} else if (intensity < 0.6) {
+			const t = (intensity - 0.25) / 0.35;
+			r = lerp(0, 180, t);
+			g = 255;
+			b = lerp(204, 245, t);
+		} else {
+			const t = (intensity - 0.6) / 0.4;
+			r = lerp(180, 255, t);
+			g = 255;
+			b = lerp(245, 255, t);
+			prefix = BOLD_ON;
+		}
+		return `${prefix}\x1b[38;2;${r};${g};${b}m`;
 	}
 	const base = config.color;
 	if (config.glowIntensity === 'high') return BOLD_ON + base;
@@ -470,11 +494,6 @@ export function applyRipples(
 	for (let idx = 0; idx < len; idx++) {
 		const origChar = text[idx];
 		if (origChar === ' ') {
-			if (inColor) {
-				segments.push(config ? ILLUMINATE_CLOSE : BOLD_OFF + RESET_COLOR + DIM_OFF);
-				inColor = false;
-				currentPrefix = '';
-			}
 			segments.push(origChar);
 			continue;
 		}
@@ -486,8 +505,8 @@ export function applyRipples(
 
 		for (const ripple of active) {
 			const elapsed = Math.max(0, now - ripple.time);
-			const maxDist = Math.max(ripple.pos, len - ripple.pos - 1) + 5;
-			const radius = easeOutCubic(Math.min(elapsed / ripple.dur, 1)) * maxDist / ripple.spread;
+			const maxDist = Math.max(ripple.pos, len - ripple.pos - 1);
+			const radius = easeOutCubic(Math.min(elapsed / ripple.dur, 1)) * maxDist * ripple.spread;
 			const dist = Math.abs(idx - ripple.pos);
 			const depth = radius - dist;
 			if (dist <= radius && depth > 0 && depth <= DEPTH_BAND_MAX) {
@@ -558,9 +577,13 @@ function spawnIlluminateRipple(pos: number, now: number, config: IlluminateConfi
 function randomizedCenter(length: number, jitterRatio = 0.2): number {
 	const base = Math.floor(length / 2);
 	if (length <= 1) return base;
-	const maxJitter = Math.max(1, Math.floor(length * jitterRatio));
+	// Cap jitter so center never lands at the very edge for short texts,
+	// preserving wavefront symmetry.
+	const rawJitter = Math.floor(length * jitterRatio);
+	const maxJitter = Math.max(0, Math.min(rawJitter, base - 1, length - base - 2));
+	if (maxJitter <= 0) return base;
 	const offset = Math.floor(Math.random() * (maxJitter * 2 + 1)) - maxJitter;
-	return Math.max(0, Math.min(length - 1, base + offset));
+	return base + offset;
 }
 
 // ---------------------------------------------------------------------------
@@ -1201,19 +1224,16 @@ export class ScrambleStateManager {
 		for (const [id, record] of this.cache) {
 			if (record.aim.completed && record.act.completed && record.msg.completed) {
 				this.cache.delete(id);
-				break;
 			}
 		}
 		for (const [id, state] of this.streamState) {
 			if (state.msg.completed && state.act.completed) {
 				this.streamState.delete(id);
-				break;
 			}
 		}
 		for (const [id, state] of this.tpsState) {
 			if (state.completed) {
 				this.tpsState.delete(id);
-				break;
 			}
 		}
 	}

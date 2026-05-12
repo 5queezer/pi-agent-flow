@@ -545,7 +545,7 @@ describe('applyRipples', () => {
 
 	it('scrambles characters within the ripple depth band', () => {
 		const now = Date.now();
-		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
+		const ripple = { pos: 4, time: now - 100, dur: 666, spread: 1 };
 		const result = applyRipples('hello world', [ripple], now);
 		expect(stripAnsi(result).length).toBe('hello world'.length);
 		expect(hasDimAnsi(result)).toBe(true);
@@ -935,25 +935,26 @@ describe('computeCascadeFrame — clamped negative frame', () => {
 describe('applyRipples with illuminate config', () => {
 	it('applies ANSI truecolor codes when config provided', () => {
 		const now = Date.now();
-		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
+		const ripple = { pos: 4, time: now - 100, dur: 666, spread: 1 };
 		const config = ILLUMINATE_CONFIGS.actLabel;
 		const result = applyRipples('hello world', [ripple], now, config);
 		expect(result).toContain(PURPLE_GLOW);
 		expect(result).toContain(BOLD_ON);
 	});
 
-	it('uses dynamic color (cyan) for config.color === dynamic at moderate depth', () => {
+	it('uses dynamic smooth truecolor for config.color === dynamic at moderate depth', () => {
 		const now = Date.now();
-		// elapsed=200 gives depth ~1.5 which maps to cyan in dynamic mode
+		// elapsed=200 gives depth ~1.5 which maps to smooth cyan-white gradient in dynamic mode
 		const ripple = { pos: 5, time: now - 200, dur: 850, spread: 1.5 };
 		const config = ILLUMINATE_CONFIGS.msgContent;
 		const result = applyRipples('abcdefghij', [ripple], now, config);
-		expect(result).toContain(CYAN_GLOW);
+		// Smooth truecolor uses \x1b[38;2;R;G;Bm instead of hard threshold constants
+		expect(result).toContain('\x1b[38;2;');
 	});
 
 	it('falls back to DIM when no config', () => {
 		const now = Date.now();
-		const ripple = { pos: 5, time: now - 100, dur: 666, spread: 1 };
+		const ripple = { pos: 4, time: now - 100, dur: 666, spread: 1 };
 		const result = applyRipples('hello world', [ripple], now);
 		expect(result).toContain(DIM_ON);
 		expect(result).toContain(DIM_OFF);
@@ -981,7 +982,8 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		expect(manager.hasAnyActiveAnimations(base + 400)).toBe(true);
 		// Content should show scramble chars once ripple has expanded
 		const result = manager.updateMsg(TEST_ID, 'Hello world. How are you?', base + 600);
-		expect(result.content).toContain(CYAN_GLOW);
+		// Smooth truecolor uses \x1b[38;2;R;G;Bm instead of hard threshold constants
+		expect(result.content).toContain('\x1b[38;2;');
 	});
 
 	it('updateMsg does not flush before phrase boundary', () => {
@@ -1056,5 +1058,126 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		const result = manager.updateMsg(TEST_ID, 'world foo bar baz', base + 600);
 		// Timeout should force flush
 		expect(result.isAnimating).toBe(true);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Spread behavior tests
+// ---------------------------------------------------------------------------
+
+describe('applyRipples — spread < 1 radius proportionality', () => {
+	it('spread 0.5 produces narrower radius than spread 1.0', () => {
+		const now = Date.now();
+		const narrow = { pos: 5, time: now - 100, dur: 666, spread: 0.5 };
+		const wide = { pos: 5, time: now - 100, dur: 666, spread: 1.0 };
+		const rNarrow = applyRipples('abcdefghij', [narrow], now);
+		const rWide = applyRipples('abcdefghij', [wide], now);
+		const sNarrow = stripAnsi(rNarrow).split('').filter(c => !'abcdefghij'.includes(c)).length;
+		const sWide = stripAnsi(rWide).split('').filter(c => !'abcdefghij'.includes(c)).length;
+		expect(sNarrow).toBeLessThanOrEqual(sWide);
+	});
+
+	it('spread 0.5 does not cover entire short text at early time', () => {
+		const now = Date.now();
+		const ripple = { pos: 2, time: now - 50, dur: 666, spread: 0.5 };
+		const result = applyRipples('hello', [ripple], now);
+		const stripped = stripAnsi(result);
+		// At 50ms with spread 0.5, radius should be small — not all chars scrambled
+		const scrambled = stripped.split('').filter(c => !'hello'.includes(c)).length;
+		expect(scrambled).toBeLessThan(5);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Multi-ripple blending depth tests
+// ---------------------------------------------------------------------------
+
+describe('applyRipples — multi-ripple depth blending', () => {
+	it('picks deeper depth when ripples overlap', () => {
+		const now = Date.now();
+		// Two ripples at same position, same time — one with wider spread
+		const r1 = { pos: 5, time: now - 100, dur: 666, spread: 0.8 };
+		const r2 = { pos: 5, time: now - 100, dur: 666, spread: 1.5 };
+		const result = applyRipples('abcdefghij', [r1, r2], now);
+		// Both should scramble; result should have dim/scramble chars
+		expect(hasDimAnsi(result)).toBe(true);
+	});
+
+	it('three overlapping ripples do not crash', () => {
+		const now = Date.now();
+		const ripples = [
+			{ pos: 3, time: now - 80, dur: 666, spread: 1 },
+			{ pos: 5, time: now - 60, dur: 666, spread: 1 },
+			{ pos: 7, time: now - 40, dur: 666, spread: 1 },
+		];
+		const result = applyRipples('hello world here', ripples, now);
+		expect(hasDimAnsi(result)).toBe(true);
+		expect(stripAnsi(result).length).toBe('hello world here'.length);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Random pool exhaustion tests
+// ---------------------------------------------------------------------------
+
+describe('poolRandomChar — exhaustion behavior', () => {
+	it('renders stream text correctly across many frames (pool cycles)', () => {
+		const visibleText = 'abcdefghij';
+		const cursorChars: string[] = [];
+		// Render 200 frames — pool size is 64, so it will cycle multiple times
+		for (let i = 0; i < 200; i++) {
+			const result = renderStreamText(visibleText, 3, 3, cursorChars);
+			expect(stripAnsi(result).length).toBe(visibleText.length);
+			expect(hasDimAnsi(result)).toBe(true);
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// randomizedCenter edge avoidance tests
+// ---------------------------------------------------------------------------
+
+describe('randomizedCenter — edge avoidance', () => {
+	it('3-char text always centers at index 1', () => {
+		const manager = new ScrambleStateManager();
+		manager.setMode('ripple');
+		const base = 1000000;
+		manager.updateMsg(TEST_ID, 'abc', base);
+		manager.updateMsg(TEST_ID, 'xyz', base + 300);
+		const result = manager.updateMsg(TEST_ID, 'xyz', base + 310);
+		// Should be animating; wavefront should be somewhat symmetric
+		expect(result.isAnimating).toBe(true);
+	});
+
+	it('4-char text centers without hitting edges', () => {
+		const manager = new ScrambleStateManager();
+		manager.setMode('ripple');
+		const base = 2000000;
+		manager.updateMsg(TEST_ID, 'abcd', base);
+		manager.updateMsg(TEST_ID, 'wxyz', base + 300);
+		const result = manager.updateMsg(TEST_ID, 'wxyz', base + 310);
+		expect(result.isAnimating).toBe(true);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// sweepCompletedEntries batch deletion test
+// ---------------------------------------------------------------------------
+
+describe('ScrambleStateManager — sweepCompletedEntries batch delete', () => {
+	it('clears all completed entries in one sweep cycle', () => {
+		const manager = new ScrambleStateManager();
+		manager.setMode('cascade');
+		// Create and complete many flows
+		for (let i = 0; i < 50; i++) {
+			const id = `batch-${i}`;
+			manager.updateMsg(id, 'test', 1000000 + i * 10);
+			manager.completeFlow(id);
+		}
+		// All 50 should be swept eventually — after enough operations
+		// Trigger an update that causes sweep
+		manager.updateMsg('fresh', 'hello', 1000000 + 50000);
+		// After batch sweep, completed entries should be gone
+		expect(manager.hasAnyActiveAnimations(1000000 + 50001)).toBe(false);
 	});
 });

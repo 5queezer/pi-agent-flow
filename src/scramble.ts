@@ -1377,49 +1377,101 @@ export class ScrambleStateManager {
 			state.initialized = true;
 			state.lastAnimTime = now;
 			if (this.mode === 'cascade') {
+				state.displayedText = visibleText;
 				state.queue = buildQueue('', visibleText);
 				state.startTime = now;
 				state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
 			} else if (this.mode === 'illuminate') {
 				state.displayedText = visibleText;
 			} else {
+				state.displayedText = visibleText;
 				state.ripples.push(spawnRipple(randomizedCenter(visibleText.length), now));
 			}
 		} else if (staticLine && state.initialized) {
 			const oldText = state.lastText;
 			const textChanged = oldText !== visibleText;
 			state.lastText = visibleText;
-			if (this.mode === 'illuminate') {
-				state.displayedText = visibleText;
-				state.pendingText = '';
-			}
-			if (textChanged) {
-				if (isMinorStaticMutation(oldText, visibleText)) {
-					// minor mutation — don't restart animation
-				} else if (now - state.lastAnimTime > MIN_RIPPLE_INTERVAL) {
-					state.lastAnimTime = now;
-					if (this.mode === 'cascade') {
-						if (!this.isLineAnimating(state, now)) {
-							state.queue = buildQueue('', visibleText);
-							state.startTime = now;
-							state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
-						}
-					} else if (this.mode === 'illuminate') {
-						state.ripples = state.ripples.filter(r => now - r.time < r.dur);
-						state.ripples.push(spawnIlluminateRipple(randomSentenceStart(visibleText), now, ILLUMINATE_CONFIGS.msgContent));
+			if (this.mode === 'stream') {
+				// stream mode: text displays directly, no buffering needed
+			} else if (!textChanged) {
+				// Text stable — flush any remaining pending text when animation finishes
+				if (!this.isLineAnimating(state, now)) {
+					if (state.pendingText && state.pendingText !== state.displayedText) {
+						state.displayedText = state.pendingText;
+						state.pendingText = '';
+						state.lastFlushTime = now;
 					} else {
-						state.ripples = state.ripples.filter(r => now - r.time < r.dur);
-						state.ripples.push(spawnRipple(randomSentenceStart(visibleText), now));
+						state.queue = [];
+						state.ripples = [];
 					}
 				}
-			} else if (!this.isLineAnimating(state, now)) {
-				state.queue = [];
-				state.ripples = [];
+			} else {
+				// Text changed — detect tail-view slide or buffer
+				const overlap = computeOverlapLen(state.displayedText, visibleText);
+				const minOverlapLen = Math.min(state.displayedText.length, visibleText.length);
+				const isSlide = overlap > 0 && overlap >= minOverlapLen * 0.5 && state.displayedText.slice(-overlap) === visibleText.slice(0, overlap);
+
+				if (isSlide) {
+					// Tail-view slide: update displayed text immediately, no animation
+					state.displayedText = visibleText;
+					state.pendingText = '';
+					state.lastFlushTime = now;
+				} else if (now - state.lastAnimTime <= MIN_RIPPLE_INTERVAL) {
+					// Still cooling down — buffer whatever came in
+					state.pendingText = visibleText;
+				} else {
+					// Cooldown elapsed — evaluate whether to flush
+					state.lastAnimTime = now;
+					const targetText = state.pendingText || visibleText;
+					const hasNewContent = targetText !== state.displayedText;
+					let shouldFlush = false;
+					if (hasNewContent) {
+						const isExt = targetText.startsWith(state.displayedText);
+						const newContent = isExt ? targetText.slice(state.displayedText.length) : targetText;
+						if (!isExt) {
+							// Non-extension change: flush immediately (rewrite)
+							shouldFlush = true;
+						} else if (now - state.lastFlushTime > MAX_PHRASE_BUFFER_TIME) {
+							// Extension timeout: force flush
+							shouldFlush = true;
+						} else {
+							// Extension boundary check
+							shouldFlush = findPhraseBoundary(newContent) >= 0;
+						}
+					}
+					if (shouldFlush) {
+						if (this.mode === 'cascade') {
+							state.queue = buildQueue(state.displayedText, targetText);
+							state.startTime = now;
+							state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
+						} else if (this.mode === 'illuminate') {
+							state.ripples = state.ripples.filter(r => now - r.time < r.dur);
+							state.ripples.push(spawnIlluminateRipple(randomSentenceStart(targetText), now, ILLUMINATE_CONFIGS.msgContent));
+						} else {
+							state.ripples = state.ripples.filter(r => now - r.time < r.dur);
+							// Spawn ripple in the new content area when possible
+							const newContent = targetText.startsWith(state.displayedText)
+								? targetText.slice(state.displayedText.length)
+								: targetText;
+							const starts = findSentenceStarts(newContent);
+							let pos = starts.length > 0
+								? state.displayedText.length + starts[Math.floor(Math.random() * starts.length)]
+								: randomSentenceStart(targetText);
+							state.ripples.push(spawnRipple(pos, now));
+						}
+						state.displayedText = targetText;
+						state.pendingText = '';
+						state.lastFlushTime = now;
+					} else {
+						state.pendingText = visibleText;
+					}
+				}
 			}
 		} else {
 			processLine(state, visibleText, now, this.mode, 'msg');
 		}
-		const content = applyScramble(visibleText, state, now, this.mode, 'msg', () => this.poolRandomChar());
+		const displayText = (this.mode === 'stream' || this.mode === 'cascade') ? visibleText : (state.displayedText || visibleText);
+		const content = applyScramble(displayText, state, now, this.mode, 'msg', () => this.poolRandomChar());
 		const isAnimating = this.isLineAnimating(state, now);
 		return { label: 'msg:', content, isAnimating };
 	}

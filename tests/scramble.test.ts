@@ -903,6 +903,17 @@ describe('ScrambleStateManager — universal TPS hysteresis', () => {
 		const result = manager.updateTps(TEST_ID, '55.0', base + 110);
 		expect(hasDimAnsi(result)).toBe(true);
 	});
+
+	it('cascade mode triggers flash after long quiet period even with small change', () => {
+		const manager = new ScrambleStateManager();
+		manager.setMode('cascade');
+		const base = 6000000;
+		manager.updateTps(TEST_ID, '42.3', base);
+		// Small change after 2500ms (> TPS_HYSTERESIS_MS=2000)
+		manager.updateTps(TEST_ID, '43.1', base + 2500);
+		const result = manager.updateTps(TEST_ID, '43.1', base + 2510);
+		expect(hasDimAnsi(result)).toBe(true);
+	});
 });
 
 describe('ScrambleStateManager — memory bounds', () => {
@@ -1089,6 +1100,19 @@ describe('ScrambleStateManager (illuminate mode)', () => {
 		const result = manager.updateMsg(TEST_ID, 'o world foo bar b', base + 100);
 		// Should NOT spawn a new ripple immediately — displayedText stays old
 		expect(result.content).not.toContain(CYAN_GLOW);
+	});
+
+	it('buffers non-extension text instead of showing raw newText immediately', () => {
+		const base = 8000000;
+		manager.updateMsg(TEST_ID, 'hello world today', base);
+		// Overlapping slide: significant overlap (>50%) prevents immediate flush
+		const result = manager.updateMsg(TEST_ID, 'world today is nice', base + 100);
+		// Should show old displayedText with scramble effect, not raw new text
+		const stripped = stripAnsi(result.content);
+		// Should NOT be the raw new text immediately
+		expect(stripped).not.toBe('world today is nice');
+		// Should show buffered old text instead
+		expect(stripped).toContain('hello');
 	});
 
 	it('updateMsg flushes on slide after timeout', () => {

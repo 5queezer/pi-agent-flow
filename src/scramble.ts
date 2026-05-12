@@ -269,6 +269,7 @@ interface LineState {
 	// Illuminate phrase buffering (msg: only)
 	phraseBuffer: string;
 	displayedText: string;
+	pendingText: string;
 	lastFlushTime: number;
 	// Age tracking for cache eviction
 	lastAccessTime: number;
@@ -335,6 +336,7 @@ interface ValueFlashState {
 	queue: QueueItem[];
 	queueMaxEnd: number;
 	startTime: number;
+	lastValueChangeTime: number;
 	completed: boolean;
 }
 
@@ -787,20 +789,23 @@ function processLine(
 		if (lineKey === 'msg') {
 			if (shouldFlushPhrase(newText, state.displayedText, state.lastFlushTime, now)) {
 				state.displayedText = newText;
+				state.pendingText = '';
 				state.lastText = newText;
 				state.lastFlushTime = now;
 				state.lastAnimTime = now;
 				state.ripples.push(spawnIlluminateRipple(randomizedCenter(newText.length), now, ILLUMINATE_CONFIGS.msgContent));
 			} else {
-				// Text changed but no flush yet — update lastText for tracking.
-				// For tail-view slides (non-extension), also update displayedText
-				// so the rendered text tracks the sliding window instead of
-				// showing stale buffered content mixed with scramble ripples.
+				// Text changed but no flush yet — buffer in pendingText.
+				// For extensions, update displayedText immediately.
+				// For non-extension slides, keep displayedText stable
+				// so the scramble effect applies to consistent text.
 				const isExtension = state.displayedText &&
 					newText.startsWith(state.displayedText) &&
 					newText.length > state.displayedText.length;
-				if (!isExtension) {
+				if (isExtension) {
 					state.displayedText = newText;
+				} else {
+					state.pendingText = newText;
 				}
 				state.lastText = newText;
 			}
@@ -883,13 +888,14 @@ function createLineState(): LineState {
 		completed: false,
 		phraseBuffer: '',
 		displayedText: '',
+		pendingText: '',
 		lastFlushTime: 0,
 		lastAccessTime: Date.now(),
 	};
 }
 
 function createValueFlashState(): ValueFlashState {
-	return { prev: '', ripple: null, queue: [], queueMaxEnd: 0, startTime: 0, completed: false };
+	return { prev: '', ripple: null, queue: [], queueMaxEnd: 0, startTime: 0, lastValueChangeTime: 0, completed: false };
 }
 
 function createTypewriterState(speed: number): TypewriterState {
@@ -1010,6 +1016,7 @@ export class ScrambleStateManager {
 			state.initialized = false;
 			state.phraseBuffer = '';
 			state.displayedText = '';
+			state.pendingText = '';
 			state.lastFlushTime = 0;
 		}
 		if (isComplete) {
@@ -1067,6 +1074,7 @@ export class ScrambleStateManager {
 			state.initialized = false;
 			state.phraseBuffer = '';
 			state.displayedText = '';
+			state.pendingText = '';
 			state.lastFlushTime = 0;
 		}
 		if (isComplete) {
@@ -1102,6 +1110,7 @@ export class ScrambleStateManager {
 			state.initialized = false;
 			state.phraseBuffer = '';
 			state.displayedText = '';
+			state.pendingText = '';
 			state.lastFlushTime = 0;
 		}
 		if (isComplete) {
@@ -1303,6 +1312,7 @@ export class ScrambleStateManager {
 		if (!state) {
 			state = createValueFlashState();
 			state.prev = tpsText;
+			state.lastValueChangeTime = now;
 			this.tpsState.set(id, state);
 		}
 		// Reset if a previously-completed flow is now running again (new flow started)
@@ -1326,9 +1336,10 @@ export class ScrambleStateManager {
 			const newVal = parseFloat(tpsText);
 			if (!isNaN(prevVal) && !isNaN(newVal) && prevVal !== 0) {
 				const deltaPct = Math.abs(newVal - prevVal) / prevVal;
-				const timeSinceLast = state.startTime > 0 ? now - state.startTime : 0;
-				shouldFlash = deltaPct > TPS_HYSTERESIS_PCT || timeSinceLast > TPS_HYSTERESIS_MS;
+				const timeSinceLastChange = state.lastValueChangeTime > 0 ? now - state.lastValueChangeTime : 0;
+				shouldFlash = deltaPct > TPS_HYSTERESIS_PCT || timeSinceLastChange > TPS_HYSTERESIS_MS;
 			}
+			state.lastValueChangeTime = now;
 			if (shouldFlash) {
 				if (this.mode === 'cascade') {
 					state.queue = buildQueue(state.prev, tpsText, CASCADE_FLASH_MAX_START, CASCADE_FLASH_MAX_LENGTH);
@@ -1500,6 +1511,7 @@ export class ScrambleStateManager {
 				record[key].ripples = [];
 				record[key].phraseBuffer = '';
 				record[key].displayedText = '';
+				record[key].pendingText = '';
 				record[key].lastFlushTime = 0;
 			}
 		}

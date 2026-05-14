@@ -1,0 +1,19 @@
+problem: Implement Hatchet phase 3 operational hardening after phase 2 merge
+approach:
+  - Merged fork PR #4 first
+  - Added payload-size, spawn-command, and workspace validation at the Hatchet boundary
+  - Documented worker environment, package-version, payload, and retry guardrails
+failed_paths:
+  - Initial batch ADR edit missed exact text due markdown wrapping
+verification:
+  - npm test -- tests/hatchet-runner.test.ts tests/executor.test.ts
+  - npm run lint
+  - npm run build
+  - npm test
+  - git diff --check
+workflow_learning: For optional queue backends, validate worker-local assumptions before invoking the existing execution primitive and document trust-boundary operations in README plus ADRs.
+related_files:
+  - src/hatchet-runner.ts
+  - tests/hatchet-runner.test.ts
+  - README.md
+  - doc/adr/0004-phase-3-operational-hardening-for-hatchet.md

@@ -117,6 +117,18 @@ describe("Hatchet runner", () => {
 		expect(updates[1].details.results[0]).toMatchObject({ type: "build", stderr: "done", exitCode: 0 });
 	});
 
+	it("sanitizes failed Hatchet lifecycle updates while rethrowing the original error", async () => {
+		const updates: any[] = [];
+		const secret = "token=secret-submission-error";
+		const runner = new HatchetFlowRunner(async () => {
+			throw new Error(secret);
+		});
+		await expect(runner.run(options({ onUpdate: (update) => updates.push(update) }), { projectFlowsDir: "/repo/.pi/agents" })).rejects.toThrow(secret);
+		expect(updates.map((update) => update.content[0].text)).toEqual(["Hatchet queued/running flow build.", "Hatchet failed flow build."]);
+		expect(updates[1].details.results[0]).toMatchObject({ type: "build", stderr: "Hatchet flow failed.", errorMessage: "Hatchet submission failed.", exitCode: -1 });
+		expect(JSON.stringify(updates)).not.toContain(secret);
+	});
+
 	it("worker entrypoint reconstructs runFlow options and defaults child spawn command to pi", async () => {
 		const payload = serializeHatchetFlowPayload(options({ acceptance: "Done", cwd: process.cwd() }), "/repo/.pi/agents");
 		await runHatchetFlowTask(payload);

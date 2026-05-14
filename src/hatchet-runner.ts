@@ -263,6 +263,10 @@ function makeHatchetLifecycleResult(options: RunFlowOptions, status: string, err
 	};
 }
 
+function makeHatchetFailureLifecycleResult(options: RunFlowOptions): SingleResult {
+	return makeHatchetLifecycleResult(options, "failed", "Hatchet submission failed.");
+}
+
 function emitHatchetLifecycleUpdate(options: RunFlowOptions, projectFlowsDir: string | null, text: string, result: SingleResult): void {
 	options.onUpdate?.({
 		content: [{ type: "text", text }],
@@ -297,8 +301,7 @@ export class HatchetFlowRunner implements FlowRunner {
 			emitHatchetLifecycleUpdate(options, projectFlowsDir, `Hatchet completed flow ${payload.flowName}.`, result);
 			return result;
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			emitHatchetLifecycleUpdate(options, projectFlowsDir, `Hatchet failed flow ${payload.flowName}: ${message}`, makeHatchetLifecycleResult(options, "failed", message));
+			emitHatchetLifecycleUpdate(options, projectFlowsDir, `Hatchet failed flow ${payload.flowName}.`, makeHatchetFailureLifecycleResult(options));
 			throw error;
 		}
 	}

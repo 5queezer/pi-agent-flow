@@ -1,0 +1,11 @@
+problem: Update AGENTS guidance PR to use CLAUDE.md as source of truth
+approach: Replaced AGENTS.md regular file with a symlink to CLAUDE.md and appended workflow-learning guidance to CLAUDE.md
+failed_paths:
+  - None
+verification:
+  - test -L AGENTS.md && readlink AGENTS.md
+  - npm test
+workflow_learning: For agent instruction aliases, prefer symlinks to a single canonical guidance file to avoid drift
+related_files:
+  - AGENTS.md
+  - CLAUDE.md

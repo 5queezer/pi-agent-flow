@@ -2,8 +2,12 @@ import { runFlow, type RunFlowOptions } from "./flow.js";
 import { HatchetFlowRunner } from "./hatchet-runner.js";
 import type { SingleResult } from "./types.js";
 
+/**
+ * Context supplied by the parent executor when dispatching a flow attempt.
+ * `projectFlowsDir` is the discovered project-local flow directory, or null when none exists.
+ */
 export interface FlowRunContext {
-	/** Project-local flow directory discovered by the parent process, if any. */
+	/** Project-local flow directory discovered by the parent process, or null when unavailable. */
 	projectFlowsDir: string | null;
 }
 
@@ -18,19 +22,38 @@ export interface FlowRunContext {
  * delegating to runFlow.
  */
 export interface FlowRunner {
+	/**
+	 * Executes one resolved flow attempt.
+	 * @param options Complete runFlow-compatible options for the attempt.
+	 * @param context Optional parent executor context that runners may serialize or ignore.
+	 * @returns The final single-flow result.
+	 */
 	run(options: RunFlowOptions, context?: FlowRunContext): Promise<SingleResult>;
 }
 
 /** Default in-process runner that preserves existing forked child-process behavior. */
 export class LocalFlowRunner implements FlowRunner {
+	/**
+	 * Delegates directly to runFlow without queue serialization.
+	 * @param options Complete runFlow-compatible options for the attempt.
+	 * @returns The final single-flow result.
+	 */
 	run(options: RunFlowOptions): Promise<SingleResult> {
 		return runFlow(options);
 	}
 }
 
+/** Environment variable used to select the flow runner backend. */
 export const PI_FLOW_RUNNER_ENV = "PI_FLOW_RUNNER";
+
+/** Shared local runner instance used when no alternate backend is requested. */
 export const DEFAULT_LOCAL_FLOW_RUNNER = new LocalFlowRunner();
 
+/**
+ * Creates a flow runner from environment configuration.
+ * @param env Environment map to inspect; reads PI_FLOW_RUNNER and defaults to process.env.
+ * @returns Hatchet runner for "hatchet", otherwise the shared local runner; unknown values warn and fall back.
+ */
 export function createFlowRunnerFromEnv(env: NodeJS.ProcessEnv = process.env): FlowRunner {
 	const requested = env[PI_FLOW_RUNNER_ENV]?.trim().toLowerCase();
 	if (!requested || requested === "local") return DEFAULT_LOCAL_FLOW_RUNNER;

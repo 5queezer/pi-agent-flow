@@ -4,29 +4,57 @@ import type { FlowConfig } from "./agents.js";
 import type { AgentSessionMode } from "./session-mode.js";
 import type { FlowDetails, SingleResult } from "./types.js";
 
+/**
+ * Hatchet task name used by the parent runner and worker entrypoint.
+ * Payloads cross the Hatchet queue trust boundary and may contain sensitive session context.
+ */
 export const HATCHET_FLOW_TASK_NAME = "pi-agent-flow.runFlow";
 
+/**
+ * JSON-safe payload submitted to Hatchet for one flow attempt.
+ * All fields originate from the local parent executor; consumers must treat queued payloads as sensitive.
+ */
 export interface HatchetFlowPayload {
+	/** Working directory used by the worker to execute the flow. */
 	cwd: string;
+	/** Resolved flow definitions selected by the parent process. */
 	flows: FlowConfig[];
+	/** Name of the flow to run. */
 	flowName: string;
+	/** User-facing intent passed to the flow. */
 	intent: string;
+	/** Short aim label for the flow attempt. */
 	aim: string;
+	/** Optional acceptance criteria supplied by the parent. */
 	acceptance?: string;
+	/** Optional task-specific working directory. */
 	taskCwd?: string;
+	/** Serialized forked session snapshot; may contain sensitive conversation or tool context. */
 	forkSessionSnapshotJsonl: string | null;
+	/** Parent flow depth used for delegation guards. */
 	parentDepth: number;
+	/** Ancestor flow stack used for cycle prevention. */
 	parentFlowStack: string[];
+	/** Maximum allowed delegation depth. */
 	maxDepth: number;
+	/** Whether cycle prevention is enabled for the run. */
 	preventCycles: boolean;
+	/** Optional tool optimization mode selected by the parent. */
 	toolOptimize?: boolean;
+	/** Optional structured-output setting selected by the parent. */
 	structuredOutput?: boolean;
+	/** Optional model override for the flow attempt. */
 	model?: string;
+	/** Optional session timeout/profile mode. */
 	sessionMode?: AgentSessionMode;
+	/** Project-local flow directory discovered by the parent, or null when unavailable. */
 	projectFlowsDir: string | null;
 }
 
-type HatchetSdkModule = Record<string, unknown>;
+interface HatchetSdkModule {
+	[key: string]: unknown;
+}
+
 type HatchetSubmitter = (taskName: string, payload: HatchetFlowPayload) => Promise<SingleResult>;
 
 function makeFlowDetails(projectFlowsDir: string | null): (results: SingleResult[]) => FlowDetails {
@@ -42,6 +70,12 @@ function assertJsonSerializable(payload: HatchetFlowPayload): void {
 	JSON.parse(JSON.stringify(payload));
 }
 
+/**
+ * Converts runFlow options into a JSON-safe Hatchet queue payload.
+ * @param options Complete runFlow-compatible options from the trusted parent executor.
+ * @param projectFlowsDir Project-local flow directory to preserve, or null when unavailable.
+ * @returns Serializable payload for HATCHET_FLOW_TASK_NAME; throws if JSON serialization fails.
+ */
 export function serializeHatchetFlowPayload(options: RunFlowOptions, projectFlowsDir: string | null = null): HatchetFlowPayload {
 	const payload: HatchetFlowPayload = {
 		cwd: options.cwd,
@@ -66,6 +100,11 @@ export function serializeHatchetFlowPayload(options: RunFlowOptions, projectFlow
 	return payload;
 }
 
+/**
+ * Reconstructs runFlow options from a Hatchet queue payload.
+ * @param payload JSON-safe payload received by a trusted worker from Hatchet.
+ * @returns RunFlowOptions with worker-local makeDetails restored; throws if serialization validation fails.
+ */
 export function deserializeHatchetFlowPayload(payload: HatchetFlowPayload): RunFlowOptions {
 	assertJsonSerializable(payload);
 	return {
@@ -131,9 +170,23 @@ async function defaultSubmitHatchetTask(taskName: string, payload: HatchetFlowPa
 	throw new Error("Hatchet SDK loaded, but no supported task submission method was found. Expected client.run, client.workflows.run, or client.tasks.run.");
 }
 
+/**
+ * FlowRunner implementation that submits final-result-only flow attempts to Hatchet.
+ * Constructor injection is used by tests; the default submitter loads the optional Hatchet SDK lazily.
+ */
 export class HatchetFlowRunner implements FlowRunner {
+	/**
+	 * Creates a Hatchet-backed runner.
+	 * @param submitTask Queue submission function; defaults to the optional Hatchet SDK adapter.
+	 */
 	constructor(private readonly submitTask: HatchetSubmitter = defaultSubmitHatchetTask) {}
 
+	/**
+	 * Serializes the run options and submits one Hatchet task, crossing the queue trust boundary.
+	 * @param options Complete runFlow-compatible options for the attempt.
+	 * @param context Optional parent context containing projectFlowsDir.
+	 * @returns The final result returned by the Hatchet task.
+	 */
 	async run(options: RunFlowOptions, context?: FlowRunContext): Promise<SingleResult> {
 		const payload = serializeHatchetFlowPayload(options, context?.projectFlowsDir ?? null);
 		return this.submitTask(HATCHET_FLOW_TASK_NAME, payload);
@@ -141,8 +194,9 @@ export class HatchetFlowRunner implements FlowRunner {
 }
 
 /**
- * Hatchet worker task entrypoint. Workers execute final-result-only flow runs;
- * live streaming and cancellation propagation are intentionally deferred.
+ * Hatchet worker task entrypoint for final-result-only flow runs.
+ * @param payload JSON-safe payload received from a trusted Hatchet queue; may contain sensitive context.
+ * @returns The SingleResult produced by runFlow after restoring worker-local options.
  */
 export async function runHatchetFlowTask(payload: HatchetFlowPayload): Promise<SingleResult> {
 	process.env.PI_FLOW_SPAWN_COMMAND = process.env.PI_FLOW_SPAWN_COMMAND?.trim() || "pi";

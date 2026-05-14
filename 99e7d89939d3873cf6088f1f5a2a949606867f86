@@ -1,0 +1,12 @@
+problem: Harden Hatchet flow adapter result handling
+approach: Added runtime SingleResult validation at SDK, runner, and worker boundaries; added contract-style SDK-path tests and documented fail-fast behavior
+failed_paths:
+  - Exact-match patching on minified hatchet-runner.ts was brittle, so rewrote the file cleanly before re-verifying
+verification:
+  - npm test -- tests/hatchet-runner.test.ts
+  - npm run lint
+workflow_learning: For queue/worker adapters, validate both payloads and returned result shapes at every trust boundary and test realistic SDK client shapes directly
+related_files:
+  - src/hatchet-runner.ts
+  - tests/hatchet-runner.test.ts
+  - README.md

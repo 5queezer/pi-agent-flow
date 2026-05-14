@@ -1,0 +1,13 @@
+problem: Hatchet-backed flows could sit indefinitely at 0 tokens when task submission never resolved or no worker handled pi-agent-flow.runFlow
+approach: Added parent-side Hatchet result timeout with actionable failure results, preserved runtime result validation, and added regression tests for timeout and connection rejection
+failed_paths:
+  - Batch exact-match edits initially duplicated the timeout resolver before cleanup
+verification:
+  - npm test -- tests/hatchet-runner.test.ts
+  - npm run lint
+  - npm run build
+workflow_learning: For final-result-only queue runners, return bounded actionable failure results at the parent boundary instead of letting submit promises hang indefinitely
+related_files:
+  - src/hatchet-runner.ts
+  - tests/hatchet-runner.test.ts
+  - README.md

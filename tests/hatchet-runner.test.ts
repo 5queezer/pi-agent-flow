@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { emptyFlowUsage, type SingleResult } from "../src/types.js";
 
@@ -61,7 +62,6 @@ describe("Hatchet runner", () => {
 			signal: controller.signal,
 			onUpdate: vi.fn(),
 		}), "/repo/.pi/agents");
-
 		expect(JSON.parse(JSON.stringify(payload))).toEqual(payload);
 		expect(payload).toMatchObject({
 			cwd: "/repo",
@@ -89,12 +89,11 @@ describe("Hatchet runner", () => {
 				usage: emptyFlowUsage(),
 			};
 		});
-
-		const result = await runner.run(options({ onUpdate: vi.fn() }));
-
+		const result = await runner.run(options({ onUpdate: vi.fn() }), { projectFlowsDir: "/repo/.pi/agents" });
 		expect(result.stderr).toBe("from hatchet");
 		expect(submitted).toHaveLength(1);
 		expect(submitted[0].taskName).toBe(HATCHET_FLOW_TASK_NAME);
+		expect(submitted[0].payload.projectFlowsDir).toBe("/repo/.pi/agents");
 		expect("onUpdate" in submitted[0].payload).toBe(false);
 	});
 
@@ -107,7 +106,6 @@ describe("Hatchet runner", () => {
 	it("worker entrypoint reconstructs runFlow options and forces child spawn command to pi", async () => {
 		const payload = serializeHatchetFlowPayload(options({ acceptance: "Done" }), "/repo/.pi/agents");
 		await runHatchetFlowTask(payload);
-
 		expect(process.env.PI_FLOW_SPAWN_COMMAND).toBe("pi");
 		expect(runFlow).toHaveBeenCalledTimes(1);
 		const calledWith = vi.mocked(runFlow).mock.calls[0][0];
@@ -133,5 +131,14 @@ describe("Hatchet runner", () => {
 		expect(restored.onUpdate).toBeUndefined();
 		expect(restored.signal).toBeUndefined();
 		expect(restored.flowName).toBe("build");
+	});
+
+	it("documents the Hatchet payload trust boundary", () => {
+		const readme = readFileSync("README.md", "utf8");
+		const adr = readFileSync("doc/adr/0003-phase-2-basic-hatchet-backend.md", "utf8");
+		expect(readme).toContain("Hatchet payload trust boundary");
+		expect(readme).toContain("trusted infrastructure");
+		expect(adr).toContain("Hatchet payload trust boundary");
+		expect(adr).toContain("trusted infrastructure");
 	});
 });

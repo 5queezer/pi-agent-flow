@@ -469,6 +469,8 @@ Local forked execution remains the default. Set `PI_FLOW_RUNNER=hatchet` to rout
 
 The Hatchet SDK is dynamically imported and is not required for local-only users. Install and configure `@hatchet-dev/typescript-sdk` only where `PI_FLOW_RUNNER=hatchet` is used.
 
+**Hatchet payload trust boundary:** Hatchet task payloads include the selected flow configuration, prompt text, inherited session snapshot, working directory, and project flow directory path. Treat the queue and workers as trusted infrastructure: do not route these payloads through untrusted tenants, logs, or retention policies, and configure Hatchet access controls accordingly.
+
 Session mode precedence is:
 
 ```txt

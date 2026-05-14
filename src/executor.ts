@@ -357,7 +357,7 @@ export async function executeFlows(
 					}
 				},
 				makeDetails,
-			});
+			}, { projectFlowsDir });
 			allResults[index] = result;
 			emitProgress();
 			if (isFlowSuccess(result) || signal?.aborted) break;

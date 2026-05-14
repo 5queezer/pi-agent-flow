@@ -1,5 +1,5 @@
 import { runFlow, type RunFlowOptions } from "./flow.js";
-import type { FlowRunner } from "./flow-runner.js";
+import type { FlowRunner, FlowRunContext } from "./flow-runner.js";
 import type { FlowConfig } from "./agents.js";
 import type { AgentSessionMode } from "./session-mode.js";
 import type { FlowDetails, SingleResult } from "./types.js";
@@ -134,8 +134,8 @@ async function defaultSubmitHatchetTask(taskName: string, payload: HatchetFlowPa
 export class HatchetFlowRunner implements FlowRunner {
 	constructor(private readonly submitTask: HatchetSubmitter = defaultSubmitHatchetTask) {}
 
-	async run(options: RunFlowOptions): Promise<SingleResult> {
-		const payload = serializeHatchetFlowPayload(options);
+	async run(options: RunFlowOptions, context?: FlowRunContext): Promise<SingleResult> {
+		const payload = serializeHatchetFlowPayload(options, context?.projectFlowsDir ?? null);
 		return this.submitTask(HATCHET_FLOW_TASK_NAME, payload);
 	}
 }

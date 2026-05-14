@@ -2,6 +2,11 @@ import { runFlow, type RunFlowOptions } from "./flow.js";
 import { HatchetFlowRunner } from "./hatchet-runner.js";
 import type { SingleResult } from "./types.js";
 
+export interface FlowRunContext {
+	/** Project-local flow directory discovered by the parent process, if any. */
+	projectFlowsDir: string | null;
+}
+
 /**
  * Execution backend for a single resolved flow attempt.
  *
@@ -13,7 +18,7 @@ import type { SingleResult } from "./types.js";
  * delegating to runFlow.
  */
 export interface FlowRunner {
-	run(options: RunFlowOptions): Promise<SingleResult>;
+	run(options: RunFlowOptions, context?: FlowRunContext): Promise<SingleResult>;
 }
 
 /** Default in-process runner that preserves existing forked child-process behavior. */

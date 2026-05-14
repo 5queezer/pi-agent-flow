@@ -16,7 +16,8 @@ import type { CompressedFlowResult } from "../types/output.js";
 import { isFlowSuccess, isFlowError, isFlowComplete, getFlowOutput, emptyFlowUsage } from "../types/flow.js";
 import { extractStructuredOutput } from "../snapshot/structured-output.js";
 import { getTransitionAdvice } from "./transitions.js";
-import { mapFlowConcurrent, runFlow } from "./flow.js";
+import { mapFlowConcurrent } from "./flow.js";
+import { LocalFlowRunner, type FlowRunner } from "../flow-runner.js";
 import { getFlowSummaryText } from "../snapshot/runner-events.js";
 import { normalizeFlowModeName, resolveFlowModelCandidates, resolveModelContextWindow, selectFlowModelStrategy, type LoadedFlowModelConfigs, type FlowModelStrategy } from "../config/config.js";
 import { getAgentSessionTimeoutMs, resolveAgentSessionMode, type AgentSessionMode } from "./session-mode.js";
@@ -88,6 +89,8 @@ export interface FlowExecutorDeps {
 	goalContinuationCallback?: (results: SingleResult[]) => Promise<void>;
 	/** Optional active goal context to inject into child flow prompts. */
 	goalContext?: GoalContext;
+	/** Backend used for each resolved flow attempt. Defaults to the local fork runner. */
+	flowRunner?: FlowRunner;
 }
 
 export interface ExecuteFlowParams {
@@ -221,6 +224,7 @@ export async function executeFlows(
 		flowResultCache, projectFlowsDir, hasUI, uiConfirm, onFlowMetrics,
 		confirmProjectFlows,
 		goalContext,
+		flowRunner = new LocalFlowRunner(),
 	} = deps;
 
 	const requested = new Set<string>(params.map((f) => f.type.toLowerCase()));
@@ -376,7 +380,7 @@ export async function executeFlows(
 				...(maxContextTokens !== undefined ? { maxContextTokens } : {}),
 			};
 			emitProgress();
-			result = await runFlow({
+			result = await flowRunner.run({
 				cwd,
 				flows,
 				flowName: normalizedType,

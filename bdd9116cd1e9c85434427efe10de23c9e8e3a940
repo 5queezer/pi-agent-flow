@@ -1,0 +1,12 @@
+problem: Address CodeRabbit review comments on PR #1 flow runner seam
+approach: Verified actionable comments via gh API, documented FlowRunner env propagation contract, and reused a singleton LocalFlowRunner default in executor
+failed_paths:
+  - Initial exact edit attempts missed repository whitespace formatting; re-read file representations before targeted edits
+verification:
+  - npm run lint
+  - npm test
+  - git diff --check
+workflow_learning: For PR review fixes, inspect gh review/comment JSON first, then make minimal edits and verify branch head matches PR head
+related_files:
+  - src/flow-runner.ts
+  - src/executor.ts

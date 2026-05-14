@@ -1,0 +1,10 @@
+problem: Add repository-local workflow learning instructions
+approach: Created a clean branch from origin/main and committed only AGENTS.md guidance
+failed_paths:
+  - Avoided using existing hatchet-phase-adrs branch because it may contain unrelated ADR work
+verification:
+  - git diff --cached --name-only showed only AGENTS.md before commit
+  - git status --short confirmed bun.lock remained untracked and untouched
+workflow_learning: For documentation-only PRs, branch from main and stage the target file explicitly to avoid unrelated work
+related_files:
+  - AGENTS.md

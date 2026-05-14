@@ -1,0 +1,15 @@
+problem: Initialize ADR tooling and document Hatchet integration phases
+approach: Used adr-tools to initialize doc/adr, created one ADR per phase, regenerated TOC, updated CLAUDE index
+failed_paths: []
+verification:
+  - find doc/adr -maxdepth 1 -type f | sort
+  - npm run lint
+workflow_learning: For documentation-only architecture planning, use adr-tools first and then overwrite generated templates with concise project-specific decisions
+related_files:
+  - .adr-dir
+  - doc/adr/README.md
+  - doc/adr/0002-phase-1-runner-seam-for-hatchet-integration.md
+  - doc/adr/0003-phase-2-basic-hatchet-backend.md
+  - doc/adr/0004-phase-3-operational-hardening-for-hatchet.md
+  - doc/adr/0005-phase-4-advanced-hatchet-ux.md
+  - CLAUDE.md

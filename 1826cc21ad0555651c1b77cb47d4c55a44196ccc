@@ -1,0 +1,13 @@
+problem: Address PR #4 nitpick comments on exported runner API documentation
+approach: Verified flow-runner and hatchet-runner exports, added concise TSDoc for public surfaces, and converted HatchetSdkModule from type alias to interface without behavior changes
+failed_paths:
+  - Initial targeted edit missed exact whitespace; rewrote target files with equivalent code and comments
+verification:
+  - npm run lint
+  - npm run build
+  - npm test -- tests/hatchet-runner.test.ts tests/executor.test.ts
+  - git diff --check -- src/flow-runner.ts src/hatchet-runner.ts
+workflow_learning: For comment-only TypeScript review nits, prefer minimal public-surface TSDoc and focused regression checks; stage only target files when unrelated worktree changes exist
+related_files:
+  - src/flow-runner.ts
+  - src/hatchet-runner.ts

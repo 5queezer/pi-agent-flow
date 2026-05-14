@@ -203,6 +203,8 @@ function shouldFailover(result: SingleResult): boolean {
 	return false;
 }
 
+const DEFAULT_LOCAL_FLOW_RUNNER = new LocalFlowRunner();
+
 // ---------------------------------------------------------------------------
 // FlowExecutor
 // ---------------------------------------------------------------------------
@@ -221,10 +223,10 @@ export async function executeFlows(
 		toolOptimize, structuredOutput, cwd, loadedFlowModelConfigs,
 		maxConcurrency, defaultSessionMode, signal, onUpdate, makeDetails,
 		getFlag, tierOverrideResolver, fallbackModel, forkSessionSnapshotJsonl,
-		flowResultCache, projectFlowsDir, hasUI, uiConfirm, onFlowMetrics,
+		flowResultCache, projectFlowsDir, sessionManager, hasUI, uiConfirm, onFlowMetrics,
 		confirmProjectFlows,
 		goalContext,
-		flowRunner = new LocalFlowRunner(),
+		flowRunner = DEFAULT_LOCAL_FLOW_RUNNER,
 	} = deps;
 
 	const requested = new Set<string>(params.map((f) => f.type.toLowerCase()));
@@ -464,7 +466,7 @@ export async function executeFlows(
 
 	// Mark flow completion for the continuation hold — gives the user
 	// time to read the result before the next flow auto-spawns.
-	markFlowCompleted(deps.sessionManager.getSessionId());
+	markFlowCompleted(sessionManager.getSessionId());
 
 	// Goal continuation callback
 	if (deps.goalContinuationCallback) {

@@ -1,4 +1,5 @@
 import { runFlow, type RunFlowOptions } from "./flow.js";
+import { HatchetFlowRunner } from "./hatchet-runner.js";
 import type { SingleResult } from "./types.js";
 
 /**
@@ -12,12 +13,23 @@ import type { SingleResult } from "./types.js";
  * delegating to runFlow.
  */
 export interface FlowRunner {
- run(options: RunFlowOptions): Promise<SingleResult>;
+	run(options: RunFlowOptions): Promise<SingleResult>;
 }
 
 /** Default in-process runner that preserves existing forked child-process behavior. */
 export class LocalFlowRunner implements FlowRunner {
- run(options: RunFlowOptions): Promise<SingleResult> {
- return runFlow(options);
- }
+	run(options: RunFlowOptions): Promise<SingleResult> {
+		return runFlow(options);
+	}
+}
+
+export const PI_FLOW_RUNNER_ENV = "PI_FLOW_RUNNER";
+export const DEFAULT_LOCAL_FLOW_RUNNER = new LocalFlowRunner();
+
+export function createFlowRunnerFromEnv(env: NodeJS.ProcessEnv = process.env): FlowRunner {
+	const requested = env[PI_FLOW_RUNNER_ENV]?.trim().toLowerCase();
+	if (!requested || requested === "local") return DEFAULT_LOCAL_FLOW_RUNNER;
+	if (requested === "hatchet") return new HatchetFlowRunner();
+	console.warn(`[pi-agent-flow] Ignoring unknown ${PI_FLOW_RUNNER_ENV}="${requested}". Using local runner.`);
+	return DEFAULT_LOCAL_FLOW_RUNNER;
 }

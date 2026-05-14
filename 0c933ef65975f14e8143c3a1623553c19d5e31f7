@@ -1,0 +1,15 @@
+problem: Continue Hatchet phase 4 with a minimal advanced UX slice after phase 3 merge
+approach: Added parent-side Hatchet lifecycle onUpdate emissions around final-result task submission and documented the slice while keeping ADR 5 Proposed
+failed_paths:
+  - Full npm test hit existing flaky scramble animation assertion unrelated to Hatchet changes
+verification:
+  - npm run lint
+  - npm run build
+  - npm test -- tests/hatchet-runner.test.ts tests/executor.test.ts
+  - git diff --check
+workflow_learning: For broad ADR phases, ship a coherent documented slice and leave the ADR Proposed until all acceptance criteria are satisfied
+related_files:
+  - src/hatchet-runner.ts
+  - tests/hatchet-runner.test.ts
+  - README.md
+  - doc/adr/0005-phase-4-advanced-hatchet-ux.md

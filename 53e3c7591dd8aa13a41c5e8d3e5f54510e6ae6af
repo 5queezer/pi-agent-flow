@@ -1,0 +1,19 @@
+problem: Harden phase 2 Hatchet runner after AI code review
+approach: Added runner context for projectFlowsDir serialization, documented queue trust boundary, and covered behavior with focused tests
+failed_paths:
+  - Initial Hatchet runner serialized projectFlowsDir as null because FlowRunner.run had no context parameter
+verification:
+  - npm test -- tests/hatchet-runner.test.ts tests/executor.test.ts
+  - npm run lint
+  - npm run build
+  - npm test
+  - git diff --check
+workflow_learning: For queued backends, audit both serializable payload completeness and trust-boundary documentation before PR review
+related_files:
+  - src/flow-runner.ts
+  - src/hatchet-runner.ts
+  - src/executor.ts
+  - tests/hatchet-runner.test.ts
+  - tests/executor.test.ts
+  - README.md
+  - doc/adr/0003-phase-2-basic-hatchet-backend.md

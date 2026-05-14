@@ -416,6 +416,8 @@ export async function executeFlows(
 					}
 				},
 				makeDetails,
+			}, {
+				projectFlowsDir,
 			});
 			allResults[index] = result;
 			emitProgress();

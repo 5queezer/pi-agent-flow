@@ -197,6 +197,8 @@ Flow behavior is controlled via CLI flags, environment variables, and `.pi/setti
 
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full reference (model strategies, flags, env vars, and slash commands).
 
+Set `PI_FLOW_RUNNER=hatchet` to submit flow attempts through the optional Hatchet backend. The default `local` runner preserves forked child-process execution.
+
 ## Local Development
 
 Link the local checkout for instant iteration:

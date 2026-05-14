@@ -53,6 +53,7 @@ import {
 
 import { scrambleManager, setAnimationConfig } from "./tui/scramble/index.js";
 import { logWarn, logError } from "./config/log.js";
+import { createFlowRunnerFromEnv, type FlowRunner } from "./flow-runner.js";
 export { logWarn, logError };
 
 // ---------------------------------------------------------------------------
@@ -312,12 +313,14 @@ export default function (pi: ExtensionAPI) {
 	let resolved: ResolvedSettings | undefined;
 	let _sessionCtx: ExtensionContext | undefined;
 	let bashTracker: BashProcessTracker | undefined;
+	let flowRunner: FlowRunner | undefined;
 
 	// Auto-discover flows on session start
 	pi.on("session_start", async (_event, ctx) => {
 		sessionRegistry.register(ctx.cwd, ctx.sessionManager.getSessionId());
 		_sessionCtx = ctx;
 		resolved = resolveSettings(pi, ctx.cwd);
+		flowRunner = createFlowRunnerFromEnv();
 
 		// Reconstruct historical flow result cache so fork snapshots can compress
 		// past flow results immediately (instead of showing placeholder text until
@@ -580,6 +583,7 @@ export default function (pi: ExtensionAPI) {
 						hasUI: ctx.hasUI,
 						uiConfirm: (title, body) => ctx.ui.confirm(title, body),
 						onFlowMetrics: (metrics) => { if (typeof pi.emit === "function") pi.emit("pi-agent-flow:complete", metrics); },
+						flowRunner,
 						confirmProjectFlows: params.confirmProjectFlows,
 						goalContext,
 						goalContinuationCallback: async (results) => {

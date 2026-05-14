@@ -155,6 +155,14 @@ export interface ExtensionContext {
 	export function __resetBashToolMock(): void;
 }
 
+declare module "@hatchet-dev/typescript-sdk" {
+	export const HatchetClient: any;
+	export const Hatchet: any;
+	export const hatchet: any;
+	const defaultExport: any;
+	export default defaultExport;
+}
+
 declare module "@earendil-works/pi-tui" {
 	export interface Component {
 		invalidate(): void;

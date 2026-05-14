@@ -1,0 +1,15 @@
+problem: Implement Hatchet integration phase 2 behind opt-in runner
+approach: Added FlowRunner env selection, Hatchet JSON payload serializer, final-result worker entrypoint, focused tests, and docs
+failed_paths:
+  - Full npm test hit existing/flaky scramble animation assertions unrelated to Hatchet changes
+verification:
+  - npm test -- --run tests/hatchet-runner.test.ts tests/executor.test.ts tests/index.test.ts
+  - npm run lint
+  - npm run build
+  - git diff --check
+workflow_learning: For optional backends, keep SDK imports dynamic and unit-test the serialization boundary separately from transport
+related_files:
+  - src/hatchet-runner.ts
+  - src/flow-runner.ts
+  - src/index.ts
+  - tests/hatchet-runner.test.ts

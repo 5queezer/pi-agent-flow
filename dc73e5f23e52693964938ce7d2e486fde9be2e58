@@ -1,0 +1,15 @@
+problem: Migrate Hatchet integration off deprecated v0 submission APIs
+approach: Replaced heuristic client.run/workflows.run/tasks.run submission with a v1-only task declaration helper using hatchet.task(...).run(...); updated worker exports, README, and tests
+failed_paths:
+  - Accidentally overwrote README and restored it before applying a targeted Hatchet section edit
+verification:
+  - npm test -- --run tests/hatchet-runner.test.ts --reporter=dot
+  - npm run lint -- --pretty false
+  - npm run build
+  - npm test (fails in unrelated tests/scramble.test.ts on this branch)
+workflow_learning: For optional SDK migrations, inspect installed SDK type declarations first, then expose a small reusable adapter helper for docs and tests
+related_files:
+  - src/hatchet-runner.ts
+  - src/hatchet-worker.ts
+  - tests/hatchet-runner.test.ts
+  - README.md

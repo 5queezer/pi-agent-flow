@@ -1,0 +1,9 @@
+problem: Hatchet result timeouts were wrapped as generic submission failures
+approach: Added a distinct Hatchet timeout error type and preserved timeout wording while keeping actionable submit errors
+failed_paths: []
+verification:
+  - npm run build
+workflow_learning: Preserve domain-specific error messages before wrapping infrastructure failures
+related_files:
+  - src/hatchet-runner.ts
+  - tests/hatchet-runner.test.ts

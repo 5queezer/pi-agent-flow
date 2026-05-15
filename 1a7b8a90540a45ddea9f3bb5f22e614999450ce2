@@ -1,0 +1,14 @@
+problem: npm run hatchet-worker failed because flow runner startup imported batch/render.ts, which eagerly imported optional @mariozechner/pi-tui
+approach: moved batch op summary formatting into dependency-free src/batch/summary.ts and retargeted runner-events/render imports there so the Hatchet worker path no longer loads TUI code at module import time
+failed_paths:
+  - considered adding pi-tui as a dependency, but that would mask the import graph issue and broaden packaging scope
+verification:
+  - npm run build
+  - npx vitest run --reporter=dot tests/hatchet-worker-cli.test.ts tests/batch-summary.test.ts
+  - timeout 10s npm run hatchet-worker with .envrc sourced; worker reached ready state for pi-agent-flow.runFlow
+workflow_learning: when a non-TUI entrypoint fails on optional UI peers, split pure formatting helpers from render modules instead of widening dependencies
+related_files:
+  - src/batch/summary.ts
+  - src/runner-events.ts
+  - src/render.ts
+  - tests/batch-summary.test.ts

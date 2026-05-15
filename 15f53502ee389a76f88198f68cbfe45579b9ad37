@@ -1,0 +1,11 @@
+problem: Payload dump investigation needed durable docs and reproducible artifacts
+approach: Committed docs, flow-artifacts helpers, and CLAUDE.md workflow notes separately from runtime code
+failed_paths:
+  - Left debug/ ignored rather than committing ignored debug dumps
+verification:
+  - npm run build
+workflow_learning: Keep investigative artifacts in a dedicated docs/artifacts commit so implementation commits remain reviewable
+related_files:
+  - CLAUDE.md
+  - docs/
+  - flow-artifacts/

@@ -1,0 +1,12 @@
+problem: Forked child flows needed smaller, inspectable snapshots and verbatim dump support
+approach: Added --dump/PI_FLOW_DUMP_SNAPSHOT, snapshot metadata, compact flow-result cache rendering, and dump-focused tests/scripts
+failed_paths:
+  - Kept package version unchanged per release workflow rules
+verification:
+  - npm run build
+workflow_learning: For flow debugging, capture post-sanitization JSONL plus activation prompt before spawning the child process
+related_files:
+  - src/flow.ts
+  - src/snapshot.ts
+  - src/cli-args.ts
+  - tests/dump.test.ts

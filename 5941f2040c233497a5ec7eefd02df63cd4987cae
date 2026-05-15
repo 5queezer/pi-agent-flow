@@ -1,0 +1,11 @@
+problem: Illuminate/status rendering mixed decorative icons with scramble animations and needed a glitch transition path
+approach: Removed decorative status icons, added glitch queues/fade-out logic, and updated scramble/batch tests
+failed_paths: []
+verification:
+  - npm run build
+workflow_learning: Separate terminal decoration from animated text state to avoid unstable scramble rendering
+related_files:
+  - src/scramble.ts
+  - src/render.ts
+  - src/batch/execute.ts
+  - tests/scramble.test.ts

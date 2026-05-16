@@ -1,0 +1,10 @@
+problem: switch.sh failed to detect linked installs because grep treated the '->' marker as an option
+approach: Added '--' to the grep invocation and verified shell syntax plus marker detection behavior
+failed_paths:
+  - None
+verification:
+  - bash -n scripts/switch.sh
+  - echo 'demo -> linked' | grep -q -- '->'
+workflow_learning: When searching for literals beginning with '-', terminate grep option parsing with '--'
+related_files:
+  - scripts/switch.sh

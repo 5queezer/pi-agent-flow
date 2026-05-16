@@ -1,0 +1,15 @@
+problem: Move detached-head Hatchet worker timeout changes onto a clean PR branch
+approach: Stashed WIP excluding .envrc, aborted accidental rebase, branched from fork/main, re-applied changes, verified, and committed SDK timeout registration plus related worker/docs/tests updates
+failed_paths:
+  - Encountered interactive rebase state on main before branching
+verification:
+  - npm run lint
+  - npm run build
+  - npm test
+workflow_learning: When detached or mid-rebase with valid WIP, stash excluding local-only files, abort rebase, then re-home the work onto a fresh branch from fork/main before opening a PR
+related_files:
+  - README.md
+  - package.json
+  - src/hatchet-runner-v1.ts
+  - src/hatchet-worker-cli.ts
+  - tests/hatchet-runner-v1.test.ts

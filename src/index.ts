@@ -54,6 +54,9 @@ import {
 import { scrambleManager, setAnimationConfig } from "./tui/scramble/index.js";
 import { logWarn, logError } from "./config/log.js";
 import { createFlowRunnerFromEnv, type FlowRunner } from "./flow-runner.js";
+import { createHatchetAdapterFromEnv } from "./hatchet-runner.js";
+import { listActiveHatchetRuns } from "./hatchet-run-registry.js";
+import { reconcileHatchetRuns } from "./hatchet-reconcile.js";
 export { logWarn, logError };
 
 // ---------------------------------------------------------------------------
@@ -301,7 +304,7 @@ export default function (pi: ExtensionAPI) {
 
 
 	// Wire up /flow command and continuation hooks
-	registerFlow(pi);
+	registerFlow(pi, () => createHatchetAdapterFromEnv());
 
 	const depthConfig = resolveFlowDepthConfig(pi);
 	const { currentDepth, maxDepth, canTransition, ancestorFlowStack, preventCycles } =
@@ -318,6 +321,29 @@ export default function (pi: ExtensionAPI) {
 		_sessionCtx = ctx;
 		resolved = resolveSettings(pi, ctx.cwd);
 		flowRunner = createFlowRunnerFromEnv();
+
+		// Startup reconciliation: if there are active Hatchet runs and an adapter is configured,
+		// reconcile them in the background without blocking session start.
+		try {
+			const activeRuns = listActiveHatchetRuns(ctx.cwd);
+			if (activeRuns.length > 0) {
+				const adapter = createHatchetAdapterFromEnv();
+				if (adapter) {
+					const sessionId = ctx.sessionManager.getSessionId();
+					reconcileHatchetRuns({ cwd: ctx.cwd, sessionId, adapter, includeOtherSessions: true })
+						.then((summary) => {
+							if (summary.completed > 0 || summary.failed > 0) {
+								logWarn(`[pi-agent-flow] Hatchet startup reconciliation: ${summary.completed} completed, ${summary.failed} failed, ${summary.running} still running.`);
+							}
+						})
+						.catch(() => {
+							// Best-effort — startup reconciliation must not break startup.
+						});
+				}
+			}
+		} catch {
+			// Best-effort — startup reconciliation must not break startup.
+		}
 
 		// Reconstruct historical flow result cache so fork snapshots can compress
 		// past flow results immediately (instead of showing placeholder text until

@@ -9,6 +9,8 @@ import { setupSettingsCommand } from "./settings-command.js";
 import setupWarp from "./warp.js";
 import { setupLoopCommand } from "./loop-command.js";
 import { setupContinuation } from "./continuation.js";
+import { setupHatchetCommand } from "./hatchet-command.js";
+import type { HatchetRunAdapter } from "../hatchet-run-adapter.js";
 import { recordFlowCompletion, addTokens } from "./store.js";
 import * as sessionRegistry from "../core/session-registry.js";
 
@@ -43,11 +45,11 @@ export {
   clearPendingWarpSessionId,
 } from "./loop.js";
 
-export { setupFlowCommand, setupContinuation, setupWarp, setupLoopCommand };
+export { setupFlowCommand, setupContinuation, setupWarp, setupLoopCommand, setupHatchetCommand };
 export { markFlowCompleted, shutdownWakeup } from "./continuation.js";
 export { sessionRegistry };
 
-export function registerFlow(pi: ExtensionAPI): void {
+export function registerFlow(pi: ExtensionAPI, getHatchetAdapter?: () => HatchetRunAdapter | undefined): void {
   pi.on("session_start", (_event, ctx: ExtensionContext) => {
     sessionRegistry.register(ctx.cwd, ctx.sessionManager.getSessionId());
   });
@@ -56,5 +58,6 @@ export function registerFlow(pi: ExtensionAPI): void {
   setupSettingsCommand(pi);
   setupWarp(pi);
   setupLoopCommand(pi);
+  setupHatchetCommand(pi, { getAdapter: getHatchetAdapter });
   setupContinuation(pi);
 }

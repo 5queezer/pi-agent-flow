@@ -136,11 +136,14 @@ describe("Hatchet v1 runner path", () => {
 	it("times out when a worker never returns a result", async () => {
 		process.env.PI_FLOW_HATCHET_RESULT_TIMEOUT_MS = "5";
 		vi.useFakeTimers();
-		const runner = new HatchetFlowRunner(async () => await new Promise<SingleResult>(() => {}));
-		const resultPromise = expect(runner.run(options())).rejects.toThrow("did not return a result");
-		await vi.advanceTimersByTimeAsync(5);
-		await resultPromise;
-		vi.useRealTimers();
+		try {
+			const runner = new HatchetFlowRunner(async () => await new Promise<SingleResult>(() => {}));
+			const resultPromise = expect(runner.run(options())).rejects.toThrow("did not return a result");
+			await vi.advanceTimersByTimeAsync(5);
+			await resultPromise;
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("worker task entrypoint forces local child flow execution and restores env", async () => {
@@ -168,14 +171,25 @@ describe("Hatchet v1 runner path", () => {
 			PI_FLOW_HATCHET_WORKER_NAME: "demo",
 			PI_FLOW_HATCHET_WORKER_SLOTS: "2",
 		} as NodeJS.ProcessEnv;
-
 		await main({ client: client as any, env, logger });
-
 		expect(client.task).toHaveBeenCalledWith(expect.objectContaining({ executionTimeout: "600s", scheduleTimeout: "600s" }));
 		expect(client.task).toHaveBeenCalled();
 		expect(client.worker).toHaveBeenCalledWith("demo", { workflows: [task], slots: 2 });
 		expect(worker.waitUntilReady).toHaveBeenCalledWith(DEFAULT_HATCHET_WORKER_READY_TIMEOUT_MS);
 		expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("Hatchet worker ready"));
+		expect(env[HATCHET_CLIENT_TLS_STRATEGY_ENV]).toBe(HATCHET_CLIENT_LOCAL_TLS_STRATEGY);
+		void resolveHatchetWorkerConfig(env);
+	});
+
+	it("applies the local TLS strategy for bare host-port env values", async () => {
+		const task = { run: vi.fn(async () => makeResult()) };
+		const worker = { start: vi.fn(async () => {}), waitUntilReady: vi.fn(async () => {}) };
+		const client = { task: vi.fn(() => task), worker: vi.fn(async () => worker) };
+		const env = {
+			HATCHET_CLIENT_HOST_PORT: "127.0.0.1:7077",
+			PI_FLOW_HATCHET_WORKER_NAME: "demo-host-port",
+		} as NodeJS.ProcessEnv;
+		await main({ client: client as any, env, logger: { info: vi.fn(), error: vi.fn() } });
 		expect(env[HATCHET_CLIENT_TLS_STRATEGY_ENV]).toBe(HATCHET_CLIENT_LOCAL_TLS_STRATEGY);
 		void resolveHatchetWorkerConfig(env);
 	});

@@ -20,7 +20,7 @@ export const PI_FLOW_HATCHET_MAX_PAYLOAD_BYTES_ENV = "PI_FLOW_HATCHET_MAX_PAYLOA
  * Default maximum serialized Hatchet task payload size.
  * The limit bounds session-snapshot exposure and catches accidental oversized queue messages early.
  */
-export const DEFAULT_HATCHET_MAX_PAYLOAD_BYTES = 1_000_000;
+export const DEFAULT_HATCHET_MAX_PAYLOAD_BYTES = 1_500_000;
 
 /**
  * JSON-safe payload submitted to Hatchet for one flow attempt.

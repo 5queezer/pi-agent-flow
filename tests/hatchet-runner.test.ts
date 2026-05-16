@@ -11,7 +11,9 @@ import {
 	type HatchetFlowPayload,
 } from "../src/hatchet-runner.js";
 import {
+	DEFAULT_HATCHET_MAX_PAYLOAD_BYTES,
 	deserializeHatchetFlowPayload,
+	resolveHatchetMaxPayloadBytes,
 	serializeHatchetFlowPayload,
 	validateHatchetFlowPayloadSize,
 } from "../src/hatchet-payload.js";
@@ -302,6 +304,12 @@ describe("Hatchet runner", () => {
 		const payload = serializeHatchetFlowPayload(options({ cwd: "/definitely/missing/pi-agent-flow" }));
 		await expect(runHatchetFlowTask(payload)).rejects.toThrow("current checkout/workspace");
 		expect(runFlow).not.toHaveBeenCalled();
+	});
+
+	it("uses a larger default Hatchet payload cap before requiring overrides", () => {
+		expect(DEFAULT_HATCHET_MAX_PAYLOAD_BYTES).toBe(1_500_000);
+		expect(DEFAULT_HATCHET_MAX_PAYLOAD_BYTES).toBeGreaterThan(1_043_652);
+		expect(resolveHatchetMaxPayloadBytes({} as NodeJS.ProcessEnv)).toBe(DEFAULT_HATCHET_MAX_PAYLOAD_BYTES);
 	});
 
 	it("rejects oversized Hatchet payloads before submission", async () => {

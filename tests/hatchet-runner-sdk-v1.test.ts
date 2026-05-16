@@ -119,8 +119,8 @@ describe("Hatchet v1 runner path", () => {
 			expect.objectContaining({
 				name: HATCHET_FLOW_TASK_NAME,
 				retries: 0,
-				executionTimeout: "600s",
-				scheduleTimeout: "600s",
+				executionTimeout: "3600s",
+				scheduleTimeout: "3600s",
 			}),
 		);
 		expect(result).toMatchObject({ type: "build", agentSource: "project", exitCode: 0 });
@@ -172,7 +172,7 @@ describe("Hatchet v1 runner path", () => {
 			PI_FLOW_HATCHET_WORKER_SLOTS: "2",
 		} as NodeJS.ProcessEnv;
 		await main({ client: client as any, env, logger });
-		expect(client.task).toHaveBeenCalledWith(expect.objectContaining({ executionTimeout: "600s", scheduleTimeout: "600s" }));
+		expect(client.task).toHaveBeenCalledWith(expect.objectContaining({ executionTimeout: "3600s", scheduleTimeout: "3600s" }));
 		expect(client.task).toHaveBeenCalled();
 		expect(client.worker).toHaveBeenCalledWith("demo", { workflows: [task], slots: 2 });
 		expect(worker.waitUntilReady).toHaveBeenCalledWith(DEFAULT_HATCHET_WORKER_READY_TIMEOUT_MS);

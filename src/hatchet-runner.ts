@@ -24,7 +24,7 @@ export {
 export type { HatchetFlowPayload } from "./hatchet-payload.js";
 export const PI_FLOW_HATCHET_RESULT_TIMEOUT_MS_ENV = "PI_FLOW_HATCHET_RESULT_TIMEOUT_MS";
 export const DEFAULT_HATCHET_RESULT_TIMEOUT_MS = 600_000;
-export const DEFAULT_HATCHET_TASK_EXECUTION_TIMEOUT_MS = 600_000;
+export const DEFAULT_HATCHET_TASK_EXECUTION_TIMEOUT_MS = 3_600_000;
 export const HATCHET_CLIENT_TLS_STRATEGY_ENV = "HATCHET_CLIENT_TLS_STRATEGY";
 export const HATCHET_CLIENT_LOCAL_TLS_STRATEGY = "none";
 export interface HatchetTaskContext {

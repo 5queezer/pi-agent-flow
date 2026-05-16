@@ -578,6 +578,7 @@ export default function (pi: ExtensionAPI) {
 						flowRunner,
 						confirmProjectFlows: params.confirmProjectFlows,
 						goalContext,
+						goalId: activeGoal?.id,
 						goalContinuationCallback: async (results) => {
 							const goal = getGoalForSession(ctx.cwd, sessionRegistry.getSessionId(ctx.cwd));
 							if (!goal) return;

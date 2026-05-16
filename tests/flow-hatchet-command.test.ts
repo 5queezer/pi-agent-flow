@@ -156,6 +156,7 @@ describe("/flow:hatchet command", () => {
 
     await invokeCommand(pi, `cancel ${record.id}`, ctx);
     expect(cancelFn).toHaveBeenCalledWith({ runId: "remote-cancel" });
+    expect(loadHatchetRunRegistry(cwd).runs[0].status).toBe("cancelled");
     expect(ctx._notifications.some((n) => n.msg.includes("Cancellation"))).toBe(true);
   });
 

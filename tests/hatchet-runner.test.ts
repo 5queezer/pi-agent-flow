@@ -9,6 +9,7 @@ import { createFlowRunnerFromEnv, DEFAULT_LOCAL_FLOW_RUNNER } from "../src/flow-
 import {
 	HATCHET_FLOW_TASK_NAME,
 	HatchetFlowRunner,
+	SdkHatchetRunAdapter,
 	runHatchetFlowTask,
 	submitHatchetTaskWithSdk,
 	type HatchetFlowPayload,
@@ -386,6 +387,49 @@ describe("Hatchet runner adapter", () => {
 		expect(adapter.submit).toHaveBeenCalledOnce();
 		expect(adapter.getResult).toHaveBeenCalledWith({ runId: "remote-1" });
 		expect(result.stderr).toBe("done from adapter");
+	});
+
+	it("SDK adapter persists a real Hatchet run ID and can re-open it after restart", async () => {
+		const singleResult: SingleResult = {
+			type: "build",
+			agentSource: "project",
+			intent: "Implement durable resume",
+			aim: "Durable Hatchet resume",
+			exitCode: 0,
+			messages: [],
+			stderr: "done after restart",
+			usage: emptyFlowUsage(),
+		};
+		const ref = {
+			getWorkflowRunId: vi.fn(async () => "real-run-1"),
+			result: vi.fn(async () => singleResult),
+			cancel: vi.fn(async () => {}),
+		};
+		const runRef = vi.fn((_id: string) => ref);
+		const runNoWait = vi.fn(async () => ref);
+		class HatchetClient {
+			runRef = runRef;
+			task() {
+				return { runNoWait };
+			}
+		}
+
+		const adapter = new SdkHatchetRunAdapter(async () => ({ HatchetClient }));
+		const handle = await adapter.submit(HATCHET_FLOW_TASK_NAME, serializeHatchetFlowPayload(options()), {
+			clientRunId: "client-run-1",
+		});
+
+		expect(handle).toEqual({ runId: "real-run-1", durable: true });
+		expect(runNoWait).toHaveBeenCalledWith(expect.any(Object), {
+			additionalMetadata: { clientRunId: "client-run-1" },
+		});
+
+		const restartedAdapter = new SdkHatchetRunAdapter(async () => ({ HatchetClient }));
+		await expect(restartedAdapter.getResult({ runId: "real-run-1" })).resolves.toMatchObject({
+			status: "completed",
+			result: singleResult,
+		});
+		expect(runRef).toHaveBeenCalledWith("real-run-1");
 	});
 
 	it("adapter failed status causes runner to throw", async () => {

@@ -9,6 +9,7 @@ import {
   createHatchetRunRecord,
   loadHatchetRunRegistry,
   markHatchetRunSubmitted,
+  updateHatchetRunResult,
 } from "../src/hatchet-run-registry.js";
 import { reconcileHatchetRuns, type HatchetReconcileOptions } from "../src/hatchet-reconcile.js";
 import { emptyFlowUsage, type SingleResult } from "../src/types/flow.js";
@@ -62,6 +63,23 @@ describe("Hatchet reconciliation", () => {
     expect(reg.runs[0].status).toBe("completed");
     expect(reg.runs[0].goalRecordedAt).toBeTruthy();
     expect(reg.runs[0].result?.stderr).toBe("done");
+  });
+
+  it("records goal progress for a completed run that was persisted before a crash", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "hatchet-reconcile-"));
+    const goal = setGoal(cwd, "Implement durable resume");
+    const record = createHatchetRunRecord({ cwd, sessionId: "s1", goalId: goal.id, flowType: "build", intent: "i", aim: "a", paramIndex: 0, attemptIndex: 0, payloadHash: "h" });
+    appendHatchetRunRecord(cwd, record);
+    markHatchetRunSubmitted(cwd, record.id, { hatchetRunId: "remote-crash", status: "running" });
+    updateHatchetRunResult(cwd, record.id, makeCompletedResult());
+
+    const adapter = makeFakeAdapter({});
+    const summary = await reconcileHatchetRuns({ cwd, sessionId: "s1", goalId: goal.id, adapter });
+
+    expect(summary.checked).toBe(1);
+    expect(summary.completed).toBe(1);
+    expect(adapter.getResult).not.toHaveBeenCalled();
+    expect(loadHatchetRunRegistry(cwd).runs[0].goalRecordedAt).toBeTruthy();
   });
 
   it("does not double-record a completed run on second reconcile", async () => {

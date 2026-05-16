@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { applyLocalHatchetTlsStrategyDefault, createHatchetFlowTaskDeclaration, HATCHET_FLOW_TASK_NAME } from "./hatchet-runner-v1.js";
+import { applyLocalHatchetTlsStrategyDefault, createHatchetFlowTaskDeclaration, HATCHET_FLOW_TASK_NAME } from "./hatchet-runner.js";
 import { pathToFileURL } from "node:url";
 
 export const PI_FLOW_HATCHET_WORKER_NAME_ENV = "PI_FLOW_HATCHET_WORKER_NAME";

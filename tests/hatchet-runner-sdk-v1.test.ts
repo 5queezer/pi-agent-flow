@@ -1,5 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RunFlowOptions } from "../src/flow.js";
+import { runFlow } from "../src/flow.js";
+import {
+	DEFAULT_HATCHET_WORKER_READY_TIMEOUT_MS,
+	main,
+	resolveHatchetWorkerConfig,
+} from "../src/hatchet-worker-cli.js";
+import {
+	HATCHET_CLIENT_LOCAL_TLS_STRATEGY,
+	HATCHET_CLIENT_TLS_STRATEGY_ENV,
+	HatchetFlowRunner,
+	HATCHET_FLOW_TASK_NAME,
+	runHatchetFlowTask,
+	submitHatchetTaskWithClient,
+	validateSingleResult,
+} from "../src/hatchet-runner.js";
+import { serializeHatchetFlowPayload } from "../src/hatchet-payload.js";
 import { emptyFlowUsage, type SingleResult } from "../src/types.js";
 
 vi.mock("../src/flow.js", async (importOriginal) => {
@@ -22,14 +39,6 @@ vi.mock("../src/flow.js", async (importOriginal) => {
 	};
 });
 
-import { runFlow } from "../src/flow.js";
-import { HatchetFlowRunner, HATCHET_FLOW_TASK_NAME, submitHatchetTaskWithClient, validateSingleResult } from "../src/hatchet-runner-v1.js";
-import { DEFAULT_HATCHET_WORKER_READY_TIMEOUT_MS, HATCHET_CLIENT_LOCAL_TLS_STRATEGY, HATCHET_CLIENT_TLS_STRATEGY_ENV, main } from "../src/hatchet-worker-cli.js";
-import { resolveHatchetWorkerConfig } from "../src/hatchet-worker-cli.js";
-import { runHatchetFlowTask } from "../src/hatchet-runner-v1.js";
-import { serializeHatchetFlowPayload } from "../src/hatchet-runner.js";
-import type { RunFlowOptions } from "../src/flow.js";
-
 function makeResult(overrides: Partial<SingleResult> = {}): SingleResult {
 	return {
 		type: "build",
@@ -47,7 +56,15 @@ function makeResult(overrides: Partial<SingleResult> = {}): SingleResult {
 function options(overrides: Partial<RunFlowOptions> = {}): RunFlowOptions {
 	return {
 		cwd: "/repo",
-		flows: [{ name: "build", description: "Code", systemPrompt: "Prompt", source: "project", filePath: "/repo/.pi/agents/build.md" }],
+		flows: [
+			{
+				name: "build",
+				description: "Code",
+				systemPrompt: "Prompt",
+				source: "project",
+				filePath: "/repo/.pi/agents/build.md",
+			},
+		],
 		flowName: "build",
 		intent: "Implement feature",
 		aim: "Implement feature",
@@ -77,13 +94,18 @@ describe("Hatchet v1 runner path", () => {
 	});
 
 	afterEach(() => {
-		if (originalTimeout === undefined) delete process.env.PI_FLOW_HATCHET_RESULT_TIMEOUT_MS; else process.env.PI_FLOW_HATCHET_RESULT_TIMEOUT_MS = originalTimeout;
-		if (originalSpawn === undefined) delete process.env.PI_FLOW_SPAWN_COMMAND; else process.env.PI_FLOW_SPAWN_COMMAND = originalSpawn;
-		if (originalTls === undefined) delete process.env[HATCHET_CLIENT_TLS_STRATEGY_ENV]; else process.env[HATCHET_CLIENT_TLS_STRATEGY_ENV] = originalTls;
+		if (originalTimeout === undefined) delete process.env.PI_FLOW_HATCHET_RESULT_TIMEOUT_MS;
+		else process.env.PI_FLOW_HATCHET_RESULT_TIMEOUT_MS = originalTimeout;
+		if (originalSpawn === undefined) delete process.env.PI_FLOW_SPAWN_COMMAND;
+		else process.env.PI_FLOW_SPAWN_COMMAND = originalSpawn;
+		if (originalTls === undefined) delete process.env[HATCHET_CLIENT_TLS_STRATEGY_ENV];
+		else process.env[HATCHET_CLIENT_TLS_STRATEGY_ENV] = originalTls;
 	});
 
 	it("v1 SDK import path does not emit the deprecated step-module warning", () => {
-		const result = spawnSync(process.execPath, ["--input-type=module", "-e", "await import('@hatchet-dev/typescript-sdk/v1/index.js')"], { encoding: "utf8" });
+		const result = spawnSync(process.execPath, ["--input-type=module", "-e", "await import('@hatchet-dev/typescript-sdk/v1/index.js')"], {
+			encoding: "utf8",
+		});
 		expect(result.status).toBe(0);
 		expect(result.stderr).not.toContain("Deprecation warning: The v0 sdk");
 	});
@@ -93,7 +115,14 @@ describe("Hatchet v1 runner path", () => {
 		const client = { task: vi.fn(() => task) };
 		const payload = serializeHatchetFlowPayload(options(), "/repo/.pi/agents");
 		const result = await submitHatchetTaskWithClient(client as any, payload);
-		expect(client.task).toHaveBeenCalledWith(expect.objectContaining({ name: HATCHET_FLOW_TASK_NAME, retries: 0, executionTimeout: "600s", scheduleTimeout: "600s" }));
+		expect(client.task).toHaveBeenCalledWith(
+			expect.objectContaining({
+				name: HATCHET_FLOW_TASK_NAME,
+				retries: 0,
+				executionTimeout: "600s",
+				scheduleTimeout: "600s",
+			}),
+		);
 		expect(result).toMatchObject({ type: "build", agentSource: "project", exitCode: 0 });
 	});
 
@@ -134,8 +163,14 @@ describe("Hatchet v1 runner path", () => {
 		const worker = { start: vi.fn(async () => {}), waitUntilReady: vi.fn(async () => {}) };
 		const client = { task: vi.fn(() => task), worker: vi.fn(async () => worker) };
 		const logger = { info: vi.fn(), error: vi.fn() };
-		const env = { HATCHET_CLIENT_API_URL: "http://127.0.0.1:7077", PI_FLOW_HATCHET_WORKER_NAME: "demo", PI_FLOW_HATCHET_WORKER_SLOTS: "2" } as NodeJS.ProcessEnv;
+		const env = {
+			HATCHET_CLIENT_API_URL: "http://127.0.0.1:7077",
+			PI_FLOW_HATCHET_WORKER_NAME: "demo",
+			PI_FLOW_HATCHET_WORKER_SLOTS: "2",
+		} as NodeJS.ProcessEnv;
+
 		await main({ client: client as any, env, logger });
+
 		expect(client.task).toHaveBeenCalledWith(expect.objectContaining({ executionTimeout: "600s", scheduleTimeout: "600s" }));
 		expect(client.task).toHaveBeenCalled();
 		expect(client.worker).toHaveBeenCalledWith("demo", { workflows: [task], slots: 2 });

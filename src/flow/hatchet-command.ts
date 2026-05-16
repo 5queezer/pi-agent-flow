@@ -5,7 +5,12 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import { loadHatchetRunRegistry, type HatchetRunRecord } from "../hatchet-run-registry.js";
+import {
+  loadHatchetRunRegistry,
+  updateHatchetRunFailure,
+  sanitizeHatchetText,
+  type HatchetRunRecord,
+} from "../hatchet-run-registry.js";
 import { reconcileHatchetRuns, formatReconcileSummary } from "../hatchet-reconcile.js";
 import type { HatchetRunAdapter } from "../hatchet-run-adapter.js";
 
@@ -72,7 +77,7 @@ export function setupHatchetCommand(pi: ExtensionAPI, deps: HatchetCommandDeps =
             });
             ctx.ui.notify?.(formatReconcileSummary(summary), "info");
           } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
+            const msg = sanitizeHatchetText(err instanceof Error ? err.message : String(err), "unknown error");
             ctx.ui.notify?.(`Reconciliation failed: ${msg}`, "error");
           }
           break;
@@ -91,7 +96,7 @@ export function setupHatchetCommand(pi: ExtensionAPI, deps: HatchetCommandDeps =
           }
           ctx.ui.notify?.(formatRunLine(run), "info");
           if (run.result) {
-            const output = run.result.stderr || "(no output)";
+            const output = sanitizeHatchetText(run.result.stderr, "(no output)");
             ctx.ui.notify?.(`Result:\n${output}`, "info");
           }
           break;
@@ -129,9 +134,10 @@ export function setupHatchetCommand(pi: ExtensionAPI, deps: HatchetCommandDeps =
           }
           try {
             await adapter.cancel({ runId: run.hatchetRunId });
+            updateHatchetRunFailure(cwd, run.id, "cancelled", "Cancellation requested by user.");
             ctx.ui.notify?.(`Cancellation requested for run ${run.id}.`, "info");
           } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
+            const msg = sanitizeHatchetText(err instanceof Error ? err.message : String(err), "unknown error");
             ctx.ui.notify?.(`Cancel failed: ${msg}`, "error");
           }
           break;

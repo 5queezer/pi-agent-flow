@@ -200,6 +200,37 @@ describe("Hatchet run registry", () => {
     expect(loaded.version).toBe(1);
   });
 
+  it("stores sanitized final results without message transcripts or bearer secrets", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "hatchet-registry-"));
+    const record = createHatchetRunRecord({
+      cwd,
+      flowType: "build",
+      intent: "i",
+      aim: "a",
+      paramIndex: 0,
+      attemptIndex: 0,
+      payloadHash: "sha256:test",
+    });
+    appendHatchetRunRecord(cwd, record);
+
+    updateHatchetRunResult(cwd, record.id, {
+      type: "build",
+      agentSource: "project",
+      intent: "i",
+      aim: "a",
+      exitCode: 0,
+      messages: [{ role: "assistant", content: "Bearer super-secret-token" } as any],
+      stderr: "Bearer super-secret-token",
+      usage: emptyFlowUsage(),
+      errorMessage: "Bearer super-secret-token",
+    });
+
+    const stored = loadHatchetRunRegistry(cwd).runs[0].result;
+    expect(stored?.messages).toEqual([]);
+    expect(stored?.stderr).toBe("Bearer [redacted]");
+    expect(stored?.errorMessage).toBe("Bearer [redacted]");
+  });
+
   it("does not store snapshot or secret fields in registry", () => {
     const cwd = mkdtempSync(join(tmpdir(), "hatchet-registry-"));
     const record = createHatchetRunRecord({

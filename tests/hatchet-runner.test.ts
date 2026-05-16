@@ -194,7 +194,7 @@ describe("Hatchet runner", () => {
 	it("selects Hatchet only when PI_FLOW_RUNNER=hatchet", () => {
 		expect(createFlowRunnerFromEnv({} as NodeJS.ProcessEnv)).toBe(DEFAULT_LOCAL_FLOW_RUNNER);
 		expect(createFlowRunnerFromEnv({ PI_FLOW_RUNNER: "local" } as NodeJS.ProcessEnv)).toBe(DEFAULT_LOCAL_FLOW_RUNNER);
-		expect(createFlowRunnerFromEnv({ PI_FLOW_RUNNER: "hatchet" } as NodeJS.ProcessEnv)).toBeInstanceOf(HatchetFlowRunner);
+		expect(createFlowRunnerFromEnv({ PI_FLOW_RUNNER: "hatchet" } as NodeJS.ProcessEnv).constructor.name).toBe("HatchetFlowRunner");
 	});
 
 	it("emits Hatchet lifecycle updates around final-result submission", async () => {

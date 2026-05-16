@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import type { FlowConfig } from "./agents.js";
-import { runFlow, type RunFlowOptions } from "./flow.js";
+import type { RunFlowOptions } from "./flow.js";
 import type { FlowRunContext, FlowRunner } from "./flow-runner.js";
 import type { AgentSessionMode } from "./session-mode.js";
 import { emptyFlowUsage, type FlowDetails, type SingleResult } from "./types.js";
@@ -330,7 +330,7 @@ function parseHatchetSingleResult(value: unknown, context: string): SingleResult
 
 async function loadHatchetSdk(): Promise<HatchetSdkModule> {
 	try {
-		return await import("@hatchet-dev/typescript-sdk");
+		return await import("@hatchet-dev/typescript-sdk/v1/index.js");
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		throw new Error(
@@ -477,6 +477,7 @@ export class HatchetFlowRunner implements FlowRunner {
 export async function runHatchetFlowTask(payload: HatchetFlowPayload): Promise<SingleResult> {
 	process.env.PI_FLOW_SPAWN_COMMAND = resolveHatchetSpawnCommand(process.env);
 	validateHatchetWorkerPayload(payload);
+	const { runFlow } = await import("./flow.js");
 	return parseHatchetSingleResult(
 		await runFlow(deserializeHatchetFlowPayload(payload)),
 		"Hatchet worker result",

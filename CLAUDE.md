@@ -11,8 +11,6 @@
 Publishing is **fully automated** via GitHub Actions.
 
 ### Strict Rules
-
-- **Never edit `package.json` version manually.** The Release workflow handles bumping.
 - **Never run `npm publish` locally.** Always use CI.
 - **Never run `npm version` locally.** The Release workflow handles tagging.
 
@@ -47,11 +45,53 @@ When the user asks to publish:
 
 ## Local Development
 
+### One-time setup
 ```bash
-npm link                     # Symlink local checkout — restart `pi` after editing
-npm uninstall -g pi-agent-flow && npm install -g pi-agent-flow  # Restore published version
-npm ls -g pi-agent-flow     # Verify link status
+./scripts/switch.sh         # Link local checkout (or `npm run switch:local`)
+npm ls -g pi-agent-flow     # Verify link status — should show "-> /path/to/repo"
 ```
+
+### Daily dev loop
+You do **not** need to switch between every edit. Once linked, just rebuild and restart `pi`:
+```bash
+npm run build               # Compile TypeScript → dist/
+# Quit pi (Ctrl+C), then start it again — it picks up the new dist/ via the symlink
+```
+
+### Going back to published
+```bash
+./scripts/switch.sh         # Toggle back to REMOTE (or `npm run switch:remote`)
+npm ls -g pi-agent-flow     # Should show a version number, not "->"
+```
+
+## Quick Switch (Local ↔ Remote)
+
+Use the toggle script to swap between your **local dev build** (for testing
+changes) and the **published npm version** (for stable daily usage).
+
+| Mode | Command | When to use |
+|------|---------|-------------|
+| **Toggle** | `./scripts/switch.sh` | One-command flip between local ↔ remote |
+| **Local** | `npm run switch:local` | Force link to this repo (testing new code) |
+| **Remote** | `npm run switch:remote` | Force install from npm (stable daily work) |
+
+```bash
+./scripts/switch.sh        # Detects current state and flips to the other side
+```
+
+> ⚠️ **Always restart `pi` after switching** so the extension loader picks up the change.
+
+### Dev loop after switching
+Switching is only needed when changing **modes** (local ↔ remote), not between every edit.
+Once linked locally, your daily loop is just:
+1. Edit code
+2. `npm run build`
+3. Quit `pi` and restart it
+
+### `pi update` danger
+> 🚫 **Never run `pi update` while linked locally.** It installs the published npm package
+> globally, which **overwrites and destroys your local symlink**. To get published updates,
+> run `./scripts/switch.sh` first to toggle to REMOTE, then run `pi update`.
 
 ## Architecture Decision Records
 

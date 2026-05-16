@@ -197,6 +197,7 @@ const PULSE_CYCLE_MS = 998;
 const CASCADE_FRAME_MS = 11;
 const CASCADE_MAX_START = 28;
 const CASCADE_MAX_LENGTH = 28;
+const CASCADE_MIN_ACTIVE_FRAMES = CASCADE_MAX_START + CASCADE_MAX_LENGTH;
 const CASCADE_FLASH_MAX_START = 4;
 const CASCADE_FLASH_MAX_LENGTH = 6;
 
@@ -591,7 +592,7 @@ export function computeCascadeFrame(queue: QueueItem[], frame: number, rng?: () 
 
 function isCascadeComplete(queue: QueueItem[], frame: number, maxEnd?: number): boolean {
 	const clampedFrame = Math.max(0, frame);
-	if (maxEnd !== undefined) return clampedFrame >= maxEnd;
+	if (maxEnd !== undefined) return clampedFrame >= Math.max(maxEnd, CASCADE_MIN_ACTIVE_FRAMES);
 	for (const item of queue) {
 		if (clampedFrame < item.end) return false;
 	}
@@ -741,12 +742,12 @@ export function applyRipples(
 
 		for (let i = 0; i < activeCount; i++) {
 			if (idx < leftBounds[i] || idx > rightBounds[i]) continue;
-			const dist = Math.abs(idx - activeRipples[i].pos);
+			const ripplePos = text[activeRipples[i].pos] === ' ' ? nearestNonSpaceIndex(text, activeRipples[i].pos) : activeRipples[i].pos; const dist = Math.abs(idx - ripplePos);
 			const depth = radii[i] - dist;
-			if (depth > 0) {
-				const fade = 1 - smoothstep(DEPTH_BAND_MAX - 0.5, DEPTH_BAND_MAX + 0.5, depth);
+			const effectiveDepth = Math.max(depth, dist === 0 ? 0.1 : depth); if (effectiveDepth > 0) {
+				const fade = 1 - smoothstep(DEPTH_BAND_MAX - 0.5, DEPTH_BAND_MAX + 0.5, effectiveDepth);
 				if (fade > 0) {
-					const cappedDepth = Math.min(depth, DEPTH_BAND_MAX);
+					const cappedDepth = Math.min(effectiveDepth, DEPTH_BAND_MAX);
 					combinedDepth += cappedDepth * fade; // Additive for interference
 					if (cappedDepth > maxDepth || (cappedDepth === maxDepth && activeRipples[i].time > activeRipples[bestIdx]?.time)) {
 						maxDepth = cappedDepth;
@@ -949,14 +950,14 @@ function spawnIlluminateRippleForText(pos: number, now: number, config: Illumina
 	return [primary, spawnSecondaryRipple(primary)];
 }
 
-function spawnTpsRipples(pos: number, now: number): Ripple[] {
+function spawnTpsRipples(text: string, now: number): Ripple[] {
 	// TPS flash is intentionally brief — no secondary ripple
-	return [spawnRipple(pos, now, TPS_FLASH_DUR, TPS_FLASH_SPREAD)];
+	return [spawnRipple(randomizedCenterForText(text), now, TPS_FLASH_DUR, TPS_FLASH_SPREAD)];
 }
 
-function spawnTpsIlluminateRipples(pos: number, now: number): Ripple[] {
+function spawnTpsIlluminateRipples(text: string, now: number): Ripple[] {
 	// TPS flash is intentionally brief — no secondary ripple
-	return [spawnIlluminateRipple(pos, now, ILLUMINATE_CONFIGS.tps)];
+	return [spawnIlluminateRipple(randomizedCenterForText(text), now, ILLUMINATE_CONFIGS.tps)];
 }
 
 /**
@@ -977,6 +978,8 @@ function randomizedCenter(length: number, jitterRatio?: number, rng?: FastRNG): 
 		? rng.nextInt(maxJitter * 2 + 1) - maxJitter
 		: Math.floor(Math.random() * (maxJitter * 2 + 1)) - maxJitter;
 	return base + offset;
+} function nearestNonSpaceIndex(text: string, center: number): number { if (!text) return 0; const clampedCenter = Math.max(0, Math.min(text.length - 1, center)); if (text[clampedCenter] !== ' ') return clampedCenter; for (let distance = 1; distance < text.length; distance++) { const left = clampedCenter - distance; if (left >= 0 && text[left] !== ' ') return left; const right = clampedCenter + distance; if (right < text.length && text[right] !== ' ') return right; } return clampedCenter;
+} function randomizedCenterForText(text: string, jitterRatio?: number, rng?: FastRNG): number { return nearestNonSpaceIndex(text, randomizedCenter(text.length, jitterRatio, rng));
 }
 
 /**
@@ -1036,10 +1039,10 @@ export function findSentenceStarts(text: string): number[] {
 export function randomSentenceStart(text: string, rng?: FastRNG): number {
 	const starts = findSentenceStarts(text);
 	if (starts.length === 0 || (starts.length === 1 && starts[0] === 0)) {
-		return randomizedCenter(text.length, 0.2, rng);
+		return randomizedCenterForText(text, 0.2, rng);
 	}
 	const idx = rng ? rng.nextInt(starts.length) : Math.floor(Math.random() * starts.length);
-	return starts[idx];
+	return nearestNonSpaceIndex(text, starts[idx]);
 }
 
 // ---------------------------------------------------------------------------
@@ -2005,10 +2008,10 @@ export class ScrambleStateManager {
 			state.startTime = now;
 			state.queueMaxEnd = state.queue.reduce((max, item) => Math.max(max, item.end), 0);
 		} else if (this.mode === 'illuminate') {
-			state.ripples = spawnTpsIlluminateRipples(randomizedCenter(value.length), now);
+			state.ripples = spawnTpsIlluminateRipples(value, now);
 			state.startTime = now;
 		} else {
-			state.ripples = spawnTpsRipples(randomizedCenter(value.length), now);
+			state.ripples = spawnTpsRipples(value, now);
 		}
 	}
 

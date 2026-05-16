@@ -1,5 +1,5 @@
 import { runFlow, type RunFlowOptions } from "./flow.js";
-import { HatchetFlowRunner } from "./hatchet-runner.js";
+import { HatchetFlowRunner } from "./hatchet-runner-v1.js";
 import type { SingleResult } from "./types.js";
 
 /**

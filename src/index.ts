@@ -153,10 +153,7 @@ function reconstructFlowResultCache(
 	evictCacheOverflow(cache);
 }
 
-import {
-	computeActiveTools,
-	buildBeforeAgentStartPrompt,
-} from "./steering/flow-prompt.js";
+import { buildBeforeAgentStartPrompt } from "./steering/flow-prompt.js";
 
 // ---------------------------------------------------------------------------
 // Tool parameter schema
@@ -333,12 +330,8 @@ export default function (pi: ExtensionAPI) {
 		configureDirective(resolved.steeringStrategicHint);
 		scrambleManager.setAnimationConfig({ enabled: resolved.animationEnabled, glitch: resolved.animationGlitch });
 
-		// Only restrict tools for the main root state (depth 0).
-		// Child flows (depth > 0) receive their tools via --tools CLI arg;
-		// overriding them here would strip bash/batch from children.
-		if (currentDepth === 0) {
-			pi.setActiveTools(computeActiveTools(resolved.toolOptimize));
-		}
+		// Do not override the parent agent's active MCP tools on startup.
+		// Child flow tool restrictions are controlled by the flow runner's --tools args.
 
 		// Register tools based on depth.
 		// Depth 0 (main root state): only batch_read — no bash ops, only reads + flow tool.
@@ -379,11 +372,10 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
-	// Re-apply active tools every turn to survive registry refreshes.
-	// Skip for child flows — they get tools from --tools CLI arg.
+	// Reset per-turn prompt hint state without overriding parent active tools.
+	// Child flow tool restrictions are controlled by the flow runner's --tools args.
 	pi.on("turn_start", () => {
 		if (currentDepth > 0 || !resolved) return;
-		pi.setActiveTools(computeActiveTools(resolved.toolOptimize));
 		resetDirectiveTracker();
 	});
 

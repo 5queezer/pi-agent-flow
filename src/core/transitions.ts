@@ -21,6 +21,12 @@ export interface FlowTransition {
 	on: "success" | "failure" | "always";
 	/** Advisory message shown to the user. */
 	advice: string;
+	/**
+	 * When true, this transition is a blocking gate rather than advisory:
+	 * the orchestrator must run `to` (or explicitly waive) before treating
+	 * `from`'s work as complete. Default (undefined/false) = advisory.
+	 */
+	gate?: boolean;
 }
 
 // ---------------------------------------------------------------------------

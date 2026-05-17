@@ -121,3 +121,11 @@ describe("getTransitionAdvice", () => {
 		expect(advisors.some((a) => a.includes("build"))).toBe(false);
 	});
 });
+
+describe("FlowTransition gate field", () => {
+	it("supports an optional gate flag on transitions without changing advice output", () => {
+		const gated: FlowTransition = { from: "build", to: "audit", on: "success", advice: "x", gate: true };
+		expect(gated.gate).toBe(true);
+		expect(DEFAULT_TRANSITIONS.every((t) => t.gate === undefined || t.gate === false)).toBe(true);
+	});
+});

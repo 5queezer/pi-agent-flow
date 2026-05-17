@@ -7,8 +7,8 @@
  * When called with no arguments, opens an interactive TUI overlay.
  */
 
-import { DynamicBorder } from "@mariozechner/pi-coding-agent";
-import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
+import { DynamicBorder } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { loadFlowSettings, writeFlowSetting, loadFlowModelConfigs, writeGlobalFlowMode, writeFlowModelConfig, type FlowSettings } from "../config/config.js";
 import { configureSteering } from "../steering/sliding-prompt.js";
 import { configureStrategicHint } from "../steering/tool-utils.js";
@@ -28,7 +28,7 @@ import {
 	truncateToWidth,
 	visibleWidth,
 	wrapTextWithAnsi,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 
 // Module-level refs for submenu builders (set during handler call)
 let _modelRegistry: any = null;

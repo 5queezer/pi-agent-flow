@@ -1,6 +1,6 @@
 /** Minimal ambient declarations for peer dependencies */
 
-declare module "@mariozechner/pi-coding-agent" {
+declare module "@earendil-works/pi-coding-agent" {
 	export interface ExtensionAPI {
 		registerFlag(name: string, config: { description: string; type: string }): void;
 		getFlag(name: string): unknown;
@@ -155,7 +155,7 @@ export interface ExtensionContext {
 	export function __resetBashToolMock(): void;
 }
 
-declare module "@mariozechner/pi-tui" {
+declare module "@earendil-works/pi-tui" {
 	export interface Component {
 		invalidate(): void;
 		render(width: number): string[];
@@ -305,7 +305,7 @@ declare module "@mariozechner/pi-tui" {
 	export function visibleWidth(text: string): number;
 }
 
-declare module "@mariozechner/pi-agent-core" {
+declare module "@earendil-works/pi-agent-core" {
 	export interface AgentToolResult<T = any> {
 		content: any[];
 		details?: T;
@@ -314,7 +314,7 @@ declare module "@mariozechner/pi-agent-core" {
 	}
 }
 
-declare module "@mariozechner/pi-ai" {
+declare module "@earendil-works/pi-ai" {
 	export interface Message {
 		role: string;
 		content: string | any[];

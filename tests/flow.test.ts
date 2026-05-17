@@ -1036,7 +1036,7 @@ describe("timeout two-stage behavior", () => {
 		const mockProc = makeMockProcess();
 		vi.mocked(childProcess.spawn).mockReturnValue(mockProc);
 		vi.setSystemTime(new Date("2026-05-07T00:00:00.000Z"));
-		const updates: Array<import("@mariozechner/pi-agent-core").AgentToolResult<FlowDetails>> = [];
+		const updates: Array<import("@earendil-works/pi-agent-core").AgentToolResult<FlowDetails>> = [];
 
 		const opts: RunFlowOptions = {
 			cwd: "/tmp",

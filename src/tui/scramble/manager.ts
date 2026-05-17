@@ -1,7 +1,7 @@
 // Auto-generated from src/tui/scramble.ts split
 import { stripAnsi, tailText, truncateChars } from '../render-utils.js';
-import type { Component } from '@mariozechner/pi-tui';
-import { Text, truncateToWidth } from '@mariozechner/pi-tui';
+import type { Component } from '@earendil-works/pi-tui';
+import { Text, truncateToWidth } from '@earendil-works/pi-tui';
 import {
 	AnimationConfig,
 	ScrambleResult,

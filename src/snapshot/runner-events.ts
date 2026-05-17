@@ -14,7 +14,7 @@
  * See snapshot.ts for the Fork Snapshot Protocol (session state serialization).
  */
 
-import type { Message } from "@mariozechner/pi-ai";
+import type { Message } from "@earendil-works/pi-ai";
 import { formatBatchOpsSummary } from "../batch/summary.js";
 
 // WeakMap-based side tables to avoid polluting caller objects and survive frozen/sealed objects.

@@ -6,7 +6,7 @@ import { setupContinuation, markFlowCompleted } from "../src/flow/continuation.j
 import { setGoal, clearGoal, getGoal } from "../src/flow/store.js";
 import { setLoop, clearLoop, disableLoop } from "../src/flow/loop.js";
 import * as sessionRegistry from "../src/core/session-registry.js";
-import type { TurnEndEvent } from "@mariozechner/pi-coding-agent";
+import type { TurnEndEvent } from "@earendil-works/pi-coding-agent";
 
 describe("continuation loop integration", () => {
   let tmpDir: string;

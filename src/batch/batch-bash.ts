@@ -13,7 +13,7 @@ import { compressOutput } from "./shell-compress.js";
  * haven't finished continue running in the background and can be polled
  * via the `batch_bash_poll` tool.
  *
- * Why not `createLocalBashOperations` from `@mariozechner/pi-coding-agent`?
+ * Why not `createLocalBashOperations` from `@earendil-works/pi-coding-agent`?
  * That helper is a simple exec wrapper (returns a promise when the process exits).
  * Our tracker needs background execution + polling: processes must outlive the
  * soft timeout and be queried later via `batch_bash_poll`. We therefore use raw

@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext, TurnEndEvent } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import { getGoal, addTokens, updateGoalStatus } from "./store.js";
 import { budgetLimitTemplate, idleWakeupTemplate, continuationPromptTemplate } from "./template-strings.js";
 import { getLoop } from "./loop.js";

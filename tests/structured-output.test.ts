@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Message } from "@mariozechner/pi-ai";
+import type { Message } from "@earendil-works/pi-ai";
 import { extractStructuredOutput, generateCommandsFromHistory } from "../src/snapshot/structured-output.js";
 import type { FlowStructuredOutput } from "../src/types/output.js";
 

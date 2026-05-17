@@ -57,7 +57,7 @@ export interface FlowExecutorDeps {
 	/** Abort signal. */
 	signal?: AbortSignal;
 	/** Streaming update callback. */
-	onUpdate?: (result: import("@mariozechner/pi-agent-core").AgentToolResult<FlowDetails>) => void;
+	onUpdate?: (result: import("@earendil-works/pi-agent-core").AgentToolResult<FlowDetails>) => void;
 	/** Factory to wrap results into FlowDetails. */
 	makeDetails: (results: SingleResult[]) => FlowDetails;
 	/** Get a CLI flag value. */

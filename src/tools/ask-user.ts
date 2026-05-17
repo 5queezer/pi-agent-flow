@@ -5,7 +5,7 @@
  * Minimal schema: question + options[{title, description}].
  */
 
-import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Type, type TUnsafe } from "@sinclair/typebox";
 import { appendDirectiveOnce } from "../steering/tool-utils.js";
 import { setPendingDecision } from "../notify/notify-state.js";
@@ -24,7 +24,7 @@ import {
 	type TUI,
 	truncateToWidth,
 	wrapTextWithAnsi,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 import { renderSingleSelectRows, type QuestionOption } from "../tui/single-select-layout.js";
 import { loadFlowSettings } from "../config/config.js";
 

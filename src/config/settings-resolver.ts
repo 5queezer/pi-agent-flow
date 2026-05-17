@@ -6,7 +6,7 @@
 
 import * as os from "node:os";
 import * as fs from "node:fs";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type FlowConfig, discoverFlows } from "../core/agents.js";
 import {
 	loadFlowModelConfigs,

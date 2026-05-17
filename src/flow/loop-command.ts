@@ -4,7 +4,7 @@
  * Subcommands: enable, disable, status, stop, reset
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getGoal } from "./store.js";
 import {
   getLoop,

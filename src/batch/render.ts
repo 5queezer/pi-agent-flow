@@ -2,7 +2,7 @@
  * batch — rendering helpers for tool calls and results.
  */
 
-import { Container, Text, TruncatedText } from "@mariozechner/pi-tui";
+import { Container, Text, TruncatedText } from "@earendil-works/pi-tui";
 import { scrambleManager, runScrambleTimer } from "../tui/scramble/index.js";
 import { stripAnsi } from "../tui/render-utils.js";
 import type { BatchTheme, OpResult } from "./constants.js";

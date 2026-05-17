@@ -2,7 +2,7 @@
  * UI display types and helpers.
  */
 
-import type { Message } from "@mariozechner/pi-ai";
+import type { Message } from "@earendil-works/pi-ai";
 
 /** A display-friendly representation of a message part. */
 export type DisplayItem =

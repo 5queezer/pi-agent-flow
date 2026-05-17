@@ -6,8 +6,8 @@
  */
 
 import * as os from "node:os";
-import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
-import { Container, Markdown, Spacer, Text, TruncatedText } from "@mariozechner/pi-tui";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { Container, Markdown, Spacer, Text, TruncatedText } from "@earendil-works/pi-tui";
 import { getFlowSummaryText } from "../snapshot/runner-events.js";
 import type {
 	SingleResult,

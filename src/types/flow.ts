@@ -2,7 +2,7 @@
  * Flow execution and telemetry types.
  */
 
-import type { Message } from "@mariozechner/pi-ai";
+import type { Message } from "@earendil-works/pi-ai";
 import { getFlowFinalText } from "../snapshot/runner-events.js";
 
 /** Aggregated token usage from a flow run. */

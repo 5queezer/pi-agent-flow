@@ -15,8 +15,8 @@ import {
 import { renderFlowCall, renderFlowResult, renderSingleFlowResult, resetAnonymousFlowIdCounter, reconstructHeader } from "../src/tui/render.js";
 import { scrambleManager, DynamicScrambleText } from "../src/tui/scramble/index.js";
 import { emptyFlowUsage, type SingleResult, type FlowDetails } from "../src/types/flow.js";
-import type { Text, TruncatedText } from "@mariozechner/pi-tui";
-import { Container } from "@mariozechner/pi-tui";
+import type { Text, TruncatedText } from "@earendil-works/pi-tui";
+import { Container } from "@earendil-works/pi-tui";
 
 // Helper to extract text from Text, TruncatedText, Container, or DynamicScrambleText objects
 function extractText(node: Text | Container | TruncatedText | DynamicScrambleText): string {

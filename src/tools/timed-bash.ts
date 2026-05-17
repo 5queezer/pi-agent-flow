@@ -14,7 +14,7 @@
  */
 
 import * as fs from "node:fs";
-import { createBashToolDefinition } from "@mariozechner/pi-coding-agent";
+import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { appendDirectiveOnce, appendTextToToolResult } from "../steering/tool-utils.js";
 import { compressOutput } from "../batch/shell-compress.js";
 

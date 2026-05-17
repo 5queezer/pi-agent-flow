@@ -48,6 +48,25 @@ export const DEFAULT_TRANSITIONS: FlowTransition[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Env-gate helpers
+// ---------------------------------------------------------------------------
+
+function envFlag(name: string): boolean {
+	const v = process.env[name];
+	return v !== undefined && ["1", "true", "yes"].includes(v.trim().toLowerCase());
+}
+
+/** Apply env-driven gate overrides to a transition matrix (non-mutating). */
+export function withEnvGates(transitions: FlowTransition[]): FlowTransition[] {
+	if (!envFlag("PI_FLOW_REQUIRE_AUDIT_AFTER_BUILD")) return transitions;
+	return transitions.map((t) =>
+		t.from === "build" && t.to === "audit" && t.on === "success"
+			? { ...t, gate: true }
+			: t,
+	);
+}
+
+// ---------------------------------------------------------------------------
 // Advice generation
 // ---------------------------------------------------------------------------
 
@@ -64,7 +83,7 @@ export const DEFAULT_TRANSITIONS: FlowTransition[] = [
 export function getTransitionAdvice(
 	params: Array<{ type: string; intent: string }>,
 	results: Array<{ type: string; exitCode: number; stopReason?: string; sawAgentEnd?: boolean; messages: unknown[] }>,
-	transitions: FlowTransition[] = DEFAULT_TRANSITIONS,
+	transitions: FlowTransition[] = withEnvGates(DEFAULT_TRANSITIONS),
 ): string[] {
 	const requestedTypes = new Set(params.map((p) => p.type.toLowerCase()));
 	const advisors: string[] = [];
@@ -83,7 +102,7 @@ export function getTransitionAdvice(
 			// Suppress if target already in the batch
 			if (requestedTypes.has(t.to.toLowerCase())) continue;
 
-			advisors.push(t.advice);
+			advisors.push(t.gate ? `REQUIRED (gate): ${t.advice}` : t.advice);
 		}
 	}
 

@@ -301,6 +301,36 @@ async function getWorkflowRunOutput(ref: HatchetWorkflowRunRef): Promise<unknown
 	throw new Error("Hatchet run reference did not expose a result/output reader.");
 }
 
+function validateHatchetRunOutput(value: unknown): SingleResult {
+	try {
+		return validateSingleResult(value, "Hatchet run result");
+	} catch (originalError) {
+		if (isRecord(value) && value[HATCHET_FLOW_TASK_NAME] !== undefined) {
+			return validateSingleResult(value[HATCHET_FLOW_TASK_NAME], `Hatchet run result ${HATCHET_FLOW_TASK_NAME}`);
+		}
+		throw originalError;
+	}
+}
+
+type HatchetRemoteRunStatus = import("./hatchet-run-adapter.js").HatchetRemoteRunStatus;
+
+async function getPersistedRunStatus(client: unknown, runId: string): Promise<HatchetRemoteRunStatus | undefined> {
+	const runs = getProperty(client, "runs");
+	const getRun = asFunction<(id: string) => Promise<unknown>>(getProperty(runs, "get"));
+	if (!runs || !getRun) return undefined;
+	const run = await getRun.call(runs, runId);
+	const tasks = isRecord(run) && Array.isArray(run.tasks) ? run.tasks : [];
+	const task = tasks.find((entry) => isRecord(entry) && (entry.taskExternalId === runId || entry.workflowRunExternalId === runId)) ?? tasks[0];
+	if (!isRecord(task)) return undefined;
+	const rawStatus = typeof task.status === "string" ? task.status.toLowerCase() : "";
+	if (rawStatus === "completed") return { status: "completed", result: validateHatchetRunOutput(task.output) };
+	if (rawStatus === "failed") return { status: "failed", errorMessage: typeof task.errorMessage === "string" ? task.errorMessage : "Hatchet run failed" };
+	if (rawStatus === "cancelled" || rawStatus === "canceled") return { status: "cancelled", errorMessage: typeof task.errorMessage === "string" ? task.errorMessage : "Hatchet run cancelled" };
+	if (rawStatus === "queued" || rawStatus === "pending") return { status: "queued" };
+	if (rawStatus === "running" || rawStatus === "started") return { status: "running" };
+	return undefined;
+}
+
 function makeRunOptions(clientRunId: string | undefined): Record<string, unknown> | undefined {
 	return clientRunId ? { additionalMetadata: { clientRunId } } : undefined;
 }
@@ -336,7 +366,7 @@ export class SdkHatchetRunAdapter implements HatchetRunAdapter {
 			const directRunNoWait = asFunction<(taskName: string, payload: HatchetFlowPayload, options?: unknown) => Promise<unknown>>(
 				getProperty(client, "runNoWait"),
 			);
-			if (directRunNoWait) ref = await directRunNoWait(taskName, payload, runOptions);
+			if (directRunNoWait) ref = await directRunNoWait.call(client, taskName, payload, runOptions);
 		}
 
 		if (!ref) {
@@ -344,7 +374,7 @@ export class SdkHatchetRunAdapter implements HatchetRunAdapter {
 			const taskRunNoWait = asFunction<(taskName: string, payload: HatchetFlowPayload, options?: unknown) => Promise<unknown>>(
 				getProperty(tasks, "runNoWait"),
 			);
-			if (taskRunNoWait) ref = await taskRunNoWait(taskName, payload, runOptions);
+			if (taskRunNoWait) ref = await taskRunNoWait.call(tasks, taskName, payload, runOptions);
 		}
 
 		if (!isWorkflowRunRef(ref)) {
@@ -361,12 +391,14 @@ export class SdkHatchetRunAdapter implements HatchetRunAdapter {
 			let ref = this.refs.get(handle.runId);
 			if (!ref) {
 				const client = await this.getClient();
+				const persistedStatus = await getPersistedRunStatus(client, handle.runId);
+				if (persistedStatus) return persistedStatus;
 				const runRef = asFunction<(id: string) => HatchetWorkflowRunRef>(getProperty(client, "runRef"));
 				if (!runRef) return { status: "unknown", errorMessage: "Hatchet SDK client does not support runRef(id)." };
-				ref = runRef(handle.runId);
+				ref = runRef.call(client, handle.runId);
 				this.refs.set(handle.runId, ref);
 			}
-			const result = validateSingleResult(await getWorkflowRunOutput(ref), "Hatchet run result");
+			const result = validateHatchetRunOutput(await getWorkflowRunOutput(ref));
 			this.refs.delete(handle.runId);
 			return { status: "completed", result };
 		} catch (err) {
@@ -381,7 +413,7 @@ export class SdkHatchetRunAdapter implements HatchetRunAdapter {
 			const client = await this.getClient();
 			const runRef = asFunction<(id: string) => HatchetWorkflowRunRef>(getProperty(client, "runRef"));
 			if (!runRef) throw new Error("Hatchet SDK client does not support runRef(id).");
-			ref = runRef(handle.runId);
+			ref = runRef.call(client, handle.runId);
 			this.refs.set(handle.runId, ref);
 		}
 		if (typeof ref.cancel !== "function") throw new Error("Hatchet run reference does not support cancellation.");

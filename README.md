@@ -480,6 +480,30 @@ The registry stores metadata, run handles, statuses, and sanitized final results
 
 Operational hardening: the parent validates returned Hatchet results against the expected `SingleResult` shape before marking a flow complete, and workers validate `PI_FLOW_SPAWN_COMMAND`, the queued `cwd`/`taskCwd` workspace, and the final `runFlow()` result before returning to Hatchet. Worker checkouts should run the same `pi-agent-flow` package version as the parent, provide required Pi/provider/Hatchet secrets explicitly, and avoid inheriting unrelated worker secrets into child `pi` processes. Payloads are limited to 1,500,000 serialized bytes by default to leave room for larger inherited session snapshots; set `PI_FLOW_HATCHET_MAX_PAYLOAD_BYTES` only for trusted private queues with appropriate retention. Keep Hatchet task retries disabled or bounded so a queue retry does not duplicate `executeFlows()` model failover attempts.
 
+### Optional Temporal backend
+
+Local forked execution remains the default. Set `PI_FLOW_RUNNER=temporal` to route resolved flow attempts through Temporal instead of Hatchet. The Temporal runner starts the exported `runPiFlowWorkflow` workflow on the configured task queue, waits for the final `SingleResult`, and emits lifecycle updates (`queued/running`, `completed`, or `failed`) through the normal flow progress path. Start a worker with:
+
+```bash
+npm run temporal-worker
+```
+
+Useful Temporal settings:
+
+```bash
+PI_FLOW_RUNNER=temporal
+PI_FLOW_TEMPORAL_ADDRESS=localhost:7233
+PI_FLOW_TEMPORAL_NAMESPACE=default
+PI_FLOW_TEMPORAL_TASK_QUEUE=pi-agent-flow
+PI_FLOW_TEMPORAL_RESULT_TIMEOUT_MS=600000
+```
+
+The Temporal SDK is dynamically imported and is not required for local-only or Hatchet-only users. Install and configure `@temporalio/client`, `@temporalio/worker`, `@temporalio/workflow`, and `@temporalio/activity` only where `PI_FLOW_RUNNER=temporal` or `npm run temporal-worker` is used.
+
+**Temporal determinism boundary:** Temporal Workflow code stays deterministic and only calls a Temporal Activity. The Activity reconstructs local `runFlow()` options, forces nested child execution back to `PI_FLOW_RUNNER=local`, validates `cwd`/`taskCwd`, and then invokes the existing local child-process flow path. Do not move filesystem access, environment mutation, model calls, or child-process spawning into `temporal-workflows.ts`.
+
+**Temporal payload trust boundary:** Temporal workflow inputs include the selected flow configuration, prompt text, inherited session snapshot, working directory, and project flow directory path. Treat the Temporal namespace, task queue, workers, and history retention as trusted infrastructure; do not route these payloads through untrusted tenants, logs, or retention policies.
+
 Session mode precedence is:
 
 ```txt
@@ -513,8 +537,12 @@ per-flow sessionMode > --flow-session-mode > PI_FLOW_SESSION_MODE > flowSettings
 | `PI_FLOW_TOOL_OPTIMIZE` | `"1"` or `"0"` (overrides default tool optimization) |
 | `PI_FLOW_SESSION_MODE` | Default child-flow session mode: `fast`, `default`, `long`, or `extreme_long` |
 | `PI_FLOW_MAX_CONCURRENCY` | Maximum parallel flows |
-| `PI_FLOW_RUNNER` | Flow execution backend: unset/`local` for local forked children, or `hatchet` for the optional final-result-only Hatchet backend |
-| `PI_FLOW_HATCHET_MAX_PAYLOAD_BYTES` | Maximum serialized Hatchet task payload size in bytes; defaults to `1500000` |
+| `PI_FLOW_RUNNER` | Flow execution backend: unset/`local` for local forked children, `hatchet` for the optional Hatchet backend, or `temporal` for the optional Temporal backend |
+| `PI_FLOW_HATCHET_MAX_PAYLOAD_BYTES` | Maximum serialized durable task payload size in bytes for the Hatchet and Temporal backends; defaults to `1500000` |
+| `PI_FLOW_TEMPORAL_ADDRESS` | Temporal frontend address for `PI_FLOW_RUNNER=temporal`; defaults to `localhost:7233` |
+| `PI_FLOW_TEMPORAL_NAMESPACE` | Temporal namespace for `PI_FLOW_RUNNER=temporal`; defaults to `default` |
+| `PI_FLOW_TEMPORAL_TASK_QUEUE` | Temporal task queue for flow workflows/workers; defaults to `pi-agent-flow` |
+| `PI_FLOW_TEMPORAL_RESULT_TIMEOUT_MS` | Parent-side wait timeout for a Temporal workflow result; defaults to `600000` |
 | `PI_FLOW_SPAWN_COMMAND` | Override the spawn command for exotic runtime environments (e.g. bundled with pkg/nexe) |
 | `PI_FLOW_DEADLINE_MS` | Absolute deadline timestamp (ms) propagated to child flows for timeout awareness |
 | `PI_FLOW_TOOL_SUMMARY_GRACE_MS` | Time before hard timeout when the agent should stop tool use and summarize (ms) |

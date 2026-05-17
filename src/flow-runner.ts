@@ -1,5 +1,6 @@
 import { runFlow, type RunFlowOptions } from "./core/flow.js";
 import { HatchetFlowRunner } from "./hatchet-runner.js";
+import { TemporalFlowRunner } from "./temporal-runner.js";
 import type { SingleResult } from "./types/flow.js";
 
 /**
@@ -61,12 +62,13 @@ export const DEFAULT_LOCAL_FLOW_RUNNER = new LocalFlowRunner();
 /**
  * Creates a flow runner from environment configuration.
  * @param env Environment map to inspect; reads PI_FLOW_RUNNER and defaults to process.env.
- * @returns Hatchet runner for "hatchet", otherwise the shared local runner; unknown values warn and fall back.
+ * @returns Durable backend runner for configured values, otherwise the shared local runner; unknown values warn and fall back.
  */
 export function createFlowRunnerFromEnv(env: NodeJS.ProcessEnv = process.env): FlowRunner {
   const requested = env[PI_FLOW_RUNNER_ENV]?.trim().toLowerCase();
   if (!requested || requested === "local") return DEFAULT_LOCAL_FLOW_RUNNER;
   if (requested === "hatchet") return new HatchetFlowRunner();
+  if (requested === "temporal") return new TemporalFlowRunner();
   console.warn(`[pi-agent-flow] Ignoring unknown ${PI_FLOW_RUNNER_ENV}="${requested}". Using local runner.`);
   return DEFAULT_LOCAL_FLOW_RUNNER;
 }

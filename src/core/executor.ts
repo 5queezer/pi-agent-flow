@@ -178,11 +178,13 @@ function shouldFailover(result: SingleResult): boolean {
   return true;
 }
 
-function evictCacheOverflow(cache: Map<string, CompressedFlowResult[]>): void {
-  const MAX_KEYS = 32;
-  if (cache.size <= MAX_KEYS) return;
-  const oldestKey = cache.keys().next().value as string | undefined;
-  if (oldestKey !== undefined) cache.delete(oldestKey);
+export function evictCacheOverflow(cache: Map<string, CompressedFlowResult[]>): void {
+  const MAX_KEYS = 100;
+  while (cache.size > MAX_KEYS) {
+    const oldestKey = cache.keys().next().value as string | undefined;
+    if (oldestKey === undefined) return;
+    cache.delete(oldestKey);
+  }
 }
 
 

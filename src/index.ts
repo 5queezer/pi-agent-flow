@@ -19,6 +19,7 @@ import { createBatchTool, createBatchReadTool, BashProcessTracker, createBatchBa
 import { createWebTool } from "./tools/web-tool.js";
 import { createAskUserTool } from "./tools/ask-user.js";
 import { stripSteeringHintText, stripSteeringHintsFromMessages, makeSteeringHintMessage, configureSteering } from "./steering/sliding-prompt.js";
+import { buildBeforeAgentStartPrompt } from "./steering/flow-prompt.js";
 import { registerFlow, getGoalForSession, recordFlowCompletion, addTokens, shutdownWakeup } from "./flow/index.js";
 import * as sessionRegistry from "./core/session-registry.js";
 import { createTimedBashToolDefinition } from "./tools/timed-bash.js";
@@ -83,7 +84,50 @@ export default function (pi: ExtensionAPI) {
   let resolved: ResolvedSettings | undefined;
   let _sessionCtx: ExtensionContext | undefined;
   let flowRunner: FlowRunner | undefined;
-  let bashTracker: BashProcessTracker | undefined;
+  const bashTracker = new BashProcessTracker();
+
+  const registerTool = (
+    tool:
+      | ReturnType<typeof createBatchTool>
+      | ReturnType<typeof createBatchReadTool>
+      | ReturnType<typeof createBatchBashPollTool>
+      | ReturnType<typeof createWebTool>
+      | ReturnType<typeof createAskUserTool>
+      | ReturnType<typeof createTimedBashToolDefinition>
+      | null,
+  ) => {
+    if (tool) pi.registerTool(tool);
+  };
+
+  pi.registerFlag("flow-model-config", {
+    description: "Select a named flow model strategy for this invocation.",
+    type: "string",
+  });
+  pi.registerFlag("flow-mode", {
+    description: "Persistently switch the global flow model strategy and apply it immediately.",
+    type: "string",
+  });
+
+  registerTool(createWebTool());
+  registerTool(createAskUserTool());
+
+  pi.on("context", async (event) => {
+    const originalMessages = Array.isArray(event?.messages) ? event.messages : [];
+    const { messages } = stripSteeringHintsFromMessages(originalMessages);
+    const lastUserIndex = messages.map((message: any) => message?.role).lastIndexOf("user");
+    if (lastUserIndex === -1) return { messages };
+
+    const steeringMessage = makeSteeringHintMessage(messages[lastUserIndex]);
+    if (!steeringMessage) return { messages };
+
+    return {
+      messages: [
+        ...messages.slice(0, lastUserIndex),
+        steeringMessage,
+        ...messages.slice(lastUserIndex),
+      ],
+    };
+  });
 
   pi.on("session_start", async (_event, ctx) => {
     sessionRegistry.register(ctx.cwd, ctx.sessionManager.getSessionId());
@@ -93,9 +137,16 @@ export default function (pi: ExtensionAPI) {
 
     configureSteering({ enabled: resolved.steeringEnabled, customPrompt: resolved.steeringCustomPrompt });
     configureStrategicHint(resolved.steeringStrategicHint);
-    setAnimationConfig({ enabled: resolved.animationEnabled, glitch: resolved.glitchEnabled });
-    setupNotify(pi, ctx.cwd);
-    bashTracker = new BashProcessTracker();
+    setAnimationConfig({ enabled: resolved.animationEnabled, glitch: resolved.animationGlitch });
+    setupNotify(pi);
+
+    if (currentDepth === 0) {
+      registerTool(createBatchReadTool());
+    } else {
+      registerTool(createBatchTool(bashTracker, resolved.toolOptimize));
+      registerTool(createBatchBashPollTool(bashTracker));
+      registerTool(createTimedBashToolDefinition(ctx.cwd));
+    }
 
     // Startup reconciliation: if there are active Hatchet runs and an adapter is configured,
     // reconcile them in the background without blocking session start.
@@ -119,18 +170,23 @@ export default function (pi: ExtensionAPI) {
       // Best-effort — startup reconciliation must not break startup
     }
 
-    const baseTools = [
-      createBatchTool(pi, ctx),
-      createBatchReadTool(pi, ctx),
-      createTimedBashToolDefinition(pi, ctx, bashTracker),
-      createBatchBashPollTool(pi, ctx, bashTracker),
-      createWebTool(pi, ctx),
-      createAskUserTool(pi, ctx),
-    ];
+  });
 
-    if (currentDepth === 0) {
-      pi.setTools(baseTools);
-    }
+  pi.on("before_agent_start", async (event) => {
+    if (!resolved) return undefined;
+    const systemPrompt = buildBeforeAgentStartPrompt(
+      event,
+      resolved.toolOptimize,
+      canDelegate,
+      resolved.discoveredFlows,
+      depthConfig,
+    );
+    return systemPrompt ? { systemPrompt } : undefined;
+  });
+
+  pi.on("turn_start", () => {
+    if (currentDepth > 0 || !resolved) return;
+    resetStrategicHintTracker();
   });
 
   pi.on("session_end", async () => {
@@ -139,8 +195,9 @@ export default function (pi: ExtensionAPI) {
     shutdownWakeup();
   });
 
-  pi.addTool({
+  pi.registerTool({
     name: "flow",
+    label: "flow",
     description: "Delegate work to one or more specialized flows.",
     parameters: FlowParams,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -175,10 +232,7 @@ export default function (pi: ExtensionAPI) {
         return typeof inheritedValue === "string" && inheritedValue.trim() ? inheritedValue.trim() : undefined;
       };
 
-      // Reset per-turn prompt hint state without overriding parent active tools.
-// Child flow tool restrictions are still controlled by the flow runner's --tools args.
-pi.on("turn_start", () => { if (currentDepth > 0 || !resolved) return; resetStrategicHintTracker(); });
-const goal = getGoalForSession(ctx.cwd, sessionRegistry.getSessionId(ctx.cwd));
+      const goal = getGoalForSession(ctx.cwd, sessionRegistry.getSessionId(ctx.cwd));
       const goalContext = goal ? {
         objective: goal.objective,
         acceptance: goal.acceptance,
@@ -219,10 +273,7 @@ const goal = getGoalForSession(ctx.cwd, sessionRegistry.getSessionId(ctx.cwd));
           goalContext,
           goalId: goal?.id,
           goalContinuationCallback: async (results) => {
-            // Reset per-turn prompt hint state without overriding parent active tools.
-// Child flow tool restrictions are still controlled by the flow runner's --tools args.
-pi.on("turn_start", () => { if (currentDepth > 0 || !resolved) return; resetStrategicHintTracker(); });
-const goal = getGoalForSession(ctx.cwd, sessionRegistry.getSessionId(ctx.cwd));
+            const goal = getGoalForSession(ctx.cwd, sessionRegistry.getSessionId(ctx.cwd));
             if (!goal) return;
             for (const r of results) {
               recordFlowCompletion(ctx.cwd, { type: r.type, intent: r.intent, aim: r.aim });
@@ -261,24 +312,12 @@ const goal = getGoalForSession(ctx.cwd, sessionRegistry.getSessionId(ctx.cwd));
       toolOptimize: resolved.toolOptimize,
       structuredOutput: resolved.structuredOutput,
       maxConcurrency: resolved.maxConcurrency,
-      defaultSessionMode: resolved.defaultSessionMode,
       steeringEnabled: resolved.steeringEnabled,
       steeringCustomPrompt: resolved.steeringCustomPrompt,
       steeringStrategicHint: resolved.steeringStrategicHint,
       animationEnabled: resolved.animationEnabled,
-      glitchEnabled: resolved.glitchEnabled,
-      loadedFlowModelConfigs: resolved.loadedFlowModelConfigs,
-      activeRuntimeFlowMode: resolved.activeRuntimeFlowMode,
+      animationGlitch: resolved.animationGlitch,
     } : undefined,
-    resetStrategicHintTracker,
-    stripSteeringHintText,
-    stripSteeringHintsFromMessages,
-    makeSteeringHintMessage,
-    computeActiveTools: (currentDepthArg, toolArg, canDelegateArg = canDelegate) =>
-      import("./steering/flow-prompt.js").then((m) => m.computeActiveTools(currentDepthArg, toolArg, canDelegateArg)),
-    buildBeforeAgentStartPrompt: (currentDepthArg, promptArg) =>
-      import("./steering/flow-prompt.js").then((m) => m.buildBeforeAgentStartPrompt(currentDepthArg, promptArg)),
-    scrambleManager,
   };
 
   if (typeof pi.emit === "function") {

@@ -79,7 +79,7 @@ export interface PiAgentFlowAPI {
 	discoverFlows: (cwd: string) => { flows: Array<{ name: string; description: string; source: string }>; projectFlowsDir: string | null };
 	/** Determine the model tier for a given flow name. */
 	getFlowTier: (name: string) => string;
-	/** Get current flow settings. */
+	/** Get current flow settings. Undefined until session_start resolves settings. */
 	getSettings: () => {
 		toolOptimize: boolean;
 		structuredOutput: boolean;
@@ -89,7 +89,7 @@ export interface PiAgentFlowAPI {
 		steeringStrategicHint: boolean;
 		animationEnabled: boolean;
 		animationGlitch: boolean;
-	};
+	} | undefined;
 }
 
 /** Create an empty UsageStats object. */

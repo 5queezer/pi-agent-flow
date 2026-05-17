@@ -5,7 +5,7 @@
  * updates the registry, and records goal progress exactly once per completed run.
  */
 
-import type { HatchetRunAdapter } from "./hatchet-run-adapter.js";
+import type { HatchetRemoteRunStatus, HatchetRunAdapter } from "./hatchet-run-adapter.js";
 import type { HatchetRunRecord } from "./hatchet-run-registry.js";
 import {
 	listActiveHatchetRuns,
@@ -18,6 +18,8 @@ import {
 import { recordFlowCompletion, addTokens, getGoal } from "./flow/store.js";
 import type { SingleResult } from "./types/flow.js";
 
+const DEFAULT_RECONCILE_RESULT_TIMEOUT_MS = 5_000;
+
 export interface HatchetReconcileOptions {
 	cwd: string;
 	sessionId?: string;
@@ -25,6 +27,8 @@ export interface HatchetReconcileOptions {
 	adapter: HatchetRunAdapter;
 	/** When true, also reconcile runs from other sessions. Default: false. */
 	includeOtherSessions?: boolean;
+	/** Maximum time to wait for one remote status lookup before preserving it as running. */
+	resultTimeoutMs?: number;
 }
 
 export interface HatchetReconcileSummary {
@@ -42,7 +46,7 @@ export interface HatchetReconcileSummary {
  * Updates registry statuses, records goal progress once for completed runs.
  */
 export async function reconcileHatchetRuns(options: HatchetReconcileOptions): Promise<HatchetReconcileSummary> {
-	const { cwd, sessionId, goalId, adapter, includeOtherSessions = false } = options;
+	const { cwd, sessionId, goalId, adapter, includeOtherSessions = false, resultTimeoutMs = DEFAULT_RECONCILE_RESULT_TIMEOUT_MS } = options;
 
 	const activeRuns = listActiveHatchetRuns(cwd);
 
@@ -78,7 +82,7 @@ export async function reconcileHatchetRuns(options: HatchetReconcileOptions): Pr
 		}
 
 		try {
-			const remoteStatus = await adapter.getResult({ runId: run.hatchetRunId });
+			const remoteStatus = await getResultWithTimeout(adapter, run.hatchetRunId, resultTimeoutMs);
 
 			switch (remoteStatus.status) {
 				case "completed": {
@@ -123,6 +127,29 @@ export async function reconcileHatchetRuns(options: HatchetReconcileOptions): Pr
 	}
 
 	return summary;
+}
+
+async function getResultWithTimeout(
+	adapter: HatchetRunAdapter,
+	runId: string,
+	timeoutMs: number,
+): Promise<HatchetRemoteRunStatus> {
+	if (timeoutMs <= 0 || !Number.isFinite(timeoutMs)) return await adapter.getResult({ runId });
+	return await new Promise<HatchetRemoteRunStatus>((resolve, reject) => {
+		const timer = setTimeout(() => {
+			resolve({ status: "running", errorMessage: `Hatchet run status lookup exceeded ${timeoutMs}ms.` });
+		}, timeoutMs);
+		adapter.getResult({ runId }).then(
+			(result) => {
+				clearTimeout(timer);
+				resolve(result);
+			},
+			(error) => {
+				clearTimeout(timer);
+				reject(error);
+			},
+		);
+	});
 }
 
 function recordGoalProgressIfNeeded(

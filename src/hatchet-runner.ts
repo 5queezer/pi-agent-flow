@@ -371,7 +371,7 @@ export class SdkHatchetRunAdapter implements HatchetRunAdapter {
 			return { status: "completed", result };
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : String(err);
-			return { status: "failed", errorMessage };
+			return { status: "unknown", errorMessage };
 		}
 	}
 
@@ -437,21 +437,31 @@ function emitHatchetLifecycleUpdate(
 }
 export interface HatchetFlowRunnerOptions {
 	adapter: HatchetRunAdapter;
+	/**
+	 * When true, fail before submitting to Hatchet if the local durable registry
+	 * cannot be written. The default SDK-backed runner enables this because a
+	 * submitted remote run without a local record cannot be recovered after Pi exits.
+	 */
+	requireRegistry?: boolean;
 }
 
 export class HatchetFlowRunner implements FlowRunner {
 	private readonly adapter: HatchetRunAdapter;
+	private readonly requireRegistry: boolean;
 
 	constructor(submitterOrOptions?: HatchetSubmitter | HatchetFlowRunnerOptions) {
 		if (!submitterOrOptions) {
 			// Default: use durable SDK run references, not an in-memory synthetic handle.
 			this.adapter = new SdkHatchetRunAdapter();
+			this.requireRegistry = true;
 		} else if (typeof submitterOrOptions === "function") {
 			// Backward-compat: accept a plain submitter function
 			this.adapter = new SubmitterAdapter(submitterOrOptions);
+			this.requireRegistry = false;
 		} else {
 			// New: accept a full adapter options object
 			this.adapter = submitterOrOptions.adapter;
+			this.requireRegistry = submitterOrOptions.requireRegistry ?? false;
 		}
 	}
 
@@ -484,11 +494,12 @@ export class HatchetFlowRunner implements FlowRunner {
 			payloadHash,
 		});
 		let registryEnabled = false;
+		let registryError: Error | undefined;
 		try {
 			appendHatchetRunRecord(options.cwd, record);
 			registryEnabled = true;
-		} catch {
-			// Registry write failed (e.g. missing cwd) — continue without persistence
+		} catch (error) {
+			registryError = error instanceof Error ? error : new Error(String(error));
 		}
 
 		let failureEmitted = false;
@@ -503,6 +514,10 @@ export class HatchetFlowRunner implements FlowRunner {
 			);
 		};
 		const registryUpdate = (fn: () => void) => { if (registryEnabled) { try { fn(); } catch { /* best-effort */ } } };
+		if (registryError && this.requireRegistry) {
+			emitFailure();
+			throw new Error(`Hatchet durable registry unavailable; remote run was not submitted: ${registryError.message}`);
+		}
 
 		try {
 			const handle = await this.adapter.submit(HATCHET_FLOW_TASK_NAME, payload, { clientRunId: record.clientRunId });
@@ -524,7 +539,12 @@ export class HatchetFlowRunner implements FlowRunner {
 				remoteStatus.status === "failed" || remoteStatus.status === "cancelled"
 					? remoteStatus.errorMessage
 					: (remoteStatus.errorMessage ?? `Hatchet flow returned status: ${remoteStatus.status}`);
-			registryUpdate(() => updateHatchetRunFailure(options.cwd, record.id, remoteStatus.status === "cancelled" ? "cancelled" : "failed", errMsg));
+			registryUpdate(() => updateHatchetRunFailure(
+				options.cwd,
+				record.id,
+				remoteStatus.status === "cancelled" ? "cancelled" : remoteStatus.status === "unknown" ? "unknown" : "failed",
+				errMsg,
+			));
 			emitFailure();
 			throw new Error(errMsg);
 		} catch (error) {

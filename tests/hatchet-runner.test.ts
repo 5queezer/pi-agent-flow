@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -430,6 +430,50 @@ describe("Hatchet runner adapter", () => {
 			result: singleResult,
 		});
 		expect(runRef).toHaveBeenCalledWith("real-run-1");
+	});
+
+	it("SDK adapter treats result lookup errors as unknown so reconciliation can retry", async () => {
+		const ref = {
+			result: vi.fn(async () => { throw new Error("temporary Hatchet API outage"); }),
+		};
+		const runRef = vi.fn(() => ref);
+		class HatchetClient {
+			runRef = runRef;
+		}
+
+		const adapter = new SdkHatchetRunAdapter(async () => ({ HatchetClient }));
+		await expect(adapter.getResult({ runId: "real-run-2" })).resolves.toMatchObject({
+			status: "unknown",
+			errorMessage: "temporary Hatchet API outage",
+		});
+	});
+
+	it("does not submit a default durable Hatchet run when the registry cannot be written", async () => {
+		const cwdFile = join(mkdtempSync(join(tmpdir(), "hatchet-registry-blocked-")), "not-a-directory");
+		writeFileSync(cwdFile, "x");
+		const ref = {
+			getWorkflowRunId: vi.fn(async () => "real-run-never"),
+			result: vi.fn(async () => ({
+				type: "build",
+				agentSource: "project",
+				intent: "Implement durable resume",
+				aim: "Durable Hatchet resume",
+				exitCode: 0,
+				messages: [],
+				stderr: "done",
+				usage: emptyFlowUsage(),
+			})),
+		};
+		const runNoWait = vi.fn(async () => ref);
+		class HatchetClient {
+			task() {
+				return { runNoWait };
+			}
+		}
+		const runner = new HatchetFlowRunner({ adapter: new SdkHatchetRunAdapter(async () => ({ HatchetClient })), requireRegistry: true });
+
+		await expect(runner.run(options({ cwd: cwdFile }))).rejects.toThrow("Hatchet durable registry unavailable");
+		expect(runNoWait).not.toHaveBeenCalled();
 	});
 
 	it("adapter failed status causes runner to throw", async () => {

@@ -59,7 +59,7 @@ export interface CreateHatchetRunRecordInput {
 	payloadHash: string;
 }
 
-const ACTIVE_STATUSES: HatchetRunStatus[] = ["submitting", "queued", "running"];
+const ACTIVE_STATUSES: HatchetRunStatus[] = ["submitting", "queued", "running", "unknown"];
 const REGISTRY_LOCK_TIMEOUT_MS = 5_000;
 const STALE_LOCK_MS = 30_000;
 const MAX_STORED_TEXT_LENGTH = 8_000;

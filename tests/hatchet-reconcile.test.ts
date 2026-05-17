@@ -141,6 +141,24 @@ describe("Hatchet reconciliation", () => {
     expect(reg.runs[0].status).toBe("running");
   });
 
+  it("does not block indefinitely when a remote result lookup waits for completion", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "hatchet-reconcile-"));
+
+    const record = createHatchetRunRecord({ cwd, flowType: "build", intent: "i", aim: "a", paramIndex: 0, attemptIndex: 0, payloadHash: "h" });
+    appendHatchetRunRecord(cwd, record);
+    markHatchetRunSubmitted(cwd, record.id, { hatchetRunId: "remote-slow", status: "running" });
+
+    const adapter: HatchetRunAdapter = {
+      submit: vi.fn(async () => ({ runId: "never" })),
+      getResult: vi.fn(async () => await new Promise<HatchetRemoteRunStatus>(() => {})),
+    };
+    const summary = await reconcileHatchetRuns({ cwd, adapter, resultTimeoutMs: 10 });
+
+    expect(summary.running).toBe(1);
+    expect(summary.messages.some((m) => m.includes("[running] build"))).toBe(true);
+    expect(loadHatchetRunRegistry(cwd).runs[0].status).toBe("running");
+  });
+
   it("does not update abandoned goals automatically", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "hatchet-reconcile-"));
     // No active goal set

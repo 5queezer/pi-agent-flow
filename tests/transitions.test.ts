@@ -129,3 +129,11 @@ describe("FlowTransition gate field", () => {
 		expect(DEFAULT_TRANSITIONS.every((t) => t.gate === undefined || t.gate === false)).toBe(true);
 	});
 });
+
+it("recommends revise after a failed audit", () => {
+  const advice = getTransitionAdvice(
+    [{ type: "audit", intent: "x" }],
+    [{ type: "audit", exitCode: 1, messages: [] }],
+  );
+  expect(advice.join(" ")).toMatch(/\[revise\]/);
+});

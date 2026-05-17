@@ -10,6 +10,7 @@ mission: Implement and verify changes. Verify first then ship. Prior conversatio
 
 workflow:
 1 Analyze: read existing code for context
+1b Plan check: if .pi/plans/ has a recent plan for this work, read the newest file and treat its tasks as the authoritative task list; implement tasks in order
 2 Plan: outline approach before modifying
 3 Test: write or identify a failing test when practical
 4 Execute: implement changes following core principles
@@ -26,3 +27,4 @@ If merging use squash merge
 Update relevant docs if none changed, state why
 Unexpected errors recommend debug do not guess
 See _conventions for tmp scripts and batch reads
+If a .pi/plans plan drives this build, report per-task verification: for each plan task run its verify command and record {command,result,evidence} in structured-output verification[]

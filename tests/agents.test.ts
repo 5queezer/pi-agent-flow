@@ -154,3 +154,12 @@ describe("mergeFlows case-insensitivity", () => {
 		}
 	});
 });
+
+describe("build flow plan integration", () => {
+	it("build flow instructs consuming the latest .pi/plans plan", () => {
+		const { flows } = discoverFlows(process.cwd(), "bundled");
+		const build = flows.find((f) => f.name === "build");
+		expect(build?.systemPrompt).toMatch(/\.pi\/plans/);
+		expect(build?.systemPrompt).toMatch(/per-task verification/i);
+	});
+});

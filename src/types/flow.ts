@@ -86,12 +86,15 @@ export interface PiAgentFlowAPI {
 		toolOptimize: boolean;
 		structuredOutput: boolean;
 		maxConcurrency: number;
+		defaultSessionMode: string;
 		steeringEnabled: boolean;
 		steeringCustomPrompt: string | undefined;
 		steeringStrategicHint: boolean;
 		animationEnabled: boolean;
 		animationGlitch: boolean;
-	};
+		loadedFlowModelConfigs: unknown;
+		activeRuntimeFlowMode: string | undefined;
+	} | undefined;
 }
 
 /** Create an empty UsageStats object. */

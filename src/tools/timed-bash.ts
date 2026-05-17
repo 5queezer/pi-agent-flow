@@ -8,15 +8,14 @@
  * Child flows also receive a hard deadline from the parent runner. When a
  * bash command is still running near that deadline, this wrapper aborts just
  * the bash tool and returns an explicit instruction to stop using tools and
- * summarize. That preserves the flow state process long enough to produce
+ * summarize. That preserves the child agent process long enough to produce
  * its final structured report instead of being killed while a shell command is
  * still active.
  */
 
 import * as fs from "node:fs";
 import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
-import { appendDirectiveOnce, appendTextToToolResult } from "../steering/tool-utils.js";
-import { compressOutput } from "../batch/shell-compress.js";
+import { appendStrategicHintOnce, appendTextToToolResult } from "../steering/tool-utils.js";
 
 type TimingTier =
 	| "normal"
@@ -224,16 +223,6 @@ export function createTimedBashToolDefinition(
 					onUpdate,
 					ctx,
 				);
-
-				// Apply shell output compression to the bash result content
-				const textPart = result?.content?.find?.((c: any) => c.type === "text");
-				if (textPart && typeof textPart.text === "string") {
-					const { stdout, savingsPct } = compressOutput(params.command, textPart.text, "");
-					if (savingsPct > 0) {
-						textPart.text = stdout;
-					}
-				}
-
 				const duration = Date.now() - start;
 				const report = classifyDuration(duration);
 				const appendix = formatTimingAppendix(report);
@@ -245,11 +234,9 @@ export function createTimedBashToolDefinition(
 				appendTextToToolResult(result, appendix);
 				if (deadlineSignal.wasDeadlineAbort()) {
 					appendTextToToolResult(result, formatDeadlineAppendix());
-					const textItem = result?.content?.find?.((c: any) => c.type === "text");
-					const message = textItem?.text ?? "Deadline abort";
-					throw new Error(message);
+					result.isError = true;
 				} else {
-					appendDirectiveOnce(result);
+					appendStrategicHintOnce(result);
 				}
 				return result;
 			} catch (err: any) {
@@ -258,13 +245,13 @@ export function createTimedBashToolDefinition(
 				const appendix = formatTimingAppendix(report);
 
 				if (deadlineSignal.wasDeadlineAbort()) {
-					if (typeof err?.message === "string" && err.message.includes("[Flow timeout]")) {
-						throw err;
-					}
 					const message = typeof err?.message === "string" && err.message.trim()
 						? `${err.message}${appendix}${formatDeadlineAppendix()}`
 						: `${appendix.trim()}${formatDeadlineAppendix()}`;
-					throw new Error(message);
+					return {
+						content: [{ type: "text", text: message }],
+						isError: true,
+					};
 				}
 
 				if (err?.message && typeof err.message === "string") {

@@ -1,7 +1,7 @@
 {
   "name": "pi-agent-flow",
-  "version": "2.0.3",
-  "description": "Flow-state transition extension for Pi coding agent.",
+  "version": "2.0.0",
+  "description": "Flow-state delegation extension for Pi coding agent.",
   "type": "module",
   "main": "dist/index.js",
   "files": [
@@ -45,11 +45,11 @@
     "vitest": "^3.2.4"
   },
   "peerDependencies": {
-    "@earendil-works/pi-agent-core": ">=0.37.0",
-    "@earendil-works/pi-ai": ">=0.37.0",
-    "@earendil-works/pi-coding-agent": ">=0.37.0",
-    "@earendil-works/pi-tui": ">=0.37.0",
-    "@sinclair/typebox": ">=0.34.0"
+    "@earendil-works/pi-agent-core": ">=0.74.0",
+    "@earendil-works/pi-ai": ">=0.74.0",
+    "@earendil-works/pi-coding-agent": ">=0.74.0",
+    "@earendil-works/pi-tui": ">=0.74.0",
+    "@sinclair/typebox": "^0.34.0"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-agent-core": {
@@ -69,6 +69,11 @@
     }
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": ">=0.74.0",
+    "@earendil-works/pi-ai": ">=0.74.0",
+    "@earendil-works/pi-coding-agent": ">=0.74.0",
+    "@earendil-works/pi-tui": ">=0.74.0",
+    "@sinclair/typebox": "^0.34.0",
     "jsdom": "^29.1.0",
     "turndown": "^7.2.4"
   },

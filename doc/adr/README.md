@@ -7,3 +7,4 @@ Policy: Proposed ADRs may change. Accepted ADRs are immutable except by a later 
 * [3. Phase 2 Basic Hatchet Backend](0003-phase-2-basic-hatchet-backend.md) — Accepted
 * [4. Phase 3 Operational Hardening for Hatchet](0004-phase-3-operational-hardening-for-hatchet.md) — Accepted
 * [5. Phase 4 Advanced Hatchet UX](0005-phase-4-advanced-hatchet-ux.md) — Proposed
+* [6. Configurable Workflow Discipline Gates and Plan Artifact](0006-configurable-workflow-discipline-gates-and-plan-artifact.md) — Proposed

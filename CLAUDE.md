@@ -4,7 +4,7 @@
 > Think of it as the project's control panel — not a dry spec sheet, but an activation map. If you need to deploy, bump a version, debug a flow, or figure out which script to run, this file points you to the right door. Start here before wandering the codebase.
 >
 > 🌱 **Keep this index alive.**
-> CLAUDE.md is a living document. When flows change, scripts move, or CI/CD steps get updated, this file must reflect reality. If you just changed something structural — added a workflow, renamed a script, tweaked a flow's tools — **update this file before you wrap up**. The next agent (or future you) will thank you. Don't leave them lost in the maze.
+> AGENTS.md is a living document. When flows change, scripts move, or CI/CD steps get updated, this file must reflect reality. If you just changed something structural — added a workflow, renamed a script, tweaked a flow's tools — **update this file before you wrap up**. The next agent (or future you) will thank you. Don't leave them lost in the maze.
 
 ## Project Index
 
@@ -266,8 +266,6 @@ Global default transition depth (`DEFAULT_MAX_TRANSITION_DEPTH`) is 3; each flow
 At depth ≥ 2, the sanitized JSONL snapshot embeds the **parent flow's full activation prompt** as a `user` message. This is expected behavior: the parent's conversation history begins with its own `-p` prompt, and sanitization preserves that history so the child can replay it.
 
 Child flows should treat any `<context-seal>`, `<activation>`, or `<directive>` blocks appearing inside JSONL `user` messages as **sealed parent context**, not as their own instructions. The child's own activation prompt is delivered separately in the `-p` argument.
-
-## Key Implementation Details
 
 - **Flow runner seam**: `executeFlows()` dispatches each resolved flow attempt through a `FlowRunner`; the default `LocalFlowRunner` preserves fork-only execution by calling `runFlow()`.
 - **Optional Hatchet backend**: `PI_FLOW_RUNNER=hatchet` selects a final-result-only `HatchetFlowRunner` with a plain-JSON `pi-agent-flow.runFlow` payload and `runHatchetFlowTask` worker entrypoint. The SDK is dynamically imported; streaming and cancellation propagation are deferred. Phase 3 hardening validates worker spawn/workspace assumptions and bounds payload size with `PI_FLOW_HATCHET_MAX_PAYLOAD_BYTES`.

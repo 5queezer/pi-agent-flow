@@ -478,6 +478,7 @@ export async function executeFlows(
 		if (so.files.length > 0) compressed.files = so.files;
 		if (so.actions.length > 0) compressed.actions = so.actions;
 		if (so.commands.length > 0) compressed.commands = so.commands;
+		if (so.verification.length > 0) compressed.verification = so.verification;
 		if (so.notDone.length > 0) compressed.notDone = so.notDone;
 		if (so.nextSteps.length > 0) compressed.nextSteps = so.nextSteps;
 		if (so.reasoning.length > 0) compressed.reasoning = so.reasoning;

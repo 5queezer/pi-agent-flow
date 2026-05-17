@@ -6,7 +6,7 @@
  */
 
 import type { Message } from "@mariozechner/pi-ai";
-import type { Action, CommandEntry, FileEntry, FlowStructuredOutput, NotDoneItem } from "../types/output.js";
+import type { Action, CommandEntry, FileEntry, FlowStructuredOutput, NotDoneItem, VerificationEntry } from "../types/output.js";
 
 type FlowStatus = FlowStructuredOutput["status"];
 
@@ -17,6 +17,7 @@ type StructuredOutputRecord = {
 	files?: FileEntry[];
 	actions?: Action[];
 	commands?: CommandEntry[];
+	verification?: VerificationEntry[];
 	notDone?: NotDoneItem[];
 	nextSteps?: string[];
 	reasoning?: string[];
@@ -55,6 +56,7 @@ function isValidStructuredOutput(obj: unknown): obj is StructuredOutputRecord {
 		(Array.isArray(obj.files) ? obj.files.every(isValidFileEntry) : true) &&
 		isOptionalArray(obj, "actions") &&
 		isOptionalArray(obj, "commands") &&
+		isOptionalArray(obj, "verification") &&
 		isOptionalArray(obj, "notDone") &&
 		isOptionalArray(obj, "nextSteps") &&
 		isOptionalArray(obj, "reasoning") &&
@@ -99,6 +101,7 @@ export function extractStructuredOutput(text: string): FlowStructuredOutput | un
 		files: parsed.files ?? [],
 		actions: parsed.actions ?? [],
 		commands: parsed.commands ?? [],
+		verification: parsed.verification ?? [],
 		notDone: parsed.notDone ?? [],
 		nextSteps: parsed.nextSteps ?? [],
 		reasoning: parsed.reasoning ?? [],

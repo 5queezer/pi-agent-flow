@@ -141,6 +141,18 @@ not json at all
 });
 
 // ---------------------------------------------------------------------------
+// verification evidence
+// ---------------------------------------------------------------------------
+
+describe("verification evidence", () => {
+	it("parses a verification array", () => {
+		const text = '```json\n{"version":"1","status":"complete","summary":"s","verification":[{"command":"npm test","result":"pass","evidence":"42 passed"}]}\n```';
+		const out = extractStructuredOutput(text);
+		expect(out?.verification).toEqual([{ command: "npm test", result: "pass", evidence: "42 passed" }]);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // generateCommandsFromHistory
 // ---------------------------------------------------------------------------
 

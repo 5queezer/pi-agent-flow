@@ -40,6 +40,16 @@ export interface Action {
 	evidence?: string;
 }
 
+/** A verification command run to prove a success claim. */
+export interface VerificationEntry {
+	/** Exact command executed (verbatim). */
+	command: string;
+	/** Outcome of the verification. */
+	result: "pass" | "fail" | "skipped";
+	/** Short observed evidence (e.g. "42 passed", exit 0). Truncate to ~300 chars. */
+	evidence?: string;
+}
+
 /** Incomplete, skipped, blocked, or deferred work reported by a flow. */
 export interface NotDoneItem {
 	/** The unfinished item. */
@@ -66,6 +76,8 @@ export interface FlowStructuredOutput {
 	actions: Action[];
 	/** Commands or tool calls executed during the flow. */
 	commands: CommandEntry[];
+	/** Verification commands run to substantiate the status. */
+	verification: VerificationEntry[];
 	/** Incomplete, skipped, blocked, or deferred work. */
 	notDone: NotDoneItem[];
 	/** Recommended next steps or follow-up flows. */
@@ -96,6 +108,8 @@ export interface CompressedFlowResult {
 	actions?: Action[];
 	/** Commands or tool calls executed. */
 	commands?: CommandEntry[];
+	/** Verification commands run to substantiate the status. */
+	verification?: VerificationEntry[];
 	/** Incomplete, skipped, blocked, or deferred work. */
 	notDone?: NotDoneItem[];
 	/** Recommended next steps or follow-up flows. */

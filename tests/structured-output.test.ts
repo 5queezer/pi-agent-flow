@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "@mariozechner/pi-ai";
 import { extractStructuredOutput, generateCommandsFromHistory } from "../src/snapshot/structured-output.js";
-import type { FlowStructuredOutput } from "../src/types/output.js";
+import type { FlowStructuredOutput, FlowPlan } from "../src/types/output.js";
 
 describe("extractStructuredOutput", () => {
 	it("returns undefined for empty text", () => {
@@ -449,5 +449,14 @@ describe("generateCommandsFromHistory", () => {
 		const result = generateCommandsFromHistory(messages);
 		expect(result).toHaveLength(1);
 		expect(result[0].command).toBe("echo hi");
+	});
+});
+
+describe("plan artifact", () => {
+	it("accepts a plan in extensions", () => {
+		const plan: FlowPlan = { title: "X", tasks: [{ intent: "do", files: ["a.ts"], verify: "npm test", rollback: "git checkout a.ts" }] };
+		const text = '```json\n' + JSON.stringify({ version: "1", status: "complete", summary: "s", verification: [{ command: "npm test", result: "pass" }], extensions: { plan } }) + '\n```';
+		const out = extractStructuredOutput(text);
+		expect((out?.extensions?.plan as FlowPlan).tasks[0].verify).toBe("npm test");
 	});
 });

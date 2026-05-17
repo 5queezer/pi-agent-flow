@@ -50,6 +50,24 @@ export interface VerificationEntry {
 	evidence?: string;
 }
 
+/** One ordered, independently-verifiable unit of an implementation plan. */
+export interface PlanTask {
+	/** What this task accomplishes (one line). */
+	intent: string;
+	/** Exact files this task creates or modifies. */
+	files: string[];
+	/** Exact command that proves this task is done. */
+	verify: string;
+	/** How to undo this task if it goes wrong. */
+	rollback: string;
+}
+
+/** A craft-produced implementation plan handed to build. */
+export interface FlowPlan {
+	title: string;
+	tasks: PlanTask[];
+}
+
 /** Incomplete, skipped, blocked, or deferred work reported by a flow. */
 export interface NotDoneItem {
 	/** The unfinished item. */

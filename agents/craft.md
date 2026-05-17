@@ -24,3 +24,4 @@ Favor clean migration if a redesign is warranted cut fully rather than leaving h
 Document trade offs explicitly when the optimal path is unclear
 Do not implement changes from this flow unless explicitly requested
 See _conventions for tmp scripts and batch reads
+When this craft flow produces an implementation plan, also emit it in structured-output extensions as { plan: { title, tasks: [{ intent, files, verify, rollback }] } }. Each task must be independently verifiable by its verify command.

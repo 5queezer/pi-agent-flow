@@ -347,10 +347,12 @@ The core delegation tool. Accepts an array of flow tasks and runs them in parall
 
 ### `batch` / `batch_read` — unified file operations
 
-When **tool optimization** is enabled (default), the separate `read` / `write` / `edit` tools are replaced by:
+When **tool optimization** is enabled (default), pi-agent-flow registers optimized batch tools without restricting the parent session's active tool list, so MCP and other extension tools remain available on startup:
 
-- **`batch`** — sequential read, write, edit, and delete operations in one call. Edits use fuzzy matching and preserve line endings.
-- **`batch_read`** — read-only variant for multiple reads. Small full-file reads return raw content; large full-file reads return code/infra context maps or total line counts, and oversized targeted reads are capped with continuation guidance.
+- **`batch`** — sequential read, write, edit, and delete operations in one call. Edits use fuzzy matching and preserve line endings. Reserved for child flows.
+- **`batch_read`** — read-only variant for multiple reads in the parent session. Small full-file reads return raw content; large full-file reads return code/infra context maps or total line counts, and oversized targeted reads are capped with continuation guidance.
+
+Child flows still receive a constrained tool set through their spawned `pi --tools ...` arguments.
 
 ### `batch_bash_poll` — poll pending bash commands
 
@@ -456,6 +458,55 @@ You can also set flow runtime defaults under `flowSettings`:
 | `toolOptimize` | `true` | Use unified `batch`/`batch_read` instead of separate read/write/edit |
 | `structuredOutput` | `true` | Inject JSON structured-output instructions into flow prompts |
 
+### Optional Hatchet backend
+
+Local forked execution remains the default. Set `PI_FLOW_RUNNER=hatchet` to route resolved flow attempts through the optional Hatchet backend. The Hatchet runner submits a plain-JSON `pi-agent-flow.runFlow` task and returns final results from the worker. The parent emits Hatchet lifecycle updates (`queued/running`, `completed`, or `failed`) through the normal flow progress path so users can see queue-level progress; child-process token streaming and cancellation propagation are still deferred. Workers can import `runHatchetFlowTask` from `pi-agent-flow/dist/hatchet-worker.js`. The worker entrypoint reconstructs local helpers, calls `runFlow()`, and defaults `PI_FLOW_SPAWN_COMMAND` to `pi` so child flow spawns do not re-enter the worker.
+
+The Hatchet SDK is dynamically imported and is not required for local-only users. Install and configure `@hatchet-dev/typescript-sdk` only where `PI_FLOW_RUNNER=hatchet` is used. If you still see the v0 SDK/step deprecation warning in another pi session, restart that session and its Hatchet worker; it is loading a stale or different install that is still resolving the SDK root entrypoint. The Hatchet worker task now registers `executionTimeout`/`scheduleTimeout` as `3600s` (1 hour) in the SDK, so `npm run hatchet-worker` does not require extra timeout env vars; rebuild/restart the worker if tasks are still cancelled at 60s.
+
+**Hatchet payload trust boundary:** Hatchet task payloads include the selected flow configuration, prompt text, inherited session snapshot, working directory, and project flow directory path. Treat the queue and workers as trusted infrastructure: do not route these payloads through untrusted tenants, logs, or retention policies, and configure Hatchet access controls accordingly.
+
+#### Durable resume
+
+When `PI_FLOW_RUNNER=hatchet` is enabled, Pi submits runs with Hatchet SDK run references and records the real Hatchet run handle in `.pi/hatchet-runs.json`. If Pi exits after a Hatchet run is submitted, the worker can continue the task. On the next Pi session, use `/flow:hatchet status` or `/flow:hatchet reconcile` to recover state from Hatchet by run ID. Completed recovered runs update the active flow goal once (idempotent — will not double-record goal progress), including the crash window where the final result was persisted but goal progress was not yet recorded.
+
+Commands:
+- `/flow:hatchet status` — list all recorded Hatchet runs for this workspace
+- `/flow:hatchet reconcile` — query Hatchet for current status of active runs and update local records
+- `/flow:hatchet attach <runId>` — show details and result for a specific run
+- `/flow:hatchet cancel <runId>` — request cancellation of a running Hatchet task (requires adapter support)
+
+The registry stores metadata, run handles, statuses, and sanitized final results only. It does not store forked session snapshots, full Hatchet payloads, full message transcripts, or API secrets. Registry updates are guarded by a local lock and written atomically with `0600` permissions. On startup, Pi automatically reconciles any active Hatchet runs in the background when `PI_FLOW_RUNNER=hatchet` is set.
+
+Operational hardening: the parent validates returned Hatchet results against the expected `SingleResult` shape before marking a flow complete, and workers validate `PI_FLOW_SPAWN_COMMAND`, the queued `cwd`/`taskCwd` workspace, and the final `runFlow()` result before returning to Hatchet. Worker checkouts should run the same `pi-agent-flow` package version as the parent, provide required Pi/provider/Hatchet secrets explicitly, and avoid inheriting unrelated worker secrets into child `pi` processes. Payloads are limited to 1,500,000 serialized bytes by default to leave room for larger inherited session snapshots; set `PI_FLOW_HATCHET_MAX_PAYLOAD_BYTES` only for trusted private queues with appropriate retention. Keep Hatchet task retries disabled or bounded so a queue retry does not duplicate `executeFlows()` model failover attempts.
+
+### Optional Temporal backend
+
+Local forked execution remains the default. Set `PI_FLOW_RUNNER=temporal` to route resolved flow attempts through Temporal instead of Hatchet. The Temporal runner starts the exported `runPiFlowWorkflow` workflow on the configured task queue, waits for the final `SingleResult`, and emits lifecycle updates (`queued/running`, `completed`, or `failed`) through the normal flow progress path. Start a worker with:
+
+```bash
+npm run temporal-worker
+```
+
+Useful Temporal settings:
+
+```bash
+PI_FLOW_RUNNER=temporal
+PI_FLOW_TEMPORAL_ADDRESS=localhost:7233
+PI_FLOW_TEMPORAL_NAMESPACE=default
+PI_FLOW_TEMPORAL_TASK_QUEUE=pi-agent-flow
+PI_FLOW_TEMPORAL_RESULT_TIMEOUT_MS=600000
+PI_FLOW_TEMPORAL_WORKER_SLOTS=1
+```
+
+The Temporal SDK is dynamically imported and is not required for local-only or Hatchet-only users. Install and configure `@temporalio/client`, `@temporalio/worker`, `@temporalio/workflow`, and `@temporalio/activity` only where `PI_FLOW_RUNNER=temporal` or `npm run temporal-worker` is used.
+
+**Temporal determinism boundary:** Temporal Workflow code stays deterministic and only calls a Temporal Activity. The Activity reconstructs local `runFlow()` options, forces nested child execution back to `PI_FLOW_RUNNER=local`, validates `cwd`/`taskCwd`, and then invokes the existing local child-process flow path. Do not move filesystem access, environment mutation, model calls, or child-process spawning into `temporal-workflows.ts`.
+
+`PI_FLOW_TEMPORAL_WORKER_SLOTS` defaults to `1` because each activity temporarily adjusts process environment before spawning the child `pi` process. Prefer additional worker processes for throughput unless the environment mutation path is refactored to be per-run. `PI_FLOW_TEMPORAL_RESULT_TIMEOUT_MS` stops the parent from waiting forever; it does not provide full child-process cancellation propagation.
+
+**Temporal payload trust boundary:** Temporal workflow inputs include the selected flow configuration, prompt text, inherited session snapshot, working directory, and project flow directory path. Treat the Temporal namespace, task queue, workers, and history retention as trusted infrastructure; do not route these payloads through untrusted tenants, logs, or retention policies.
+
 Session mode precedence is:
 
 ```txt
@@ -489,6 +540,13 @@ per-flow sessionMode > --flow-session-mode > PI_FLOW_SESSION_MODE > flowSettings
 | `PI_FLOW_TOOL_OPTIMIZE` | `"1"` or `"0"` (overrides default tool optimization) |
 | `PI_FLOW_SESSION_MODE` | Default child-flow session mode: `fast`, `default`, `long`, or `extreme_long` |
 | `PI_FLOW_MAX_CONCURRENCY` | Maximum parallel flows |
+| `PI_FLOW_RUNNER` | Flow execution backend: unset/`local` for local forked children, `hatchet` for the optional Hatchet backend, or `temporal` for the optional Temporal backend |
+| `PI_FLOW_HATCHET_MAX_PAYLOAD_BYTES` | Maximum serialized durable task payload size in bytes for the Hatchet and Temporal backends; defaults to `1500000` |
+| `PI_FLOW_TEMPORAL_ADDRESS` | Temporal frontend address for `PI_FLOW_RUNNER=temporal`; defaults to `localhost:7233` |
+| `PI_FLOW_TEMPORAL_NAMESPACE` | Temporal namespace for `PI_FLOW_RUNNER=temporal`; defaults to `default` |
+| `PI_FLOW_TEMPORAL_TASK_QUEUE` | Temporal task queue for flow workflows/workers; defaults to `pi-agent-flow` |
+| `PI_FLOW_TEMPORAL_RESULT_TIMEOUT_MS` | Parent-side wait timeout for a Temporal workflow result; defaults to `600000` |
+| `PI_FLOW_TEMPORAL_WORKER_SLOTS` | Maximum concurrent Temporal flow activities in one worker process; defaults to `1` to avoid process-env races |
 | `PI_FLOW_SPAWN_COMMAND` | Override the spawn command for exotic runtime environments (e.g. bundled with pkg/nexe) |
 | `PI_FLOW_DEADLINE_MS` | Absolute deadline timestamp (ms) propagated to child flows for timeout awareness |
 | `PI_FLOW_TOOL_SUMMARY_GRACE_MS` | Time before hard timeout when the agent should stop tool use and summarize (ms) |

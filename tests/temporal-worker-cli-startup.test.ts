@@ -8,6 +8,8 @@ import {
 	PI_FLOW_TEMPORAL_TASK_QUEUE_ENV,
 } from "../src/temporal-runner.js";
 import {
+	DEFAULT_TEMPORAL_WORKER_SLOTS,
+	PI_FLOW_TEMPORAL_WORKER_SLOTS_ENV,
 	createTemporalFlowWorker,
 	main,
 	resolveTemporalWorkerConfig,
@@ -30,6 +32,7 @@ describe("Temporal worker CLI startup", () => {
 			address: DEFAULT_TEMPORAL_ADDRESS,
 			namespace: DEFAULT_TEMPORAL_NAMESPACE,
 			taskQueue: DEFAULT_TEMPORAL_TASK_QUEUE,
+			activitySlots: DEFAULT_TEMPORAL_WORKER_SLOTS,
 		});
 	});
 
@@ -46,6 +49,7 @@ describe("Temporal worker CLI startup", () => {
 			[PI_FLOW_TEMPORAL_ADDRESS_ENV]: "temporal.example:7233",
 			[PI_FLOW_TEMPORAL_NAMESPACE_ENV]: "prod",
 			[PI_FLOW_TEMPORAL_TASK_QUEUE_ENV]: "pi-flow-prod",
+			[PI_FLOW_TEMPORAL_WORKER_SLOTS_ENV]: "2",
 		} as NodeJS.ProcessEnv;
 
 		await startTemporalFlowWorker(sdk, env, logger, activities);
@@ -57,12 +61,35 @@ describe("Temporal worker CLI startup", () => {
 				namespace: "prod",
 				taskQueue: "pi-flow-prod",
 				activities,
+				maxConcurrentActivityTaskExecutions: 2,
 			}),
 		);
 		expect((sdk.Worker.create as any).mock.calls[0][0].workflowsPath).toContain("temporal-workflows.js");
 		expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("Temporal worker ready"));
 		expect(worker.run).toHaveBeenCalledTimes(1);
 		expect(connection.close).toHaveBeenCalledTimes(1);
+	});
+
+	it("closes the Temporal connection if worker creation fails", async () => {
+		const connection = { close: vi.fn(async () => {}) };
+		const sdk: TemporalWorkerSdkLike = {
+			NativeConnection: { connect: vi.fn(async () => connection) },
+			Worker: { create: vi.fn(async () => { throw new Error("bad worker"); }) },
+		};
+
+		await expect(createTemporalFlowWorker(sdk, {} as NodeJS.ProcessEnv, { runTemporalFlowActivity: vi.fn() })).rejects.toThrow(
+			"bad worker",
+		);
+		expect(connection.close).toHaveBeenCalledTimes(1);
+	});
+
+	it("rejects invalid Temporal worker slot configuration", () => {
+		expect(() => resolveTemporalWorkerConfig({ [PI_FLOW_TEMPORAL_WORKER_SLOTS_ENV]: "0" } as NodeJS.ProcessEnv)).toThrow(
+			"positive integer",
+		);
+		expect(() => resolveTemporalWorkerConfig({ [PI_FLOW_TEMPORAL_WORKER_SLOTS_ENV]: "many" } as NodeJS.ProcessEnv)).toThrow(
+			"positive integer",
+		);
 	});
 
 	it("main logs startup failures without throwing", async () => {

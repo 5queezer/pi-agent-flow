@@ -496,11 +496,14 @@ PI_FLOW_TEMPORAL_ADDRESS=localhost:7233
 PI_FLOW_TEMPORAL_NAMESPACE=default
 PI_FLOW_TEMPORAL_TASK_QUEUE=pi-agent-flow
 PI_FLOW_TEMPORAL_RESULT_TIMEOUT_MS=600000
+PI_FLOW_TEMPORAL_WORKER_SLOTS=1
 ```
 
 The Temporal SDK is dynamically imported and is not required for local-only or Hatchet-only users. Install and configure `@temporalio/client`, `@temporalio/worker`, `@temporalio/workflow`, and `@temporalio/activity` only where `PI_FLOW_RUNNER=temporal` or `npm run temporal-worker` is used.
 
 **Temporal determinism boundary:** Temporal Workflow code stays deterministic and only calls a Temporal Activity. The Activity reconstructs local `runFlow()` options, forces nested child execution back to `PI_FLOW_RUNNER=local`, validates `cwd`/`taskCwd`, and then invokes the existing local child-process flow path. Do not move filesystem access, environment mutation, model calls, or child-process spawning into `temporal-workflows.ts`.
+
+`PI_FLOW_TEMPORAL_WORKER_SLOTS` defaults to `1` because each activity temporarily adjusts process environment before spawning the child `pi` process. Prefer additional worker processes for throughput unless the environment mutation path is refactored to be per-run. `PI_FLOW_TEMPORAL_RESULT_TIMEOUT_MS` stops the parent from waiting forever; it does not provide full child-process cancellation propagation.
 
 **Temporal payload trust boundary:** Temporal workflow inputs include the selected flow configuration, prompt text, inherited session snapshot, working directory, and project flow directory path. Treat the Temporal namespace, task queue, workers, and history retention as trusted infrastructure; do not route these payloads through untrusted tenants, logs, or retention policies.
 
@@ -543,6 +546,7 @@ per-flow sessionMode > --flow-session-mode > PI_FLOW_SESSION_MODE > flowSettings
 | `PI_FLOW_TEMPORAL_NAMESPACE` | Temporal namespace for `PI_FLOW_RUNNER=temporal`; defaults to `default` |
 | `PI_FLOW_TEMPORAL_TASK_QUEUE` | Temporal task queue for flow workflows/workers; defaults to `pi-agent-flow` |
 | `PI_FLOW_TEMPORAL_RESULT_TIMEOUT_MS` | Parent-side wait timeout for a Temporal workflow result; defaults to `600000` |
+| `PI_FLOW_TEMPORAL_WORKER_SLOTS` | Maximum concurrent Temporal flow activities in one worker process; defaults to `1` to avoid process-env races |
 | `PI_FLOW_SPAWN_COMMAND` | Override the spawn command for exotic runtime environments (e.g. bundled with pkg/nexe) |
 | `PI_FLOW_DEADLINE_MS` | Absolute deadline timestamp (ms) propagated to child flows for timeout awareness |
 | `PI_FLOW_TOOL_SUMMARY_GRACE_MS` | Time before hard timeout when the agent should stop tool use and summarize (ms) |

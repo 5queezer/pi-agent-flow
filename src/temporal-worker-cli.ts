@@ -9,6 +9,9 @@ import {
 	PI_FLOW_TEMPORAL_TASK_QUEUE_ENV,
 } from "./temporal-runner.js";
 
+export const PI_FLOW_TEMPORAL_WORKER_SLOTS_ENV = "PI_FLOW_TEMPORAL_WORKER_SLOTS";
+export const DEFAULT_TEMPORAL_WORKER_SLOTS = 1;
+
 export interface TemporalWorkerLike {
 	run(): Promise<void>;
 }
@@ -28,6 +31,7 @@ export interface TemporalWorkerSdkLike {
 			taskQueue: string;
 			workflowsPath: string;
 			activities: Record<string, unknown>;
+			maxConcurrentActivityTaskExecutions: number;
 		}): Promise<TemporalWorkerLike>;
 	};
 }
@@ -36,6 +40,7 @@ export interface TemporalWorkerConfig {
 	address: string;
 	namespace: string;
 	taskQueue: string;
+	activitySlots: number;
 }
 
 export interface TemporalWorkerLogger {
@@ -50,11 +55,25 @@ export interface TemporalWorkerCliMainOptions {
 	activities?: Record<string, unknown>;
 }
 
+export function resolveTemporalWorkerSlots(env: NodeJS.ProcessEnv = process.env): number {
+	const configured = env[PI_FLOW_TEMPORAL_WORKER_SLOTS_ENV]?.trim();
+	if (!configured) return DEFAULT_TEMPORAL_WORKER_SLOTS;
+	if (!/^\d+$/.test(configured)) {
+		throw new Error(`${PI_FLOW_TEMPORAL_WORKER_SLOTS_ENV} must be a positive integer. Received ${JSON.stringify(configured)}.`);
+	}
+	const slots = Number.parseInt(configured, 10);
+	if (!Number.isSafeInteger(slots) || slots < 1) {
+		throw new Error(`${PI_FLOW_TEMPORAL_WORKER_SLOTS_ENV} must be a positive integer. Received ${JSON.stringify(configured)}.`);
+	}
+	return slots;
+}
+
 export function resolveTemporalWorkerConfig(env: NodeJS.ProcessEnv = process.env): TemporalWorkerConfig {
 	return {
 		address: env[PI_FLOW_TEMPORAL_ADDRESS_ENV]?.trim() || DEFAULT_TEMPORAL_ADDRESS,
 		namespace: env[PI_FLOW_TEMPORAL_NAMESPACE_ENV]?.trim() || DEFAULT_TEMPORAL_NAMESPACE,
 		taskQueue: env[PI_FLOW_TEMPORAL_TASK_QUEUE_ENV]?.trim() || DEFAULT_TEMPORAL_TASK_QUEUE,
+		activitySlots: resolveTemporalWorkerSlots(env),
 	};
 }
 
@@ -80,14 +99,20 @@ export async function createTemporalFlowWorker(
 ): Promise<{ worker: TemporalWorkerLike; connection: TemporalNativeConnectionLike; config: TemporalWorkerConfig }> {
 	const config = resolveTemporalWorkerConfig(env);
 	const connection = await sdk.NativeConnection.connect({ address: config.address });
-	const worker = await sdk.Worker.create({
-		connection,
-		namespace: config.namespace,
-		taskQueue: config.taskQueue,
-		workflowsPath: fileURLToPath(new URL("./temporal-workflows.js", import.meta.url)),
-		activities: activities ?? await loadTemporalActivities(),
-	});
-	return { worker, connection, config };
+	try {
+		const worker = await sdk.Worker.create({
+			connection,
+			namespace: config.namespace,
+			taskQueue: config.taskQueue,
+			workflowsPath: fileURLToPath(new URL("./temporal-workflows.js", import.meta.url)),
+			activities: activities ?? await loadTemporalActivities(),
+			maxConcurrentActivityTaskExecutions: config.activitySlots,
+		});
+		return { worker, connection, config };
+	} catch (error) {
+		await connection.close?.();
+		throw error;
+	}
 }
 
 export async function startTemporalFlowWorker(
@@ -97,7 +122,7 @@ export async function startTemporalFlowWorker(
 	activities?: Record<string, unknown>,
 ): Promise<void> {
 	const { worker, connection, config } = await createTemporalFlowWorker(sdk, env, activities);
-	logger.info(`Temporal worker ready for task queue ${config.taskQueue} (namespace=${config.namespace}, address=${config.address}).`);
+	logger.info(`Temporal worker ready for task queue ${config.taskQueue} (namespace=${config.namespace}, address=${config.address}, activitySlots=${config.activitySlots}).`);
 	try {
 		await worker.run();
 	} finally {

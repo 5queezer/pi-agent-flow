@@ -197,7 +197,7 @@ Global default delegation depth (`DEFAULT_MAX_DELEGATION_DEPTH`) is 3; each flow
 
 - **Flow runner seam**: `executeFlows()` dispatches each resolved flow attempt through a `FlowRunner`; the default `LocalFlowRunner` preserves fork-only execution by calling `runFlow()`.
 - **Optional Hatchet backend**: `PI_FLOW_RUNNER=hatchet` selects a final-result-only `HatchetFlowRunner` with a plain-JSON `pi-agent-flow.runFlow` payload and `runHatchetFlowTask` worker entrypoint. The SDK is dynamically imported; streaming and cancellation propagation are deferred. Phase 3 hardening validates worker spawn/workspace assumptions and bounds payload size with `PI_FLOW_HATCHET_MAX_PAYLOAD_BYTES`.
-- **Optional Temporal backend**: `PI_FLOW_RUNNER=temporal` selects `TemporalFlowRunner`, which starts the deterministic `runPiFlowWorkflow` workflow and runs the existing `runFlow()` path inside `runTemporalFlowActivity`. `npm run temporal-worker` starts a worker on `PI_FLOW_TEMPORAL_TASK_QUEUE`; workflow code must not import Node APIs, spawn child processes, or mutate env.
+- **Optional Temporal backend**: `PI_FLOW_RUNNER=temporal` selects `TemporalFlowRunner`, which starts the deterministic `runPiFlowWorkflow` workflow and runs the existing `runFlow()` path inside `runTemporalFlowActivity`. `npm run temporal-worker` starts a worker on `PI_FLOW_TEMPORAL_TASK_QUEUE`; workflow code must not import Node APIs, spawn child processes, or mutate env. Temporal workers default `PI_FLOW_TEMPORAL_WORKER_SLOTS=1` because each activity temporarily adjusts process env before spawning child `pi`.
 - **Durable Hatchet run registry**: `src/hatchet-run-registry.ts` persists Hatchet run metadata in `.pi/hatchet-runs.json` (locked atomic write, `0600` perms). Fields stored: id, real remote handle, status, session/goal metadata, payload hash, and sanitized final `SingleResult`. Never stores `forkSessionSnapshotJsonl`, full `HatchetFlowPayload`, or message transcripts.
 - **Hatchet run adapter**: `src/hatchet-run-adapter.ts` defines `HatchetRunAdapter` (submit → handle, getResult → status/result, optional cancel). The default Hatchet path uses SDK run references so persisted run IDs can be re-opened after Pi restarts. `SubmitterAdapter` wraps the legacy submitter function for compatibility only and is not durable across process restarts. `HatchetFlowRunner` accepts both a plain submitter function (backward compat) and `{ adapter }` options object.
 - **Reconciliation service**: `src/hatchet-reconcile.ts` reconciles active registry entries against the Hatchet adapter, updates statuses, and calls `recordFlowCompletion()` + `addTokens()` exactly once per completed run (guarded by `goalRecordedAt` field). Completed-but-unrecorded runs remain reconcilable so crash windows can be retried.
@@ -258,6 +258,7 @@ Key env vars that control flow behavior. All are read from the `pi` process envi
 | `PI_FLOW_TEMPORAL_ADDRESS` | Temporal frontend address for the Temporal backend. |
 | `PI_FLOW_TEMPORAL_NAMESPACE` | Temporal namespace for the Temporal backend. |
 | `PI_FLOW_TEMPORAL_TASK_QUEUE` | Temporal task queue for flow workflows/workers. |
+| `PI_FLOW_TEMPORAL_WORKER_SLOTS` | Maximum concurrent Temporal flow activities in one worker process; defaults to `1`. |
 
 ## Workflow Learning with Git Notes
 

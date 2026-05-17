@@ -101,6 +101,7 @@ describe("Temporal runner", () => {
 	});
 
 	afterEach(() => {
+		vi.doUnmock("@temporalio/client");
 		if (originalAddress === undefined) delete process.env[PI_FLOW_TEMPORAL_ADDRESS_ENV];
 		else process.env[PI_FLOW_TEMPORAL_ADDRESS_ENV] = originalAddress;
 		if (originalNamespace === undefined) delete process.env[PI_FLOW_TEMPORAL_NAMESPACE_ENV];
@@ -167,6 +168,30 @@ describe("Temporal runner", () => {
 		]);
 		expect(updates[0].details.results[0]).toMatchObject({ type: "build", agentSource: "unknown", exitCode: -1 });
 		expect(updates[1].details.results[0]).toMatchObject({ type: "build", stderr: "from temporal", exitCode: 0 });
+	});
+
+	it("default executor closes the Temporal client connection after workflow completion", async () => {
+		const close = vi.fn(async () => {});
+		const connection = { close };
+		const execute = vi.fn(async () => makeResult({ stderr: "from sdk" }));
+		const connect = vi.fn(async () => connection);
+		class Client {
+			workflow = { execute };
+			constructor(readonly options: any) {
+				expect(options).toEqual({ connection, namespace: DEFAULT_TEMPORAL_NAMESPACE });
+			}
+		}
+		vi.doMock("@temporalio/client", () => ({ Connection: { connect }, Client }));
+
+		const result = await new TemporalFlowRunner().run(options());
+
+		expect(result.stderr).toBe("from sdk");
+		expect(connect).toHaveBeenCalledWith({ address: DEFAULT_TEMPORAL_ADDRESS });
+		expect(execute).toHaveBeenCalledWith(
+			TEMPORAL_FLOW_WORKFLOW_TYPE,
+			expect.objectContaining({ taskQueue: DEFAULT_TEMPORAL_TASK_QUEUE, args: [expect.objectContaining({ flowName: "build" })] }),
+		);
+		expect(close).toHaveBeenCalledTimes(1);
 	});
 
 	it("rejects malformed Temporal workflow results before completion is emitted", async () => {

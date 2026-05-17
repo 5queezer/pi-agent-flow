@@ -30,13 +30,18 @@ type TemporalWorkflowExecutor = (
 	workflowType: string,
 	payload: HatchetFlowPayload,
 	options: TemporalWorkflowExecutionOptions,
+	timeoutMs: number,
 ) => Promise<unknown>;
+
+interface TemporalClientConnectionLike {
+	close?(): Promise<void>;
+}
 
 interface TemporalClientSdkModule {
 	Connection: {
-		connect(options: { address: string }): Promise<unknown>;
+		connect(options: { address: string }): Promise<TemporalClientConnectionLike>;
 	};
-	Client: new (options: { connection: unknown; namespace: string }) => {
+	Client: new (options: { connection: TemporalClientConnectionLike; namespace: string }) => {
 		workflow: {
 			execute(workflowType: string, options: { taskQueue: string; workflowId: string; args: [HatchetFlowPayload] }): Promise<unknown>;
 		};
@@ -98,7 +103,7 @@ async function awaitTemporalResult<T>(promise: Promise<T>, timeoutMs: number): P
 
 async function loadTemporalClientSdk(): Promise<TemporalClientSdkModule> {
 	try {
-		return await import("@temporalio/client") as TemporalClientSdkModule;
+		return await import("@temporalio/client") as unknown as TemporalClientSdkModule;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		throw new Error(
@@ -111,15 +116,23 @@ async function defaultExecuteTemporalWorkflow(
 	workflowType: string,
 	payload: HatchetFlowPayload,
 	options: TemporalWorkflowExecutionOptions,
+	timeoutMs: number,
 ): Promise<unknown> {
 	const { Connection, Client } = await loadTemporalClientSdk();
 	const connection = await Connection.connect({ address: options.address });
-	const client = new Client({ connection, namespace: options.namespace });
-	return await client.workflow.execute(workflowType, {
-		taskQueue: options.taskQueue,
-		workflowId: options.workflowId,
-		args: [payload],
-	});
+	try {
+		const client = new Client({ connection, namespace: options.namespace });
+		return await awaitTemporalResult(
+			client.workflow.execute(workflowType, {
+				taskQueue: options.taskQueue,
+				workflowId: options.workflowId,
+				args: [payload],
+			}),
+			timeoutMs,
+		);
+	} finally {
+		await connection.close?.();
+	}
 }
 
 function makeTemporalWorkflowId(flowName: string): string {
@@ -185,7 +198,7 @@ export class TemporalFlowRunner implements FlowRunner {
 		try {
 			const result = validateSingleResult(
 				await awaitTemporalResult(
-					this.executeWorkflow(TEMPORAL_FLOW_WORKFLOW_TYPE, payload, executionOptions),
+					this.executeWorkflow(TEMPORAL_FLOW_WORKFLOW_TYPE, payload, executionOptions, timeoutMs),
 					timeoutMs,
 				),
 				"Temporal workflow result",

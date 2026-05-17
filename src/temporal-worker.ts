@@ -16,9 +16,12 @@ export {
 	resolveTemporalTaskQueue,
 } from "./temporal-runner.js";
 export {
+	DEFAULT_TEMPORAL_WORKER_SLOTS,
+	PI_FLOW_TEMPORAL_WORKER_SLOTS_ENV,
 	createTemporalFlowWorker,
 	main,
 	resolveTemporalWorkerConfig,
+	resolveTemporalWorkerSlots,
 	startTemporalFlowWorker,
 } from "./temporal-worker-cli.js";
 export type {

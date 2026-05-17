@@ -154,10 +154,16 @@ it("upgrades build->audit to a REQUIRED gate when env is set", () => {
 });
 
 it("leaves build->audit advisory when env is unset", () => {
+  const prev = process.env.PI_FLOW_REQUIRE_AUDIT_AFTER_BUILD;
   delete process.env.PI_FLOW_REQUIRE_AUDIT_AFTER_BUILD;
-  const advice = getTransitionAdvice(
-    [{ type: "build", intent: "x" }],
-    [{ type: "build", exitCode: 0, sawAgentEnd: true, messages: [] }],
-  );
-  expect(advice.join(" ")).not.toMatch(/REQUIRED/);
+  try {
+    const advice = getTransitionAdvice(
+      [{ type: "build", intent: "x" }],
+      [{ type: "build", exitCode: 0, sawAgentEnd: true, messages: [] }],
+    );
+    expect(advice.join(" ")).not.toMatch(/REQUIRED/);
+  } finally {
+    if (prev === undefined) delete process.env.PI_FLOW_REQUIRE_AUDIT_AFTER_BUILD;
+    else process.env.PI_FLOW_REQUIRE_AUDIT_AFTER_BUILD = prev;
+  }
 });

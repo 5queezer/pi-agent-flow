@@ -44,6 +44,15 @@ function isValidFileEntry(item: unknown): boolean {
 	return true;
 }
 
+/** Minimum required fields to consider a parsed verification entry valid. */
+function isValidVerificationEntry(item: unknown): boolean {
+	if (!isRecord(item)) return false;
+	if (typeof item.command !== "string") return false;
+	if (!["pass", "fail", "skipped"].includes(String(item.result))) return false;
+	if (item.evidence !== undefined && typeof item.evidence !== "string") return false;
+	return true;
+}
+
 /** Minimum required fields to consider parsed JSON a valid structured output. */
 function isValidStructuredOutput(obj: unknown): obj is StructuredOutputRecord {
 	if (!isRecord(obj)) return false;
@@ -57,6 +66,7 @@ function isValidStructuredOutput(obj: unknown): obj is StructuredOutputRecord {
 		isOptionalArray(obj, "actions") &&
 		isOptionalArray(obj, "commands") &&
 		isOptionalArray(obj, "verification") &&
+		(Array.isArray(obj.verification) ? obj.verification.every(isValidVerificationEntry) : true) &&
 		isOptionalArray(obj, "notDone") &&
 		isOptionalArray(obj, "nextSteps") &&
 		isOptionalArray(obj, "reasoning") &&

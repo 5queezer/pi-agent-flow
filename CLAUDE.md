@@ -197,6 +197,7 @@ Agent work is organized into two tiers. **Access is not the boundary — intent 
 | `debug` | batch, bash, find, grep, ls, web | 0 | lite | Investigate root cause AND fix the bug. The detective + fixer. |
 | `ideas` | batch, bash, web | 0 | full | Diverge → evaluate → recommend with inherited context. The strategist. |
 | `craft` | batch, bash, find, grep, ls, web | 0 | full | Conservative design, may delegate to `[scout]`. The architect. |
+| `revise` | batch, bash, find, grep, ls, web | 0 | flash | Triage audit/review findings, apply accepted fixes, verify. The closer. |
 
 > **None of these flows have `ask_user`.** If user input is needed, a flow emits a `⚠️ Decision Required` block for the orchestrator to present. Only the orchestrator talks to the user.
 >

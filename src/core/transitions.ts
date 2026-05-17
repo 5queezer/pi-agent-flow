@@ -60,7 +60,7 @@ function envFlag(name: string): boolean {
 export function withEnvGates(transitions: FlowTransition[]): FlowTransition[] {
 	if (!envFlag("PI_FLOW_REQUIRE_AUDIT_AFTER_BUILD")) return transitions;
 	return transitions.map((t) =>
-		t.from === "build" && t.to === "audit" && t.on === "success"
+		t.from.toLowerCase() === "build" && t.to.toLowerCase() === "audit" && t.on === "success"
 			? { ...t, gate: true }
 			: t,
 	);

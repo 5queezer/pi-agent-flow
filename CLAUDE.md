@@ -304,6 +304,7 @@ Key env vars that control flow behavior. All are read from the `pi` process envi
 | `PI_FLOW_NO_ANIMATION` | Set to `1` to disable all flow animation (instant render). |
 | `PI_FLOW_NO_GLITCH` | Set to `1` to disable glitch/scramble effect. |
 | `PI_ASK_USER_TIMEOUT` | Override the ask_user default timeout in seconds (e.g., `60` for 1 minute). |
+| `PI_FLOW_REQUIRE_AUDIT_AFTER_BUILD` | Marks `build → audit` as a REQUIRED gate (orchestrator must run audit). Default off. See ADR 0006. |
 
 ## Flow Settings
 

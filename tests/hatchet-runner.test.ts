@@ -432,6 +432,64 @@ describe("Hatchet runner adapter", () => {
 		expect(runRef).toHaveBeenCalledWith("real-run-1");
 	});
 
+	it("SDK adapter reads completed restarted runs from persisted Hatchet run metadata", async () => {
+		const singleResult: SingleResult = {
+			type: "build",
+			agentSource: "project",
+			intent: "Implement durable resume",
+			aim: "Durable Hatchet resume",
+			exitCode: 0,
+			messages: [],
+			stderr: "done from persisted run",
+			usage: emptyFlowUsage(),
+		};
+		const runRef = vi.fn();
+		class HatchetClient {
+			runs = {
+				get: vi.fn(async () => ({
+					tasks: [{ taskExternalId: "real-run-persisted", status: "COMPLETED", output: singleResult }],
+				})),
+			};
+			runRef = runRef;
+		}
+
+		const adapter = new SdkHatchetRunAdapter(async () => ({ HatchetClient }));
+		await expect(adapter.getResult({ runId: "real-run-persisted" })).resolves.toMatchObject({
+			status: "completed",
+			result: singleResult,
+		});
+		expect(runRef).not.toHaveBeenCalled();
+	});
+
+	it("SDK adapter reopens run refs with bound client context and unwraps task-keyed output", async () => {
+		const singleResult: SingleResult = {
+			type: "build",
+			agentSource: "project",
+			intent: "Implement durable resume",
+			aim: "Durable Hatchet resume",
+			exitCode: 0,
+			messages: [],
+			stderr: "done from task key",
+			usage: emptyFlowUsage(),
+		};
+		class HatchetClient {
+			runs = {
+				runRef(id: string) {
+					return { result: vi.fn(async () => ({ [HATCHET_FLOW_TASK_NAME]: singleResult, runId: id })) };
+				},
+			};
+			runRef(id: string) {
+				return this.runs.runRef(id);
+			}
+		}
+
+		const adapter = new SdkHatchetRunAdapter(async () => ({ HatchetClient }));
+		await expect(adapter.getResult({ runId: "real-run-bound" })).resolves.toMatchObject({
+			status: "completed",
+			result: singleResult,
+		});
+	});
+
 	it("SDK adapter treats result lookup errors as unknown so reconciliation can retry", async () => {
 		const ref = {
 			result: vi.fn(async () => { throw new Error("temporary Hatchet API outage"); }),

@@ -23,6 +23,7 @@ import { getAgentSessionTimeoutMs, resolveAgentSessionMode, type AgentSessionMod
 import { setFlowComplete } from "../notify/notify-state.js";
 import { setLiveText } from '../tui/scramble/index.js';
 import { logWarn } from '../config/log.js';
+import { writePlanArtifact } from "../snapshot/plan-artifact.js";
 import { markFlowCompleted } from '../flow/index.js';
 import type { GoalContext } from '../flow/types.js';
 
@@ -484,6 +485,15 @@ export async function executeFlows(
 		if (so.reasoning.length > 0) compressed.reasoning = so.reasoning;
 		if (so.notes.length > 0) compressed.notes = so.notes;
 		if (result.errorMessage) compressed.error = result.errorMessage;
+		const plan = (so.extensions as { plan?: import("../types/output.js").FlowPlan } | undefined)?.plan;
+		if (result.type === "craft" && plan?.tasks?.length && cwd) {
+			try {
+				const planPath = writePlanArtifact(cwd, plan);
+				logWarn(`[pi-agent-flow] craft plan persisted: ${planPath}`);
+			} catch (e) {
+				logWarn(`[pi-agent-flow] failed to persist craft plan: ${String(e)}`);
+			}
+		}
 		const existing = flowResultCache.get(toolCallId) ?? [];
 		existing.push(compressed);
 		flowResultCache.set(toolCallId, existing);

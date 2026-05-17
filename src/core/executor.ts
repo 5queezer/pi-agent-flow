@@ -99,6 +99,8 @@ export interface FlowExecutorDeps {
   goalContext?: GoalContext;
   /** Backend used each resolved flow attempt. Defaults to the local fork runner. */
   flowRunner?: FlowRunner;
+  /** Active goal ID, if any — used by the Hatchet registry for idempotent goal completion. */
+  goalId?: string;
 }
 
 export interface ExecuteFlowParams {
@@ -243,17 +245,17 @@ export async function executeFlows(
   // Project flow confirmation
   const projectFlows = getRequestedProjectFlows(flows, requested);
   if (projectFlows.length > 0 && confirmProjectFlows !== false) {
-    const { ok, blocked } = await confirmProjectFlowsIfNeeded(
+    const confirmation = await confirmProjectFlowsIfNeeded(
       projectFlows,
       projectFlowsDir,
       hasUI,
       uiConfirm,
     );
-    if (!ok) {
+    if (!confirmation.ok) {
       return {
-        content: [{ type: "text", text: blocked ?? "Canceled: project-local flows not approved." }],
+        content: [{ type: "text", text: confirmation.blocked ?? "Canceled: project-local flows not approved." }],
         details: makeDetails([]),
-        isError: !blocked,
+        isError: !confirmation.blocked,
       };
     }
   }
@@ -400,6 +402,11 @@ export async function executeFlows(
         makeDetails,
       }, {
         projectFlowsDir,
+        sessionId: sessionManager.getSessionId(),
+        goalId: deps.goalId,
+        toolCallId,
+        paramIndex: index,
+        attemptIndex: attempt,
       });
 
       allResults[index] = result;

@@ -1,4 +1,7 @@
 import { readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunFlowOptions } from "../src/core/flow.js";
 import { runFlow } from "../src/core/flow.js";
@@ -6,6 +9,7 @@ import { createFlowRunnerFromEnv, DEFAULT_LOCAL_FLOW_RUNNER } from "../src/flow-
 import {
 	HATCHET_FLOW_TASK_NAME,
 	HatchetFlowRunner,
+	SdkHatchetRunAdapter,
 	runHatchetFlowTask,
 	submitHatchetTaskWithSdk,
 	type HatchetFlowPayload,
@@ -18,6 +22,7 @@ import {
 	validateHatchetFlowPayloadSize,
 } from "../src/hatchet-payload.js";
 import { emptyFlowUsage, type SingleResult } from "../src/types/flow.js";
+import type { HatchetRunAdapter } from "../src/hatchet-run-adapter.js";
 
 vi.mock("../src/core/flow.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../src/core/flow.js")>();
@@ -351,5 +356,252 @@ describe("Hatchet runner", () => {
 		expect(readme).toContain("trusted infrastructure");
 		expect(adr).toContain("Hatchet payload trust boundary");
 		expect(adr).toContain("trusted infrastructure");
+	});
+});
+
+describe("Hatchet runner adapter", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("adapter submit and getResult round-trip produces the correct result", async () => {
+		const singleResult: SingleResult = {
+			type: "build",
+			agentSource: "project",
+			intent: "Implement durable resume",
+			aim: "Durable Hatchet resume",
+			exitCode: 0,
+			messages: [],
+			stderr: "done from adapter",
+			usage: emptyFlowUsage(),
+		};
+
+		const adapter: HatchetRunAdapter = {
+			submit: vi.fn(async () => ({ runId: "remote-1" })),
+			getResult: vi.fn(async () => ({ status: "completed" as const, result: singleResult })),
+		};
+
+		const runner = new HatchetFlowRunner({ adapter });
+		const result = await runner.run(options());
+
+		expect(adapter.submit).toHaveBeenCalledOnce();
+		expect(adapter.getResult).toHaveBeenCalledWith({ runId: "remote-1" });
+		expect(result.stderr).toBe("done from adapter");
+	});
+
+	it("SDK adapter persists a real Hatchet run ID and can re-open it after restart", async () => {
+		const singleResult: SingleResult = {
+			type: "build",
+			agentSource: "project",
+			intent: "Implement durable resume",
+			aim: "Durable Hatchet resume",
+			exitCode: 0,
+			messages: [],
+			stderr: "done after restart",
+			usage: emptyFlowUsage(),
+		};
+		const ref = {
+			getWorkflowRunId: vi.fn(async () => "real-run-1"),
+			result: vi.fn(async () => singleResult),
+			cancel: vi.fn(async () => {}),
+		};
+		const runRef = vi.fn((_id: string) => ref);
+		const runNoWait = vi.fn(async () => ref);
+		class HatchetClient {
+			runRef = runRef;
+			task() {
+				return { runNoWait };
+			}
+		}
+
+		const adapter = new SdkHatchetRunAdapter(async () => ({ HatchetClient }));
+		const handle = await adapter.submit(HATCHET_FLOW_TASK_NAME, serializeHatchetFlowPayload(options()), {
+			clientRunId: "client-run-1",
+		});
+
+		expect(handle).toEqual({ runId: "real-run-1", durable: true });
+		expect(runNoWait).toHaveBeenCalledWith(expect.any(Object), {
+			additionalMetadata: { clientRunId: "client-run-1" },
+		});
+
+		const restartedAdapter = new SdkHatchetRunAdapter(async () => ({ HatchetClient }));
+		await expect(restartedAdapter.getResult({ runId: "real-run-1" })).resolves.toMatchObject({
+			status: "completed",
+			result: singleResult,
+		});
+		expect(runRef).toHaveBeenCalledWith("real-run-1");
+	});
+
+	it("SDK adapter reads completed restarted runs from persisted Hatchet run metadata", async () => {
+		const singleResult: SingleResult = {
+			type: "build",
+			agentSource: "project",
+			intent: "Implement durable resume",
+			aim: "Durable Hatchet resume",
+			exitCode: 0,
+			messages: [],
+			stderr: "done from persisted run",
+			usage: emptyFlowUsage(),
+		};
+		const runRef = vi.fn();
+		class HatchetClient {
+			runs = {
+				get: vi.fn(async () => ({
+					tasks: [{ taskExternalId: "real-run-persisted", status: "COMPLETED", output: singleResult }],
+				})),
+			};
+			runRef = runRef;
+		}
+
+		const adapter = new SdkHatchetRunAdapter(async () => ({ HatchetClient }));
+		await expect(adapter.getResult({ runId: "real-run-persisted" })).resolves.toMatchObject({
+			status: "completed",
+			result: singleResult,
+		});
+		expect(runRef).not.toHaveBeenCalled();
+	});
+
+	it("SDK adapter reopens run refs with bound client context and unwraps task-keyed output", async () => {
+		const singleResult: SingleResult = {
+			type: "build",
+			agentSource: "project",
+			intent: "Implement durable resume",
+			aim: "Durable Hatchet resume",
+			exitCode: 0,
+			messages: [],
+			stderr: "done from task key",
+			usage: emptyFlowUsage(),
+		};
+		class HatchetClient {
+			runs = {
+				runRef(id: string) {
+					return { result: vi.fn(async () => ({ [HATCHET_FLOW_TASK_NAME]: singleResult, runId: id })) };
+				},
+			};
+			runRef(id: string) {
+				return this.runs.runRef(id);
+			}
+		}
+
+		const adapter = new SdkHatchetRunAdapter(async () => ({ HatchetClient }));
+		await expect(adapter.getResult({ runId: "real-run-bound" })).resolves.toMatchObject({
+			status: "completed",
+			result: singleResult,
+		});
+	});
+
+	it("SDK adapter treats result lookup errors as unknown so reconciliation can retry", async () => {
+		const ref = {
+			result: vi.fn(async () => { throw new Error("temporary Hatchet API outage"); }),
+		};
+		const runRef = vi.fn(() => ref);
+		class HatchetClient {
+			runRef = runRef;
+		}
+
+		const adapter = new SdkHatchetRunAdapter(async () => ({ HatchetClient }));
+		await expect(adapter.getResult({ runId: "real-run-2" })).resolves.toMatchObject({
+			status: "unknown",
+			errorMessage: "temporary Hatchet API outage",
+		});
+	});
+
+	it("does not submit a default durable Hatchet run when the registry cannot be written", async () => {
+		const cwdFile = join(mkdtempSync(join(tmpdir(), "hatchet-registry-blocked-")), "not-a-directory");
+		writeFileSync(cwdFile, "x");
+		const ref = {
+			getWorkflowRunId: vi.fn(async () => "real-run-never"),
+			result: vi.fn(async () => ({
+				type: "build",
+				agentSource: "project",
+				intent: "Implement durable resume",
+				aim: "Durable Hatchet resume",
+				exitCode: 0,
+				messages: [],
+				stderr: "done",
+				usage: emptyFlowUsage(),
+			})),
+		};
+		const runNoWait = vi.fn(async () => ref);
+		class HatchetClient {
+			task() {
+				return { runNoWait };
+			}
+		}
+		const runner = new HatchetFlowRunner({ adapter: new SdkHatchetRunAdapter(async () => ({ HatchetClient })), requireRegistry: true });
+
+		await expect(runner.run(options({ cwd: cwdFile }))).rejects.toThrow("Hatchet durable registry unavailable");
+		expect(runNoWait).not.toHaveBeenCalled();
+	});
+
+	it("adapter failed status causes runner to throw", async () => {
+		const adapter: HatchetRunAdapter = {
+			submit: vi.fn(async () => ({ runId: "remote-fail" })),
+			getResult: vi.fn(async () => ({
+				status: "failed" as const,
+				errorMessage: "worker crashed",
+			})),
+		};
+
+		const runner = new HatchetFlowRunner({ adapter });
+		await expect(runner.run(options())).rejects.toThrow("worker crashed");
+	});
+
+	it("adapter submit error causes runner to throw and emit failure update", async () => {
+		const updates: any[] = [];
+		const adapter: HatchetRunAdapter = {
+			submit: vi.fn(async () => {
+				throw new Error("submission failed");
+			}),
+			getResult: vi.fn(async () => ({ status: "unknown" as const })),
+		};
+
+		const runner = new HatchetFlowRunner({ adapter });
+		await expect(
+			runner.run(options({ onUpdate: (u) => updates.push(u) })),
+		).rejects.toThrow("submission failed");
+
+		expect(updates.map((u) => u.content[0].text)).toEqual([
+			"Hatchet queued/running flow build.",
+			"Hatchet failed flow build.",
+		]);
+	});
+
+	it("persists run record to registry when cwd is a real directory", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "hatchet-persist-"));
+		const singleResult: SingleResult = {
+			type: "build",
+			agentSource: "project",
+			intent: "Implement durable resume",
+			aim: "Durable Hatchet resume",
+			exitCode: 0,
+			messages: [],
+			stderr: "done",
+			usage: emptyFlowUsage(),
+		};
+
+		const adapter: HatchetRunAdapter = {
+			submit: vi.fn(async () => ({ runId: "remote-1" })),
+			getResult: vi.fn(async () => ({ status: "completed" as const, result: singleResult })),
+		};
+
+		const runner = new HatchetFlowRunner({ adapter });
+		await runner.run(
+			options({ cwd }),
+			{ projectFlowsDir: null, sessionId: "session-1", goalId: "goal-1", toolCallId: "tool-1", paramIndex: 0, attemptIndex: 0 },
+		);
+
+		const { loadHatchetRunRegistry } = await import("../src/hatchet-run-registry.js");
+		const registry = loadHatchetRunRegistry(cwd);
+		expect(registry.runs).toHaveLength(1);
+		expect(registry.runs[0]).toMatchObject({
+			status: "completed",
+			hatchetRunId: "remote-1",
+			sessionId: "session-1",
+			goalId: "goal-1",
+		});
+		expect(registry.runs[0].result?.exitCode).toBe(0);
+		// Ensure no snapshot data in registry
+		expect(JSON.stringify(registry)).not.toContain("forkSessionSnapshotJsonl");
 	});
 });

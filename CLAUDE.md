@@ -227,6 +227,22 @@ The Orchestrator is the agent you're talking to right now (when not inside a flo
 
 Global default delegation depth (`DEFAULT_MAX_DELEGATION_DEPTH`) is 3; each flow's `maxDepth` overrides it.
 
+### Routing model: advisory by default, gated by opt-in
+
+Post-flow transitions (`src/core/transitions.ts`) are **advisory**: the
+orchestrator receives `💡` suggestions and decides whether to follow them.
+Nothing blocks. This is intentional — pi-agent-flow is a router, not a
+linear pipeline.
+
+A transition may be marked `gate: true`. A gated transition is **REQUIRED**:
+the orchestrator must run the target flow (or explicitly waive it) before
+treating the source flow's work as complete. Gates are opt-in via env var
+and default off. See ADR 0006.
+
+| Env var | Default | Effect |
+|---------|---------|--------|
+| `PI_FLOW_REQUIRE_AUDIT_AFTER_BUILD` | off | Marks `build --success--> audit` as a blocking gate. |
+
 ### Nested flow snapshots
 
 At depth ≥ 2, the sanitized JSONL snapshot embeds the **parent flow's full activation prompt** as a `user` message. This is expected behavior: the parent's conversation history begins with its own `-p` prompt, and sanitization preserves that history so the child can replay it.

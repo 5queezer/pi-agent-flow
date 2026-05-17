@@ -1,12 +1,12 @@
 import { Context } from "@temporalio/activity";
 import type { SingleResult } from "./types/flow.js";
 import {
-	deserializeHatchetFlowPayload,
-	resolveHatchetSpawnCommand,
-	validateHatchetWorkerPayload,
-	type HatchetFlowPayload,
-} from "./hatchet-payload.js";
-import { validateSingleResult } from "./hatchet-runner.js";
+	deserializeDurableFlowPayload,
+	resolveDurableSpawnCommand,
+	validateDurableWorkerPayload,
+	validateSingleResult,
+	type DurableFlowPayload,
+} from "./durable-flow-payload.js";
 
 function heartbeat(detail: string): void {
 	try {
@@ -16,17 +16,17 @@ function heartbeat(detail: string): void {
 	}
 }
 
-export async function runTemporalFlowActivity(payload: HatchetFlowPayload): Promise<SingleResult> {
+export async function runTemporalFlowActivity(payload: DurableFlowPayload): Promise<SingleResult> {
 	const originalRunner = process.env.PI_FLOW_RUNNER;
 	const originalSpawn = process.env.PI_FLOW_SPAWN_COMMAND;
 	process.env.PI_FLOW_RUNNER = "local";
-	process.env.PI_FLOW_SPAWN_COMMAND = resolveHatchetSpawnCommand(process.env);
+	process.env.PI_FLOW_SPAWN_COMMAND = resolveDurableSpawnCommand(process.env);
 	try {
-		validateHatchetWorkerPayload(payload);
+		validateDurableWorkerPayload(payload, "Temporal activity worker");
 		heartbeat("starting pi flow");
 		const { runFlow } = await import("./core/flow.js");
 		const result = validateSingleResult(
-			await runFlow(deserializeHatchetFlowPayload(payload)),
+			await runFlow(deserializeDurableFlowPayload(payload)),
 			"Temporal activity result",
 		);
 		heartbeat("completed pi flow");

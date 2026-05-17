@@ -2,12 +2,20 @@ import * as crypto from "node:crypto";
 import type { RunFlowOptions } from "./core/flow.js";
 import type { FlowRunContext, FlowRunner } from "./flow-runner.js";
 import {
-	serializeHatchetFlowPayload,
-	validateHatchetFlowPayloadSize,
-	type HatchetFlowPayload,
-} from "./hatchet-payload.js";
-import { validateSingleResult } from "./hatchet-runner.js";
+	serializeDurableFlowPayload,
+	validateDurableFlowPayloadSize,
+	validateSingleResult,
+	type DurableFlowPayload,
+} from "./durable-flow-payload.js";
 import { emptyFlowUsage, type FlowDetails, type SingleResult } from "./types/flow.js";
+
+export {
+	DEFAULT_DURABLE_MAX_PAYLOAD_BYTES,
+	PI_FLOW_DURABLE_MAX_PAYLOAD_BYTES_ENV,
+	resolveDurableMaxPayloadBytes,
+	validateDurableFlowPayloadSize,
+} from "./durable-flow-payload.js";
+export type { DurableFlowPayload } from "./durable-flow-payload.js";
 
 export const TEMPORAL_FLOW_WORKFLOW_TYPE = "runPiFlowWorkflow";
 export const PI_FLOW_TEMPORAL_ADDRESS_ENV = "PI_FLOW_TEMPORAL_ADDRESS";
@@ -28,7 +36,7 @@ export interface TemporalWorkflowExecutionOptions {
 
 type TemporalWorkflowExecutor = (
 	workflowType: string,
-	payload: HatchetFlowPayload,
+	payload: DurableFlowPayload,
 	options: TemporalWorkflowExecutionOptions,
 	timeoutMs: number,
 ) => Promise<unknown>;
@@ -43,7 +51,7 @@ interface TemporalClientSdkModule {
 	};
 	Client: new (options: { connection: TemporalClientConnectionLike; namespace: string }) => {
 		workflow: {
-			execute(workflowType: string, options: { taskQueue: string; workflowId: string; args: [HatchetFlowPayload] }): Promise<unknown>;
+			execute(workflowType: string, options: { taskQueue: string; workflowId: string; args: [DurableFlowPayload] }): Promise<unknown>;
 		};
 	};
 }
@@ -114,7 +122,7 @@ async function loadTemporalClientSdk(): Promise<TemporalClientSdkModule> {
 
 async function defaultExecuteTemporalWorkflow(
 	workflowType: string,
-	payload: HatchetFlowPayload,
+	payload: DurableFlowPayload,
 	options: TemporalWorkflowExecutionOptions,
 	timeoutMs: number,
 ): Promise<unknown> {
@@ -178,8 +186,8 @@ export class TemporalFlowRunner implements FlowRunner {
 
 	async run(options: RunFlowOptions, context?: FlowRunContext): Promise<SingleResult> {
 		const projectFlowsDir = context?.projectFlowsDir ?? null;
-		const payload = serializeHatchetFlowPayload(options, projectFlowsDir);
-		validateHatchetFlowPayloadSize(payload);
+		const payload = serializeDurableFlowPayload(options, projectFlowsDir);
+		validateDurableFlowPayloadSize(payload, undefined, "Temporal flow payload");
 		const timeoutMs = resolveTemporalResultTimeoutMs();
 		const executionOptions: TemporalWorkflowExecutionOptions = {
 			address: resolveTemporalAddress(),

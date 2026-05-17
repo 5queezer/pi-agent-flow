@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunFlowOptions } from "../src/core/flow.js";
 import { runFlow } from "../src/core/flow.js";
 import { createFlowRunnerFromEnv, DEFAULT_LOCAL_FLOW_RUNNER } from "../src/flow-runner.js";
-import { serializeHatchetFlowPayload } from "../src/hatchet-payload.js";
+import { serializeDurableFlowPayload } from "../src/durable-flow-payload.js";
 import {
 	DEFAULT_TEMPORAL_ADDRESS,
 	DEFAULT_TEMPORAL_NAMESPACE,
@@ -225,7 +225,7 @@ describe("Temporal runner", () => {
 	it("activity entrypoint forces local child flow execution and restores env", async () => {
 		const previousRunner = process.env.PI_FLOW_RUNNER;
 		const previousSpawn = process.env.PI_FLOW_SPAWN_COMMAND;
-		const payload = serializeHatchetFlowPayload(options({ cwd: process.cwd() }), `${process.cwd()}/.pi/agents`);
+		const payload = serializeDurableFlowPayload(options({ cwd: process.cwd() }), `${process.cwd()}/.pi/agents`);
 		await runTemporalFlowActivity(payload);
 		expect(runFlow).toHaveBeenCalledTimes(1);
 		expect(process.env.PI_FLOW_RUNNER).toBe(previousRunner);

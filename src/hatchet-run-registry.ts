@@ -2,7 +2,7 @@
  * Durable Hatchet run registry.
  *
  * Persists Hatchet flow run metadata in `.pi/hatchet-runs.json`.
- * Does NOT store: forkSessionSnapshotJsonl, full HatchetFlowPayload, or secrets.
+ * Does NOT store: forkSessionSnapshotJsonl, full durable flow payloads, or secrets.
  * File is written atomically with 0600 permissions.
  */
 import * as fs from "node:fs";

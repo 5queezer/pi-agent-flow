@@ -476,9 +476,9 @@ Commands:
 - `/flow:hatchet attach <runId>` — show details and result for a specific run
 - `/flow:hatchet cancel <runId>` — request cancellation of a running Hatchet task (requires adapter support)
 
-The registry stores metadata, run handles, statuses, and sanitized final results only. It does not store forked session snapshots, full Hatchet payloads, full message transcripts, or API secrets. Registry updates are guarded by a local lock and written atomically with `0600` permissions. On startup, Pi automatically reconciles any active Hatchet runs in the background when `PI_FLOW_RUNNER=hatchet` is set.
+The registry stores metadata, run handles, statuses, and sanitized final results only. It does not store forked session snapshots, full durable payloads, full message transcripts, or API secrets. Registry updates are guarded by a local lock and written atomically with `0600` permissions. On startup, Pi automatically reconciles any active Hatchet runs in the background when `PI_FLOW_RUNNER=hatchet` is set.
 
-Operational hardening: the parent validates returned Hatchet results against the expected `SingleResult` shape before marking a flow complete, and workers validate `PI_FLOW_SPAWN_COMMAND`, the queued `cwd`/`taskCwd` workspace, and the final `runFlow()` result before returning to Hatchet. Worker checkouts should run the same `pi-agent-flow` package version as the parent, provide required Pi/provider/Hatchet secrets explicitly, and avoid inheriting unrelated worker secrets into child `pi` processes. Payloads are limited to 1,500,000 serialized bytes by default to leave room for larger inherited session snapshots; set `PI_FLOW_HATCHET_MAX_PAYLOAD_BYTES` only for trusted private queues with appropriate retention. Keep Hatchet task retries disabled or bounded so a queue retry does not duplicate `executeFlows()` model failover attempts.
+Operational hardening: the parent validates returned Hatchet results against the expected `SingleResult` shape before marking a flow complete, and workers validate `PI_FLOW_SPAWN_COMMAND`, the queued `cwd`/`taskCwd` workspace, and the final `runFlow()` result before returning to Hatchet. Worker checkouts should run the same `pi-agent-flow` package version as the parent, provide required Pi/provider/Hatchet secrets explicitly, and avoid inheriting unrelated worker secrets into child `pi` processes. Shared durable payload helpers in `src/durable-flow-payload.ts` keep Hatchet and Temporal serialization identical and limit payloads to 1,500,000 serialized bytes by default to leave room for larger inherited session snapshots; set `PI_FLOW_DURABLE_MAX_PAYLOAD_BYTES` only for trusted private queues with appropriate retention (`PI_FLOW_HATCHET_MAX_PAYLOAD_BYTES` is still honored as a legacy fallback). Keep Hatchet task retries disabled or bounded so a queue retry does not duplicate `executeFlows()` model failover attempts.
 
 ### Optional Temporal backend
 
@@ -497,6 +497,7 @@ PI_FLOW_TEMPORAL_NAMESPACE=default
 PI_FLOW_TEMPORAL_TASK_QUEUE=pi-agent-flow
 PI_FLOW_TEMPORAL_RESULT_TIMEOUT_MS=600000
 PI_FLOW_TEMPORAL_WORKER_SLOTS=1
+PI_FLOW_DURABLE_MAX_PAYLOAD_BYTES=1500000
 ```
 
 The Temporal SDK is dynamically imported and is not required for local-only or Hatchet-only users. Install and configure `@temporalio/client`, `@temporalio/worker`, `@temporalio/workflow`, and `@temporalio/activity` only where `PI_FLOW_RUNNER=temporal` or `npm run temporal-worker` is used.
@@ -505,7 +506,7 @@ The Temporal SDK is dynamically imported and is not required for local-only or H
 
 `PI_FLOW_TEMPORAL_WORKER_SLOTS` defaults to `1` because each activity temporarily adjusts process environment before spawning the child `pi` process. Prefer additional worker processes for throughput unless the environment mutation path is refactored to be per-run. `PI_FLOW_TEMPORAL_RESULT_TIMEOUT_MS` stops the parent from waiting forever; it does not provide full child-process cancellation propagation.
 
-**Temporal payload trust boundary:** Temporal workflow inputs include the selected flow configuration, prompt text, inherited session snapshot, working directory, and project flow directory path. Treat the Temporal namespace, task queue, workers, and history retention as trusted infrastructure; do not route these payloads through untrusted tenants, logs, or retention policies.
+**Temporal payload trust boundary:** Temporal workflow inputs use the same backend-neutral durable payload shape as Hatchet and include the selected flow configuration, prompt text, inherited session snapshot, working directory, and project flow directory path. Treat the Temporal namespace, task queue, workers, and history retention as trusted infrastructure; do not route these payloads through untrusted tenants, logs, or retention policies.
 
 Session mode precedence is:
 
@@ -541,7 +542,8 @@ per-flow sessionMode > --flow-session-mode > PI_FLOW_SESSION_MODE > flowSettings
 | `PI_FLOW_SESSION_MODE` | Default child-flow session mode: `fast`, `default`, `long`, or `extreme_long` |
 | `PI_FLOW_MAX_CONCURRENCY` | Maximum parallel flows |
 | `PI_FLOW_RUNNER` | Flow execution backend: unset/`local` for local forked children, `hatchet` for the optional Hatchet backend, or `temporal` for the optional Temporal backend |
-| `PI_FLOW_HATCHET_MAX_PAYLOAD_BYTES` | Maximum serialized durable task payload size in bytes for the Hatchet and Temporal backends; defaults to `1500000` |
+| `PI_FLOW_DURABLE_MAX_PAYLOAD_BYTES` | Maximum serialized durable task payload size in bytes for the Hatchet and Temporal backends; defaults to `1500000` |
+| `PI_FLOW_HATCHET_MAX_PAYLOAD_BYTES` | Legacy fallback for the durable payload size limit; prefer `PI_FLOW_DURABLE_MAX_PAYLOAD_BYTES` |
 | `PI_FLOW_TEMPORAL_ADDRESS` | Temporal frontend address for `PI_FLOW_RUNNER=temporal`; defaults to `localhost:7233` |
 | `PI_FLOW_TEMPORAL_NAMESPACE` | Temporal namespace for `PI_FLOW_RUNNER=temporal`; defaults to `default` |
 | `PI_FLOW_TEMPORAL_TASK_QUEUE` | Temporal task queue for flow workflows/workers; defaults to `pi-agent-flow` |

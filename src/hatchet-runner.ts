@@ -1,6 +1,7 @@
 import * as crypto from "node:crypto";
 import type { RunFlowOptions } from "./core/flow.js";
 import type { FlowRunContext, FlowRunner } from "./flow-runner.js";
+import { isRecord, validateSingleResult } from "./durable-flow-payload.js";
 import {
 	HATCHET_FLOW_TASK_NAME,
 	deserializeHatchetFlowPayload,
@@ -19,6 +20,18 @@ import {
 	updateHatchetRunResult,
 	updateHatchetRunFailure,
 } from "./hatchet-run-registry.js";
+export {
+	DEFAULT_DURABLE_MAX_PAYLOAD_BYTES,
+	DURABLE_FLOW_TASK_NAME,
+	PI_FLOW_DURABLE_MAX_PAYLOAD_BYTES_ENV,
+	deserializeDurableFlowPayload,
+	resolveDurableMaxPayloadBytes,
+	resolveDurableSpawnCommand,
+	serializeDurableFlowPayload,
+	validateDurableFlowPayloadSize,
+	validateDurableWorkerPayload,
+} from "./durable-flow-payload.js";
+export type { DurableFlowPayload } from "./durable-flow-payload.js";
 export {
 	DEFAULT_HATCHET_MAX_PAYLOAD_BYTES,
 	HATCHET_FLOW_TASK_NAME,
@@ -73,74 +86,8 @@ function makeFlowDetails(projectFlowsDir: string | null): (results: SingleResult
 		results,
 	});
 }
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-export function validateSingleResult(value: unknown, source = "Hatchet result"): SingleResult {
-	if (!isRecord(value)) {
-		throw new Error(`${source} returned an invalid SingleResult: expected an object.`);
-	}
-	for (const field of ["type", "agentSource", "intent", "aim", "stderr"] as const) {
-		if (typeof value[field] !== "string") {
-			throw new Error(`${source} returned an invalid SingleResult: ${JSON.stringify(field)} must be a string.`);
-		}
-	}
-	if (!(["user", "project", "bundled", "unknown"] as const).includes(value.agentSource as any)) {
-		throw new Error(
-			`${source} returned an invalid SingleResult: "agentSource" must be one of user, project, bundled, or unknown.`,
-		);
-	}
-	if (typeof value.exitCode !== "number" || !Number.isFinite(value.exitCode)) {
-		throw new Error(`${source} returned an invalid SingleResult: "exitCode" must be a finite number.`);
-	}
-	if (!Array.isArray(value.messages)) {
-		throw new Error(`${source} returned an invalid SingleResult: "messages" must be an array.`);
-	}
-	if (!isRecord(value.usage)) {
-		throw new Error(`${source} returned an invalid SingleResult: "usage" must be an object.`);
-	}
-	for (const field of [
-		"input",
-		"output",
-		"cacheRead",
-		"cacheWrite",
-		"cost",
-		"contextTokens",
-		"turns",
-		"toolCalls",
-	] as const) {
-		if (typeof value.usage[field] !== "number" || !Number.isFinite(value.usage[field])) {
-			throw new Error(
-				`${source} returned an invalid SingleResult: ${JSON.stringify(`usage.${field}`)} must be a finite number.`,
-			);
-		}
-	}
-	if (
-		value.usage.smoothedTps !== undefined &&
-		(typeof value.usage.smoothedTps !== "number" || !Number.isFinite(value.usage.smoothedTps))
-	) {
-		throw new Error(
-			`${source} returned an invalid SingleResult: "usage.smoothedTps" must be a finite number when present.`,
-		);
-	}
-	for (const field of ["acceptance", "model", "stopReason", "errorMessage", "streamingText"] as const) {
-		if (value[field] !== undefined && typeof value[field] !== "string") {
-			throw new Error(`${source} returned an invalid SingleResult: ${JSON.stringify(field)} must be a string when present.`);
-		}
-	}
-	if (value.sawAgentEnd !== undefined && typeof value.sawAgentEnd !== "boolean") {
-		throw new Error(`${source} returned an invalid SingleResult: "sawAgentEnd" must be a boolean when present.`);
-	}
-	for (const field of ["startedAtMs", "deadlineAtMs"] as const) {
-		if (value[field] !== undefined && (typeof value[field] !== "number" || !Number.isFinite(value[field]))) {
-			throw new Error(`${source} returned an invalid SingleResult: ${JSON.stringify(field)} must be a finite number when present.`);
-		}
-	}
-	if (value.structuredOutput !== undefined && !isRecord(value.structuredOutput)) {
-		throw new Error(`${source} returned an invalid SingleResult: "structuredOutput" must be an object when present.`);
-	}
-	return value as unknown as SingleResult;
-}
+export { validateSingleResult } from "./durable-flow-payload.js";
+
 export function resolveHatchetResultTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
 	const raw = env[PI_FLOW_HATCHET_RESULT_TIMEOUT_MS_ENV]?.trim();
 	if (!raw) return DEFAULT_HATCHET_RESULT_TIMEOUT_MS;

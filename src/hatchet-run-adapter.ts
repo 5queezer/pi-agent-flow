@@ -6,7 +6,7 @@
  * re-opened after the Pi process restarts.
  */
 import type { SingleResult } from "./types/flow.js";
-import type { HatchetFlowPayload } from "./hatchet-payload.js";
+import type { DurableFlowPayload } from "./durable-flow-payload.js";
 
 /** A remote Hatchet run handle returned after successful submission. */
 export interface HatchetRunHandle {
@@ -31,7 +31,7 @@ export type HatchetRemoteRunStatus =
  */
 export interface HatchetRunAdapter {
 	/** Submit a task to Hatchet and return a handle immediately (or when the run is accepted). */
-	submit(taskName: string, payload: HatchetFlowPayload, options?: HatchetRunSubmitOptions): Promise<HatchetRunHandle>;
+	submit(taskName: string, payload: DurableFlowPayload, options?: HatchetRunSubmitOptions): Promise<HatchetRunHandle>;
 	/** Get the current status/result of a submitted run. */
 	getResult(handle: HatchetRunHandle): Promise<HatchetRemoteRunStatus>;
 	/** Cancel a running run. Optional — implementations may leave this undefined. */
@@ -49,9 +49,9 @@ export class SubmitterAdapter implements HatchetRunAdapter {
 	private readonly inFlight = new Map<string, Promise<SingleResult>>();
 	private nextId = 0;
 
-	constructor(private readonly submitter: (taskName: string, payload: HatchetFlowPayload) => Promise<SingleResult>) {}
+	constructor(private readonly submitter: (taskName: string, payload: DurableFlowPayload) => Promise<SingleResult>) {}
 
-	async submit(taskName: string, payload: HatchetFlowPayload): Promise<HatchetRunHandle> {
+	async submit(taskName: string, payload: DurableFlowPayload): Promise<HatchetRunHandle> {
 		const runId = `synthetic-${++this.nextId}-${Date.now()}`;
 		// Start the submission but don't await it here; cache the promise.
 		const promise = this.submitter(taskName, payload);

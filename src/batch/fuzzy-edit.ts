@@ -296,9 +296,14 @@ export function isWithinDirectory(child: string, parent: string): boolean {
 	return child.startsWith(parent + path.sep);
 }
 
-export async function validatePath(inputPath: string, cwd: string): Promise<string> {
-	const expandedPath = expandTilde(inputPath);
-	return path.resolve(cwd, expandedPath);
+export async function validatePath(inputPath: string, cwd: string): Promise<{ path: string; warning?: string }> {
+	let expandedPath = expandTilde(inputPath);
+	if (expandedPath.startsWith("@")) {
+		expandedPath = expandedPath.slice(1);
+	}
+	const resolvedPath = path.resolve(cwd, expandedPath);
+	const warning = isWithinDirectory(resolvedPath, cwd) ? undefined : "Path resolves outside cwd — verify this is intentional";
+	return { path: resolvedPath, warning };
 }
 
 // ---------------------------------------------------------------------------

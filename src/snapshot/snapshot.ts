@@ -29,7 +29,7 @@ import {
 	isJsonEqual,
 } from "../steering/sliding-prompt.js";
 import { stripStrategicHintsFromContent } from "../steering/tool-utils.js";
-import { logError } from "../config/log.js";
+import { logWarn, logError } from "../config/log.js";
 import * as path from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -1683,7 +1683,9 @@ function reparentOrphans(snapshot: string): string {
 			if (typeof id === "string" && id) survivingIds.add(id);
 			// Only ids of actual entries should be in survivingIds; parentId refs
 			// are checked in the second pass, not added here.
-		} catch { /* ignore */ }
+		} catch (err) {
+			logWarn(`[pi-agent-flow] reparentOrphans id scan failed: ${err}`);
+		}
 	}
 	for (let i = 0; i < lines.length; i++) {
 		try {
@@ -1723,7 +1725,9 @@ function reparentOrphans(snapshot: string): string {
 			if (modified) {
 				lines[i] = JSON.stringify(entry);
 			}
-		} catch { /* ignore */ }
+		} catch (err) {
+			logWarn(`[pi-agent-flow] reparentOrphans breadcrumb fix failed: ${err}`);
+		}
 	}
 	return `${lines.join("\n")}\n`;
 }
@@ -1768,19 +1772,29 @@ export function sanitizeForkSnapshot(
 		let entry: SnapshotEntry;
 		try {
 			entry = JSON.parse(line) as SnapshotEntry;
-		} catch {
+		} catch (err) {
+			logWarn(`[pi-agent-flow] sanitizeForkSnapshot parse failed: ${err}`);
 			sanitizedLines.push(line);
 			continue;
 		}
 
 		let changed = false;
 
+		// Strip outer entry timestamp from all entries — child replay doesn't need it
+		// (JSONL line ordering is sufficient).
+		if ("timestamp" in entry) {
+			const { timestamp, ...restEntry } = entry;
+			entry = restEntry;
+			changed = true;
+			subPasses.add("stripTimestamps");
+		}
+
 		// Header (first line): replace parent system prompt.
 		if (i === 0 && entry && typeof entry === "object") {
-			// Replace the parent orchestrator system prompt with a brief note.
+			// Replace the parent root state system prompt with a brief note.
 			// Children receive their own directive in the <activation> block.
 			if (entry.systemPrompt && typeof entry.systemPrompt === "string") {
-				entry = { ...entry, systemPrompt: "[parent orchestrator system prompt stripped — child receives its own directive]" };
+				entry = { ...entry, systemPrompt: "[parent root state system prompt stripped — child receives its own directive]" };
 				changed = true;
 				subPasses.add("stripSystemPrompt");
 			}
@@ -1796,7 +1810,30 @@ export function sanitizeForkSnapshot(
 			}
 		}
 
-		// Drop type: "system" entries — the parent orchestrator system prompt was already
+		// Whitelist session entry fields to prevent unknown metadata leaks.
+		const isSessionHeader = i === 0 || entry?.type === "session";
+		if (isSessionHeader && entry && typeof entry === "object") {
+			const allowedHeaderKeys = new Set<string>([
+				"type", "systemPrompt", "version", "cwd",
+				"forkedFrom", "forkedAt", "parentFlow", "depth", "parentId",
+				"meta",
+			]);
+			const entryKeys = Object.keys(entry);
+			const hasUnknownHeaderField = entryKeys.some((k) => !allowedHeaderKeys.has(k));
+			if (hasUnknownHeaderField) {
+				const whitelisted: Record<string, unknown> = {};
+				for (const key of entryKeys) {
+					if (allowedHeaderKeys.has(key)) {
+						whitelisted[key] = (entry as Record<string, unknown>)[key];
+					}
+				}
+				entry = whitelisted as SnapshotEntry;
+				changed = true;
+				subPasses.add("stripUnknownHeaderFields");
+			}
+		}
+
+		// Drop type: "system" entries — the parent root state system prompt was already
 		// stripped from the header above. Standalone system events leak the full prompt.
 		// Children receive their own directive in the <activation> block.
 		if (entry?.type === "system") {
@@ -1804,7 +1841,7 @@ export function sanitizeForkSnapshot(
 			continue;
 		}
 
-		// Drop custom_message entries — hidden orchestrator instructions (e.g.
+		// Drop custom_message entries — hidden root state instructions (e.g.
 		// flow continuation hook messages with display:false) that children
 		// should never see.
 		if (entry?.type === "custom_message") {
@@ -1948,14 +1985,12 @@ export function sanitizeForkSnapshot(
 					subPasses.add("stripSteeringHints");
 				}
 
-				// Strip strategic hints from tool results
-				if (message.role === "tool" || message.role === "toolResult") {
-					const afterHints = stripStrategicHintsFromContent(modifiedContent as string | Array<{ type: string; text?: string }>);
-					if (!isJsonEqual(afterHints, modifiedContent)) {
-						modifiedContent = afterHints as SnapshotMessage["content"];
-						changed = true;
-						subPasses.add("stripStrategicHints");
-					}
+				// Strip strategic hints from all messages
+				const afterHints = stripStrategicHintsFromContent(modifiedContent as string | Array<{ type: string; text?: string }>);
+				if (!isJsonEqual(afterHints, modifiedContent)) {
+					modifiedContent = afterHints as SnapshotMessage["content"];
+					changed = true;
+					subPasses.add("stripStrategicHints");
 				}
 
 				// Compress parent activation prompts in nested snapshot JSONL
@@ -2047,7 +2082,7 @@ export function sanitizeForkSnapshot(
 
 	// Telemetry: measure total delta across sanitization, stripping, and compression.
 	const postBytes = sanitized.length;
-	const reduction = preBytes > 0 ? ((1 - postBytes / preBytes) * 100).toFixed(0) : "0";
+	const reduction = preBytes > 0 ? Math.round((1 - postBytes / preBytes) * 1000) / 10 : 0;
 	if (DEBUG_CONTEXT) {
 		logError(`[context-snapshot] pre: ${preBytes} → post: ${postBytes} bytes (${reduction}% reduction)`);
 	}
@@ -2056,7 +2091,7 @@ export function sanitizeForkSnapshot(
 	const stats = {
 		preBytes,
 		postBytes,
-		reductionPercent: Number(reduction),
+		reductionPercent: reduction,
 		passesApplied,
 		passDeltas,
 	};

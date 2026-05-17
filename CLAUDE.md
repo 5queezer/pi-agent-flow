@@ -10,12 +10,12 @@
 
 | Category | Files |
 |----------|-------|
-| **Docs** | [`docs/CONTEXT-DIAGNOSTICS.md`](docs/CONTEXT-DIAGNOSTICS.md) — diagnose high token counts in child flows • [`docs/agent-context-dump.md`](docs/agent-context-dump.md) — verbatim child context dump anatomy • [`docs/agent-payload-example.md`](docs/agent-payload-example.md) — exact payload reproduction from source code • [`docs/autonomous-pi-testing.md`](docs/autonomous-pi-testing.md) — scripted Pi sessions over PTY • [`docs/scout-report.md`](docs/scout-report.md) — generated codebase map • [`docs/telemetry-compression-protocols.md`](docs/telemetry-compression-protocols.md) — W1/E1/X1/Q1 compression protocol specs • [`docs/SHARED-CONTEXT-IMPROVEMENT-PROMPT.md`](docs/SHARED-CONTEXT-IMPROVEMENT-PROMPT.md) — living improvement prompt for context compression pipeline |
+| **Docs** | [`docs/CONTEXT-DIAGNOSTICS.md`](docs/CONTEXT-DIAGNOSTICS.md) — diagnose high token counts in child flows • [`docs/agent-context-dump.md`](docs/agent-context-dump.md) — verbatim child context dump anatomy • [`docs/agent-payload-example.md`](docs/agent-payload-example.md) — exact payload reproduction from source code • [`docs/autonomous-pi-testing.md`](docs/autonomous-pi-testing.md) — scripted Pi sessions over PTY • [`docs/scout-report.md`](docs/scout-report.md) — generated codebase map • [`docs/telemetry-compression-protocols.md`](docs/telemetry-compression-protocols.md) — W1/E1/X1/Q1 compression protocol specs • [`docs/SHARED-CONTEXT-IMPROVEMENT-PROMPT.md`](docs/SHARED-CONTEXT-IMPROVEMENT-PROMPT.md) — living improvement prompt for context compression pipeline • [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) — configuration reference (flags, env vars, settings) • [`docs/FLOWS.md`](docs/FLOWS.md) — bundled flows, session modes, timeout behavior, flow loop & warp • [`docs/TOOLS.md`](docs/TOOLS.md) — tool reference (batch, web, ask_user) • [`docs/CUSTOM-FLOWS.md`](docs/CUSTOM-FLOWS.md) — custom flow creation and front-matter • [`docs/STRUCTURED-OUTPUT.md`](docs/STRUCTURED-OUTPUT.md) — structured JSON output schema • [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) — terminal and desktop notification config |
 | **Dump Analysis** | [`docs/dump-analysis/VERSION-NOTES.md`](docs/dump-analysis/VERSION-NOTES.md) — version notes for collected artifacts • [`docs/dump-artifacts/ANALYSIS.md`](docs/dump-artifacts/ANALYSIS.md) — cross-reference of dumps against source • [`docs/dump-artifacts/README.md`](docs/dump-artifacts/README.md) — catalog of representative dump files |
 | **Workflows** | [`ci.yml`](.github/workflows/ci.yml) — lint + test on PR/push • [`bump-version.yml`](.github/workflows/bump-version.yml) — version bump → commit → tag → push • [`publish.yml`](.github/workflows/publish.yml) — npm publish with provenance |
-| **Scripts** | [`dev-start.sh`](scripts/dev-start.sh) — start `pi` with `PI_FLOW_DUMP_SNAPSHOT` preset • [`switch.sh`](scripts/switch.sh) — toggle local ↔ remote install • [`sync-dumps.sh`](scripts/sync-dumps.sh) — sync `/tmp` dumps into `dump-artifacts/` • [`example-autonomous-pi.expect`](scripts/example-autonomous-pi.expect) — PTY test harness template |
-| **Key Source** | `src/index.ts` — entrypoint • `src/core/flow.ts` — flow fork runner and process management • `src/snapshot/snapshot.ts` — session fork & sanitization pipeline • `src/core/agents.ts` — bundled flow definitions & loading • `src/batch/index.ts` / `src/batch/` — unified file/batch tools • `src/tui/render.ts` — TUI rendering & animations • `src/snapshot/structured-output.ts` — JSON output validation & enrichment • `src/tools/web-tool.ts` — search & fetch • `src/tools/ask-user.ts` — interactive prompts • `src/config/config.ts` — settings resolution • `src/notify/notify.ts` — desktop/terminal notifications • `src/flow/loop.ts` — endless loop state management (enable, disable, reset, terminate, warp tracking) • `src/flow/loop-command.ts` — `/flow:loop` slash command (enable/disable/status/stop/reset) • `src/flow/auto-warp.ts` — auto-warp trigger when loop budget is exceeded • `src/flow/loop-templates.ts` — loop runtime prompt templates • `src/flow/perform-warp.ts` — warp distillation and session creation • `src/flow/warp-command.ts` — `/flow:warp` slash command handler • `src/flow/warp-utils.ts` — warp sanitization, system prompt, and goal extraction |
-| **Additional Source** | `src/flow/` — flow goal orchestration, continuation, loop, and settings commands • `src/steering/` — steering hint injection, sliding prompts, and tool utilities • `src/types/` — shared TypeScript types for flow execution, output, and UI • `src/batch/` — batch operation engine, rendering, fuzzy editing, symbol extraction • `src/core/` — flow executor, delegation logic, depth config, session modes, transitions • `src/config/` — TUI-safe logging and settings resolution • `src/tui/` — color themes, render utilities, single-select layout, scramble animation • `src/snapshot/` — CLI arg inheritance, reasoning strip, runner event parsing • `src/tools/` — timed bash wrapper with deadline awareness • `src/notify/` — notification state tracking |
+| **Scripts** | [`dev-start.sh`](scripts/dev-start.sh) — start `pi` with `PI_FLOW_DUMP_SNAPSHOT` preset • [`switch.sh`](scripts/switch.sh) — toggle local ↔ remote install • [`sync-dumps.sh`](scripts/sync-dumps.sh) — sync `/tmp` dumps into `dump-artifacts/` • [`example-autonomous-pi.expect`](scripts/example-autonomous-pi.expect) — PTY test harness template • [`./tmp/validate-context-pipeline.js`](./tmp/validate-context-pipeline.js) — synthetic context pipeline validator • [`./tmp/analyze-dump.js`](./tmp/analyze-dump.js) — real dump analyzer |
+| **Key Source** | `src/index.ts` — entrypoint • `src/core/flow.ts` — flow fork runner and process management • `src/snapshot/snapshot.ts` — session fork & sanitization pipeline • `src/core/agents.ts` — bundled flow definitions & loading • `src/batch/index.ts` / `src/batch/` — unified file/batch tools • `src/tui/render.ts` — TUI rendering & animations • `src/snapshot/structured-output.ts` — JSON output validation & enrichment • `src/tools/web-tool.ts` — search & fetch • `src/tools/ask-user.ts` — interactive prompts • `src/config/config.ts` — settings resolution • `src/notify/notify.ts` — desktop/terminal notifications • `src/flow/loop.ts` — endless loop state management (enable, disable, reset, terminate, warp tracking) • `src/flow/loop-command.ts` — `/flow:loop` slash command (enable/disable/status/stop/reset) • `src/flow/auto-warp.ts` — auto-warp trigger when loop budget is exceeded • `src/flow/loop-templates.ts` — loop runtime prompt templates • `src/flow/warp.ts` — warp distillation and session creation |
+| **Additional Source** | `src/flow/` — flow goal orchestration, continuation, loop, and settings commands • `src/steering/` — steering hint injection, sliding prompts, and tool utilities • `src/types/` — shared TypeScript types for flow execution, output, and UI • `src/batch/` — batch operation engine, rendering, fuzzy editing, symbol extraction • `src/core/` — flow executor, transition logic, depth config, session modes, transitions • `src/config/` — TUI-safe logging and settings resolution • `src/tui/` — color themes, render utilities, single-select layout, scramble animation • `src/snapshot/` — CLI arg inheritance, reasoning strip, runner event parsing • `src/tools/` — timed bash wrapper with deadline awareness • `src/notify/` — notification state tracking |
 
 ## CI/CD
 
@@ -153,6 +153,21 @@ export PI_FLOW_DUMP_SNAPSHOT=/tmp/pi-dump   # or use ./scripts/dev-start.sh
 
 > ⚠️ The variable **must** be exported in the same shell that starts `pi`. Running `export` inside a subshell (e.g. `bash -c 'export …'`) will **not** work because child-process environment variables do not propagate upward to the parent.
 
+### Validation Instruments
+
+After capturing dumps, validate them with the standalone instruments in `./tmp/` before manual reading:
+
+```bash
+# Synthetic validation (requires dist/ to be built)
+npm run build
+node ./tmp/validate-context-pipeline.js
+
+# Real dump analysis (run after a live `pi` session)
+node ./tmp/analyze-dump.js
+```
+
+These scripts catch forbidden placeholders, incomplete flow tool params, pass-count regressions, and orphan errors automatically.
+
 ### Syncing dump artifacts to the repo
 
 Use `scripts/sync-dumps.sh` to copy the current `/tmp` dump files into `dump-artifacts/` and regenerate the manifests:
@@ -200,9 +215,9 @@ Agent work is organized into two tiers. **Access is not the boundary — intent 
 | `audit` | batch, bash, find, grep, ls, web | 0 | flash | Audit security, quality, correctness; fix safe issues. The watchful eye. |
 | `debug` | batch, bash, find, grep, ls, web | 0 | lite | Investigate root cause AND fix the bug. The detective + fixer. |
 | `ideas` | batch, bash, web | 0 | full | Diverge → evaluate → recommend with inherited context. The strategist. |
-| `craft` | batch, bash, find, grep, ls, web | 0 | full | Conservative design, may delegate to `[scout]`. The architect. |
+| `craft` | batch, bash, find, grep, ls, web | 0 | full | Conservative design, may transition to `[scout]`. The architect. |
 
-> **None of these flows have `ask_user`.** If user input is needed, a flow emits a `⚠️ Decision Required` block for the orchestrator to present. Only the orchestrator talks to the user.
+> **None of these flows have `ask_user`.** If user input is needed, a flow emits a `⚠️ Decision Required` block for the root state to present. Only the root state talks to the user.
 >
 > These flows do the heavy lifting. They do not talk to the user — they receive a mission, execute, and return structured results. Their intent is scoped: a `scout` maps the terrain; a `build` agent ships code; an `audit` agent checks it; a `debug` agent traces roots *and* fixes them; an `ideas` agent explores possibilities; a `craft` agent designs carefully.
 
@@ -216,20 +231,20 @@ At depth ≥ 2, the sanitized JSONL snapshot embeds the **parent flow's full act
 
 Child flows should treat any `<context-seal>`, `<activation>`, or `<directive>` blocks appearing inside JSONL `user` messages as **sealed parent context**, not as their own instructions. The child's own activation prompt is delivered separately in the `-p` argument.
 
-### Tier 2 — Orchestrator: Main Agent
+### Tier 2 — Root state: Main Agent
 **Question:** "What should we do, and who should do it?"  
 **Mutations:** No direct code edits.  
 **Role:** The router, synthesizer, and user-facing coordinator.
 
-The Orchestrator is the agent you're talking to right now (when not inside a flow). It:
+The Root state is the agent you're talking to right now (when not inside a flow). It:
 - Understands the user's goal.
-- Decides **whether** to delegate to a flow.
+- Decides **whether** to transition to a flow.
 - Chooses **which** flow matches the task.
 - Crafts the **intent** (mission) for that flow.
 - Synthesizes results back to the user.
 - **Never implements directly** — it routes and coordinates.
 
-Global default delegation depth (`DEFAULT_MAX_DELEGATION_DEPTH`) is 3; each flow's `maxDepth` overrides it.
+Global default transition depth (`DEFAULT_MAX_TRANSITION_DEPTH`) is 3; each flow's `maxDepth` overrides it.
 
 ### Nested flow snapshots
 
@@ -244,10 +259,13 @@ flow spawns the agent writes two files **per flow** (the base path gets a unique
 suffix so parallel flows don't overwrite each other):
 
 1. `<base>.<flowName>.<timestamp>.md` — a markdown file containing:
-   - A `<!-- pi-agent-flow dump -->` header with sanitization metadata (flow name, tier, pipeline version, passes applied)
+   - A `<!-- pi-agent-flow dump -->` header with sanitization metadata (flow name, tier, `pipelineVersion`, passes applied)
    - `## Session Snapshot (JSONL)` — the full fork snapshot JSONL (post-sanitization)
    - `## Activation Prompt (-p)` — the reconstructed raw prompt
-   - `## Compression Stats` — sanitization reduction metrics, including `pipelineVersion` (when available)
+   - `## Compression Stats` — Pre-sanitization bytes, Post-sanitization bytes, and Reduction percentage
+
+> **Cold-start dumps:** When there is no session history, the markdown file contains only the HTML header (`<!-- pi-agent-flow dump -->`) and `## Activation Prompt (-p)` sections — the `## Session Snapshot (JSONL)` and `## Compression Stats` sections are omitted.
+
 2. `<base>.<flowName>.<timestamp>.txt` — just the human-readable reconstructed prompt
 
 Example:
@@ -280,15 +298,16 @@ Key env vars that control flow behavior. All are read from the `pi` process envi
 |----------|--------|
 | `PI_FLOW_DUMP_SNAPSHOT` | Base path for snapshot dumps. Each flow appends `.<flowName>.<timestamp>` before the extension so parallel flows don't collide. Must be **exported** in the shell before `pi` starts. See [Payload dump workflow](#payload-dump-workflow) below. |
 | `PI_FLOW_DUMP_MAX_AGE_HOURS` | Max age of dump files before auto-cleanup deletes them (default 168 = 7 days). |
-| `PI_FLOW_MAX_DEPTH` | Override the default delegation depth limit. |
+| `PI_FLOW_MAX_DEPTH` | Override the default transition depth limit. |
 | `PI_FLOW_MAX_CONCURRENCY` | Override the default maximum concurrent flows (default 4, capped to CPU count). |
 | `PI_FLOW_IDLE_WAKEUP_MS` | Override the idle wake-up threshold in milliseconds (default 600000 = 10 minutes). |
 | `PI_FLOW_TOOL_OPTIMIZE` | Set to `1` to enable tool-call optimization. |
 | `PI_FLOW_SESSION_MODE` | Override the default child-flow session mode (`snap`, `fast`, `default`, `long`, `extreme_long`). |
 | `PI_TUI_MODE` | Set to `1` to route `logWarn`/`logError` to a log file instead of stderr, preventing on-screen text flash. Detected automatically when stdout is a TTY or `PI_FLOW_DEPTH > 0`. |
 | `PI_FLOW_LOG_FILE` | Override the default log file path (`$TMPDIR/pi-agent-flow.log`) for TUI-safe logging. Set to `/dev/null` to suppress entirely. |
-| `PI_FLOW_NO_STEERING` | Set to `1` to disable orchestrator steering hint injection. |
-| `PI_FLOW_NO_STRATEGIC_HINT` | Set to `1` to disable `[Hint: Plan next step...]` after tool results. |
+| `PI_FLOW_NO_STEERING` | Set to `1` to disable root state steering hint injection. |
+| `PI_FLOW_NO_DIRECTIVE` | Set to `1` to disable adaptive `[Directive: ...]` hints after tool results. |
+| `PI_FLOW_NO_STRATEGIC_HINT` | Legacy alias for `PI_FLOW_NO_DIRECTIVE` — still honored for backward compatibility. |
 | `PI_FLOW_NO_ANIMATION` | Set to `1` to disable all flow animation (instant render). |
 | `PI_FLOW_NO_GLITCH` | Set to `1` to disable glitch/scramble effect. |
 | `PI_ASK_USER_TIMEOUT` | Override the ask_user default timeout in seconds (e.g., `60` for 1 minute). |
@@ -313,8 +332,9 @@ Control runtime behavior via slash commands, CLI flags, environment variables, o
 | Command | Usage |
 |---------|-------|
 | `show` | `/flow:settings show` — Display current settings and their sources. |
-| `steering` | `/flow:settings steering on\|off` — Enable/disable orchestrator steering hint injection. |
-| `strategic-hint` | `/flow:settings strategic-hint on\|off` — Enable/disable `[Hint: Plan next step...]` after tool results. |
+| `steering` | `/flow:settings steering on\|off` — Enable/disable root state steering hint injection. |
+| `strategic-hint` | `/flow:settings strategic-hint on\|off` — Enable/disable adaptive `[Directive: ...]` hints after tool results. |
+| `directive` | Alias for `strategic-hint` — controls the same setting. |
 | `animation` | `/flow:settings animation on\|off` — Enable/disable all flow animations. |
 | `glitch` | `/flow:settings glitch on\|off` — Enable/disable glitch/scramble effect. |
 | `tool-optimize` | `/flow:settings tool-optimize on\|off` — Enable/disable tool-call optimization. |
@@ -330,9 +350,9 @@ Pass these when starting `pi`:
 
 | Flag | Effect |
 |------|--------|
-| `--no-steering` | Disable orchestrator steering hint injection. |
+| `--no-steering` | Disable root state steering hint injection. |
 | `--steering-prompt <text>` | Provide a custom steering prompt (implies `--no-steering` override). |
-| `--no-strategic-hint` | Disable `[Hint: Plan next step...]` after tool results. |
+| `--no-strategic-hint` | Disable adaptive `[Directive: ...]` hints after tool results. |
 | `--no-animation` | Disable all flow animation (instant render). |
 | `--no-glitch` | Disable glitch/scramble effect. |
 
@@ -352,6 +372,9 @@ When the same setting is defined in multiple places, the value is resolved as:
       "customPrompt": "Plan next step..."
     },
     "strategicHint": {
+      "enabled": true
+    },
+    "directive": {
       "enabled": true
     },
     "animation": {
@@ -374,7 +397,7 @@ When the same setting is defined in multiple places, the value is resolved as:
 
 ## Flow (Autonomous Continuation)
 
-Set a multi-step objective and the system automatically spawns flows to advance it after each turn. When active, the orchestrator receives a hidden instruction at `turn_end` to call the `flow` tool again until the goal is complete, paused, or a budget is exhausted.
+Set a multi-step objective and the system automatically spawns flows to advance it after each turn. When active, the root state receives a hidden instruction at `turn_end` to call the `flow` tool again until the goal is complete, paused, or a budget is exhausted.
 
 ### Slash commands
 
@@ -387,7 +410,7 @@ Set a multi-step objective and the system automatically spawns flows to advance 
 | `edit` | `/flow:goal edit <new-objective> [--acceptance <text>]` — Updates the objective and optionally the acceptance criteria. |
 | `complete` | `/flow:goal complete` — Marks the current goal as completed. |
 | `status`, `show` | `/flow:goal status` (or `show`) — Displays current goal state, budgets, and completed flows |
-| `warp` | `/flow:warp [goal]` — Distills conversation context into a structured project brief (YAML frontmatter + body) and spawns a new session with the goal auto-set. Preserves unresolved blockers, key files, and end-goal intent, plus an execution plan with phased flows. If no goal is provided, a default continuation goal is used. |
+| `warp` | `/flow:warp [goal]` — Distills conversation context into a simple context-transfer prompt (## Context + ## Task) and spawns a new session with the goal auto-set. Preserves unresolved blockers, key files, and end-goal intent. If no goal is provided, a default continuation goal is used. |
 
 > **Note on `completed` status:** `completed` is a valid `GoalStatus`. Goals can be marked completed manually via `/flow:goal complete`. The agent cannot self-terminate a goal — only the user can end it.
 
@@ -403,76 +426,41 @@ Set a multi-step objective and the system automatically spawns flows to advance 
 
 #### Warp output format
 
-Warp produces a structured **Frontmatter + Body Hybrid** prompt:
+Warp produces a simple **context-transfer prompt** with two markdown sections:
 
-- **Frontmatter** (YAML between `---` delimiters) contains:
-  - `context` — orientation summary
-  - `end_goal` — the finish line
-  - `decisions` — choices already made
-  - `files` — files touched and what changed
-  - `open_items` — unresolved work or questions
-  - `watch_out` — edge cases and fragile assumptions
-  - `context_gathering` — initial discovery aim and scope
-  - `execution_plan` — phased, parallelizable flow assignments with dependencies and deliverables
-  - `success_criteria` — testable completion conditions
-
-- **Body** (after the closing `---`) is a concise Task section restating the immediate next action.
+- **## Context** — orientation summary, decisions made, files touched, unresolved blockers, and edge cases
+- **## Task** — the immediate next action to take
 
 Example distilled prompt:
 
-```yaml
----
-context: Refactoring the auth layer from Express middleware to NestJS guards.
-end_goal: All endpoints protected by NestJS guards with zero regressions.
-decisions:
-  - Use @nestjs/passport with JWT strategy
-  - Skip session auth; keep stateless only
-files:
-  - src/auth/jwt.strategy.ts — created, basic validate()
-  - src/auth/auth.module.ts — registered JwtStrategy
-open_items:
-  - Role-based access not implemented yet
-  - E2E tests failing after guard injection (needs debug)
-watch_out:
-  - JWT secret is overridden by AUTH_SECRET env var in CI
-  - src/auth/auth.module.ts exports order matters for DI
-context_gathering:
-  aim: Map current middleware usage so guards can replace them cleanly
-  scope:
-    - grep for app.use() auth middleware
-    - list all route files with @UseGuards or equivalent
-execution_plan:
-  - phase: Discover
-    parallel: false
-    flow: scout
-    task: Map every route and middleware file that touches authentication
-    produces: A markdown checklist of files to convert
-  - phase: Convert
-    parallel: true
-    group: A
-    flow: build
-    task: Replace middleware with JwtAuthGuard on each mapped route
-    depends_on: [Discover]
-    produces: All routes use @UseGuards(JwtAuthGuard)
-  - phase: Verify
-    parallel: false
-    flow: audit
-    task: Run E2E suite and confirm zero auth-related failures
-    depends_on: [Convert]
-    produces: E2E tests green
-success_criteria:
-  - All routes protected by JwtAuthGuard
-  - E2E auth tests pass
-  - No middleware remains in src/
----
+## Context
 
-Task: Complete the Discover phase by mapping middleware usage, then begin Convert on the first batch of routes.
-```
+We've been refactoring the auth layer from Express middleware to NestJS guards.
+
+Key decisions:
+- Use @nestjs/passport with JWT strategy
+- Skip session auth; keep stateless only
+
+Files involved:
+- `src/auth/jwt.strategy.ts` — created, basic validate()
+- `src/auth/auth.module.ts` — registered JwtStrategy
+
+Unresolved work / blockers:
+- Role-based access not implemented yet
+- E2E tests failing after guard injection (needs debug)
+
+Edge cases to watch:
+- JWT secret is overridden by AUTH_SECRET env var in CI
+- `src/auth/auth.module.ts` exports order matters for DI
+
+## Task
+
+Complete the Discover phase by mapping middleware usage, then begin Convert on the first batch of routes.
 
 ### How it works
 
-1. On `turn_end`, if a goal is **active**, the continuation hook checks token/flow budgets. If `maxTokens` or `maxFlows` is exceeded, the goal is **auto-paused** and a hidden budget-limit message is sent to the orchestrator.
-2. If under budget, the hook sends a hidden message instructing the orchestrator to call the `flow` tool.
+1. On `turn_end`, if a goal is **active**, the continuation hook checks token/flow budgets. If `maxTokens` or `maxFlows` is exceeded, the goal is **auto-paused** and a hidden budget-limit message is sent to the root state.
+2. If under budget, the hook sends a hidden message instructing the root state to call the `flow` tool.
 3. The spawned flow receives a `<flow>` block in its activation prompt with the objective, acceptance criteria, and progress (`flowCount/maxFlows`).
 4. Completed flows (type, intent, aim, completedAt) and token usage are recorded in goal state.
 5. A **5-second cooldown** (`SPAWN_COOLDOWN_MS`) prevents rapid-fire spawns.
@@ -481,7 +469,7 @@ Task: Complete the Discover phase by mapping middleware usage, then begin Conver
 
 ### Idle wake-up
 
-When a goal is active and the user has been idle for **~600 seconds** (10 minutes), the system sends a hidden `<flow-wakeup>` nudge to the orchestrator. The nudge prompts the agent to review the active goal and find safe, conservative improvements that advance it — such as verification, testing, or documentation — without making risky changes or refactoring large areas.
+When a goal is active and the user has been idle for **~600 seconds** (10 minutes), the system sends a hidden `<flow-wakeup>` nudge to the root state. The nudge prompts the agent to review the active goal and find safe, conservative improvements that advance it — such as verification, testing, or documentation — without making risky changes or refactoring large areas.
 
 The wake-up interval is checked every 60 seconds. It resets after any user turn or flow completion. Override the default idle threshold via the `PI_FLOW_IDLE_WAKEUP_MS` environment variable (value in milliseconds).
 
@@ -499,7 +487,7 @@ Add `.pi/` to `.gitignore` — this is local runtime state.
 
 ```bash
 /flow:goal set "Refactor all tests to vitest" --acceptance "All tests pass" --max-flows 5
-# Work normally — after each turn the orchestrator auto-delegates
+# Work normally — after each turn the root state auto-transitions
 /flow:goal pause    # Stop auto-continuation
 /flow:goal status   # Check progress
 /flow:goal clear    # Done

@@ -12,7 +12,7 @@ import * as path from "node:path";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type FlowConfig, getFlowTier } from "./agents.js";
 import { getInheritedCliArgs } from "../snapshot/cli-args.js";
-import { processFlowJsonLine, drainStreamingText, drainStreamingEstimate, drainCtxEstimate, updateSmoothedTps, drainSmoothedTps } from "../snapshot/runner-events.js";
+import { processFlowJsonLine, drainStreamingText, drainStreamingEstimate, drainToolCallEstimate, drainCtxEstimate, updateSmoothedTps, drainSmoothedTps } from "../snapshot/runner-events.js";
 import {
 	type SingleResult,
 	type FlowDetails,
@@ -50,13 +50,13 @@ import {
 	FLOW_TOOL_OPTIMIZE_ENV,
 } from "./depth.js";
 import {
-	computeDelegationState,
+	computeTransitionState,
 	buildGuardLine,
-	buildDelegationRule,
+	buildTransitionRule,
 	buildFlowListSection,
 	buildLineage,
 	computeChildPropagation,
-} from "./delegation.js";
+} from "./transition.js";
 
 const FLOW_DEADLINE_ENV = "PI_FLOW_DEADLINE_MS";
 const FLOW_TOOL_SUMMARY_GRACE_ENV = "PI_FLOW_TOOL_SUMMARY_GRACE_MS";
@@ -258,7 +258,7 @@ function cleanupStaleDumps(dumpPath: string, maxAgeHours = 168): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Write a reminder message to the reminder file so the child agent can see it
+ * Write a reminder message to the reminder file so the flow state can see it
  * via the timed-bash wrapper before its next tool call.
  * Creates the file if it doesn't exist; appends the message.
  */
@@ -354,23 +354,23 @@ function buildFlowArgs(
 		rawSkipSo !== undefined && ["1", "true", "yes"].includes(rawSkipSo.trim().toLowerCase());
 
 	// Do not inherit the parent CLI `--thinking` level. Child flows often use a
-	// different tier/model than the orchestrator; inheriting `--thinking high` can
+	// different tier/model than the root state; inheriting `--thinking high` can
 	// be incompatible with the child model.
 	const thinking = flow.thinking;
 	if (thinking) args.push("--thinking", thinking);
 
-	// Compute delegation depth before building tool list — children that can
-	// delegate need the "flow" tool in their available set.
-	const { currentDepth, effectiveMaxDepth, canDelegate } = computeDelegationState(parentDepth, maxDepth);
+	// Compute transition depth before building tool list — children that can
+	// transition need the "flow" tool in their available set.
+	const { currentDepth, effectiveMaxDepth, canTransition } = computeTransitionState(parentDepth, maxDepth);
 
 	// Default tools for child flows. Legacy read/write/edit are NOT registered
 	// for children — only batch (which includes read/write ops) is available.
 	// The flow's frontmatter `tools` field overrides this default when set.
 	const defaultTools = toolOptimize
-		? canDelegate
+		? canTransition
 			? ["batch", "bash", "flow", "web"]
 			: ["batch", "bash", "web"]
-		: canDelegate
+		: canTransition
 			? ["batch", "bash", "flow", "web"]
 			: ["batch", "bash", "web"];
 	// getOptimizedTools replaces legacy read/write/edit with batch when
@@ -401,17 +401,17 @@ function buildFlowArgs(
 		`Your task begins NOW. Do not respond to or continue anything from the history.\n` +
 		`</context-seal>`;
 
-	// Phase 2: Activation — role, tools, depth, delegation rules (dynamically generated)
+	// Phase 2: Activation — role, tools, depth, transition rules (dynamically generated)
 	const guardLine = buildGuardLine(currentDepth, effectiveMaxDepth, preventCycles, parentFlowStack);
-	const delegationRule = buildDelegationRule(canDelegate, guardLine);
-	const flowListSection = buildFlowListSection(canDelegate, discoveredFlows);
+	const transitionRule = buildTransitionRule(canTransition, guardLine);
+	const flowListSection = buildFlowListSection(canTransition, discoveredFlows);
 
 	const effectiveTier = flow.tier ?? getFlowTier(flow.name);
 	const lineage = buildLineage(flow.name, parentFlowStack);
 	const activation =
 		`\n\n<activation flow="${flow.name}" depth="${currentDepth}" tools="${availableTools}" tier="${effectiveTier}" lineage="${lineage}">\n` +
 		`You are a [${flow.name}] agent operating at depth ${currentDepth}.\n` +
-		`${delegationRule}\n` +
+		`${transitionRule}\n` +
 		`${flowListSection}` +
 		`Do not attempt to use any tool outside the available set — it will fail.\n` +
 		`</activation>`;
@@ -469,11 +469,11 @@ export interface RunFlowOptions {
 	taskCwd?: string;
 	/** Serialized parent session snapshot for fork mode. Null when the flow starts with a clean slate. */
 	forkSessionSnapshotJsonl: string | null;
-	/** Current delegation depth of the caller process. */
+	/** Current transition depth of the caller process. */
 	parentDepth: number;
-	/** Delegation stack from the caller process (ancestor flow names). */
+	/** Transition stack from the caller process (ancestor flow names). */
 	parentFlowStack: string[];
-	/** Maximum allowed delegation depth to propagate to child processes. */
+	/** Maximum allowed transition depth to propagate to child processes. */
 	maxDepth: number;
 	/** Whether cycle prevention should be enforced in child processes. */
 	preventCycles: boolean;
@@ -503,6 +503,13 @@ export interface RunFlowOptions {
  * Spawn a single flow process with forked session context.
  *
  * Returns a SingleResult even on failure (exitCode > 0, stderr populated).
+ *
+ * Why `spawn` instead of `pi.exec()`:
+ * - `pi.exec()` is designed for simple command execution (one-shot, wait for exit).
+ * - Flows need process-group isolation (detached mode on Unix), signal propagation,
+ *   soft-timeout with background continuation, streaming stdout parsing, and
+ *   mid-flight kill semantics. `spawn` gives full control over stdio, process
+ *   groups, and lifecycle that `pi.exec()` does not expose.
  */
 export async function runFlow(opts: RunFlowOptions): Promise<SingleResult> {
 	const {
@@ -573,15 +580,20 @@ export async function runFlow(opts: RunFlowOptions): Promise<SingleResult> {
 		if (streamingDelta) liveStreamingText += streamingDelta;
 		// Live text is stored per-toolCallId by the executor's emitProgress, not here.
 		const estimatedTokens = drainStreamingEstimate(result);
+		const toolCallTokens = drainToolCallEstimate(result);
 		if (result.usage.output !== lastActualOutputTokens) {
 			lastActualOutputTokens = result.usage.output;
 			liveEstimatedOutputTokens = result.usage.output;
 		}
-		liveEstimatedOutputTokens += estimatedTokens;
+		liveEstimatedOutputTokens += estimatedTokens + toolCallTokens;
 		const ctxEst = drainCtxEstimate(result);
 		updateSmoothedTps(result, estimatedTokens);
 		const smoothedTps = drainSmoothedTps(result);
-		const mergedUsage = mergeStreamingUsage(result.usage, liveEstimatedOutputTokens, ctxEst, smoothedTps);
+		// Fallback TPS for providers that don't emit streaming deltas (e.g., Fireworks k2p6).
+		const elapsedSec = (Date.now() - startedAtMs) / 1000;
+		const fallbackTps = elapsedSec > 0.5 && smoothedTps <= 0 ? result.usage.output / elapsedSec : 0;
+		const displayTps = smoothedTps > 0 ? smoothedTps : fallbackTps;
+		const mergedUsage = mergeStreamingUsage(result.usage, liveEstimatedOutputTokens, ctxEst, displayTps);
 		onUpdate?.({
 			content: [
 				{
@@ -602,13 +614,21 @@ export async function runFlow(opts: RunFlowOptions): Promise<SingleResult> {
 		forkSessionTmpPath = forkTmp.filePath;
 	}
 
-	// Create a temp dir for the reminder file so the child agent can read timeout warnings
+	// Create a temp dir for the reminder file so the flow state can read timeout warnings
 	// via the timed-bash wrapper before its next tool call.
 	let reminderTmpDir: string | null = null;
 	let reminderFilePath: string | null = null;
 	if (effectiveTimeout > 0) {
 		reminderTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-flow-reminder-"));
 		reminderFilePath = path.join(reminderTmpDir, "reminder.txt");
+	}
+
+	if (signal?.aborted) {
+		result.exitCode = 130;
+		result.stopReason = "aborted";
+		result.errorMessage = "Flow was aborted.";
+		result.stderr = "Flow was aborted.";
+		return result;
 	}
 
 	try {
@@ -645,11 +665,15 @@ export async function runFlow(opts: RunFlowOptions): Promise<SingleResult> {
 			let passesApplied: string[] = [];
 			if (opts.compressionStats) {
 				compressionStats = `\n\n## Compression Stats\n\n- Pre-sanitization: ${opts.compressionStats.preBytes} bytes\n- Post-sanitization: ${opts.compressionStats.postBytes} bytes\n- Reduction: ${opts.compressionStats.reductionPercent}%`;
-				passesApplied = Array.isArray(opts.compressionStats.passesApplied) ? opts.compressionStats.passesApplied : [];
 			}
 
 			const effectiveTier = flow.tier ?? getFlowTier(flow.name);
-			const passesList = passesApplied.length > 0 ? passesApplied.join(", ") : forkSessionSnapshotJsonl ? "sanitizeForkSnapshot (see src/snapshot.ts)" : "(none — cold start)";
+			passesApplied = Array.isArray(opts.compressionStats?.passesApplied) ? opts.compressionStats.passesApplied : [];
+			const passesList = passesApplied.length > 0 
+			  ? passesApplied.join(", ") 
+			  : opts.compressionStats || forkSessionSnapshotJsonl 
+			    ? "sanitizeForkSnapshot (no passes applied)" 
+			    : "(none — cold start)";
 			const sanitizationHeader = `<!-- pi-agent-flow dump | State: post-sanitization | Passes: ${passesList} | Flow: ${flow.name} | Tier: ${effectiveTier} | Pipeline: ${pipelineVersion} | Generated: ${new Date().toISOString()} -->`;
 
 			const markdownParts: string[] = [
@@ -938,7 +962,7 @@ export async function runFlow(opts: RunFlowOptions): Promise<SingleResult> {
 						const remainingSec = Math.round(FLOW_TIME_BUDGET_WARNING_MS / 1000);
 						const warnMsg = `\n[Flow warning] ${remainingSec}s remaining before hard timeout. The agent should wrap up now.`;
 						result.stderr += warnMsg;
-						// Write to reminder file so the child agent sees it on its next bash call.
+						// Write to reminder file so the flow state sees it on its next bash call.
 						writeReminderFile(reminderFilePath, `[Flow warning] ${remainingSec}s remaining before hard timeout. Wrap up your work and output structured findings.`);
 						// Force an update so the parent UI shows the warning immediately.
 						emitUpdate();
@@ -954,7 +978,7 @@ export async function runFlow(opts: RunFlowOptions): Promise<SingleResult> {
 						const remainingSec = Math.round(FLOW_FINAL_URGE_MS / 1000);
 						const urgeMsg = `\n[Flow warning] ${remainingSec}s remaining before hard timeout. Stop all work and output your structured findings.`;
 						result.stderr += urgeMsg;
-						// Write to reminder file so the child agent sees it on its next bash call.
+						// Write to reminder file so the flow state sees it on its next bash call.
 						writeReminderFile(reminderFilePath, `[Flow urge] ${remainingSec}s remaining before hard timeout. STOP all tool use and output your structured findings NOW.`);
 						emitUpdate();
 					}, urgeMs);
@@ -986,8 +1010,11 @@ export async function runFlow(opts: RunFlowOptions): Promise<SingleResult> {
 		// During streaming, emitUpdate() only merges smoothedTps into a temporary display object;
 		// without this, result.usage.smoothedTps stays at 0 and the UI shows a dash.
 		const finalSmoothedTps = drainSmoothedTps(result);
-		if (finalSmoothedTps > 0) {
-			result.usage.smoothedTps = finalSmoothedTps;
+		const finalElapsedSec = (Date.now() - startedAtMs) / 1000;
+		const finalTps = finalSmoothedTps > 0 ? finalSmoothedTps
+			: (finalElapsedSec > 0 ? result.usage.output / finalElapsedSec : 0);
+		if (finalTps > 0) {
+			result.usage.smoothedTps = finalTps;
 		}
 
 		const normalized = normalizeFlowResult(result, wasAborted);

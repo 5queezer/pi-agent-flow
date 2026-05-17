@@ -2809,14 +2809,14 @@ describe("sanitizeForkSnapshot — low-signal assistant collapse", () => {
 		expect(assistant.message.content[0].text).toBe("Run [bash:ok] to check.");
 	});
 
-	it("does not collapse assistant messages over 300 chars", () => {
+	it("does not collapse assistant messages over 500 chars", () => {
 		const snapshot = makeSnapshot([
 			{ type: "session", id: "sess-1" },
 			{
 				type: "message",
 				message: {
 					role: "assistant",
-					content: [{ type: "text", text: "A".repeat(301) }],
+					content: [{ type: "text", text: "A".repeat(501) }],
 				},
 			},
 		]);
@@ -2825,17 +2825,17 @@ describe("sanitizeForkSnapshot — low-signal assistant collapse", () => {
 		expect(result).toBeDefined();
 		const entries = parseSnapshot(result!);
 		const assistant = entries.find((e) => e?.message?.role === "assistant");
-		expect(assistant.message.content[0].text).toBe("A".repeat(301));
+		expect(assistant.message.content[0].text).toBe("A".repeat(501));
 	});
 
-	it("does not collapse assistant messages at exactly 300 chars", () => {
+	it("does not collapse assistant messages at exactly 500 chars", () => {
 		const snapshot = makeSnapshot([
 			{ type: "session", id: "sess-1" },
 			{
 				type: "message",
 				message: {
 					role: "assistant",
-					content: [{ type: "text", text: "A".repeat(300) }],
+					content: [{ type: "text", text: "A".repeat(500) }],
 				},
 			},
 		]);
@@ -2844,7 +2844,7 @@ describe("sanitizeForkSnapshot — low-signal assistant collapse", () => {
 		expect(result).toBeDefined();
 		const entries = parseSnapshot(result!);
 		const assistant = entries.find((e) => e?.message?.role === "assistant");
-		expect(assistant.message.content[0].text).toBe("A".repeat(300));
+		expect(assistant.message.content[0].text).toBe("A".repeat(500));
 	});
 
 	it("preserves parentId on collapsed assistant messages", () => {

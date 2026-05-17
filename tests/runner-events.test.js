@@ -3,6 +3,7 @@ import {
   processFlowJsonLine,
   drainStreamingText,
   drainStreamingEstimate,
+  drainToolCallEstimate,
   drainCtxEstimate,
   updateSmoothedTps,
   drainSmoothedTps,
@@ -196,7 +197,7 @@ describe("processFlowJsonLine", () => {
     processFlowJsonLine(JSON.stringify({ type: "message_end", message: msg }), r);
     expect(r.usage.toolCalls).toBe(1);
     // Tool call JSON should be estimated and available for draining
-    expect(drainStreamingEstimate(r)).toBeGreaterThan(0);
+    expect(drainToolCallEstimate(r)).toBeGreaterThan(0);
   });
 
   it("returns false for unknown event types", () => {
@@ -495,14 +496,58 @@ describe("drainStreamingEstimate", () => {
     expect(r.usage.output).toBe(50);
   });
 
-  it("does not estimate tokens for thinking_delta (reasoning stripped)", () => {
+  it("thinking_delta tokens contribute to streaming estimate (for TPS)", () => {
     const r = makeResult();
     processFlowJsonLine(
       JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "c".repeat(800) } }),
       r,
     );
-    // Thinking is stripped, so estimate should be 0
-    expect(drainStreamingEstimate(r)).toBe(0);
+    // Thinking is stripped from the text buffer but tokens ARE counted
+    // in the streaming estimate so TPS reflects real throughput.
+    expect(drainStreamingEstimate(r)).toBe(200); // 800 chars / 4 chars-per-token
+    // Streaming text buffer should NOT contain thinking content
+    expect(drainStreamingText(r)).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drainToolCallEstimate
+// ---------------------------------------------------------------------------
+
+describe("drainToolCallEstimate", () => {
+  it("returns 0 on fresh result", () => {
+    const r = makeResult();
+    expect(drainToolCallEstimate(r)).toBe(0);
+  });
+
+  it("returns estimated tool call tokens for JSON content", () => {
+    const r = makeResult();
+    const msg = {
+      role: "assistant",
+      content: [
+        { type: "toolCall", toolCallId: "1", toolName: "bash", input: { command: "ls -la" } },
+      ],
+    };
+    processFlowJsonLine(JSON.stringify({ type: "message_end", message: msg }), r);
+    const tokens = drainToolCallEstimate(r);
+    expect(tokens).toBeGreaterThan(0);
+    // Structural JSON chars are counted as ~1 token each, so this should be
+    // more conservative than the old length/4 heuristic.
+    const tcText = JSON.stringify({ name: "bash", args: { command: "ls -la" } });
+    expect(tokens).toBeLessThanOrEqual(Math.ceil(tcText.length / 2));
+  });
+
+  it("resets after drain", () => {
+    const r = makeResult();
+    const msg = {
+      role: "assistant",
+      content: [
+        { type: "toolCall", toolCallId: "1", toolName: "read", input: { path: "x" } },
+      ],
+    };
+    processFlowJsonLine(JSON.stringify({ type: "message_end", message: msg }), r);
+    expect(drainToolCallEstimate(r)).toBeGreaterThan(0);
+    expect(drainToolCallEstimate(r)).toBe(0);
   });
 });
 
@@ -741,29 +786,26 @@ describe("updateSmoothedTps / drainSmoothedTps", () => {
     const tpsBefore = drainSmoothedTps(r);
     expect(tpsBefore).toBeGreaterThan(0);
 
-    // Simulate a long gap with tool execution by setting pause flag and waiting
-    const tracker = { __proto__: null };
-    // We can't access the WeakMap directly, so use the tool-call path:
+    // Trigger pause via tool call message
     const msg = {
       role: "assistant",
       content: [{ type: "toolCall", toolCallId: "1", toolName: "bash", input: { command: "ls" } }],
     };
     processFlowJsonLine(JSON.stringify({ type: "message_end", message: msg }), r);
-    // The tool call chars were estimated and the pause flag was set.
-    // Drain those estimated tokens and update TPS — this should compute the rate then reset the timer.
-    const toolTokens = drainStreamingEstimate(r);
-    expect(toolTokens).toBeGreaterThan(0);
-    updateSmoothedTps(r, toolTokens);
+    // Tool tokens are tracked separately; text streaming estimate stays at 0
+    expect(drainToolCallEstimate(r)).toBeGreaterThan(0);
+    expect(drainStreamingEstimate(r)).toBe(0);
+
+    // Simulate emitUpdate passing only text tokens (0) to TPS, which triggers pause reset
+    updateSmoothedTps(r, 0);
 
     // Wait a long time (simulating tool execution)
     await new Promise((res) => setTimeout(res, 500));
 
-    const tpsAfterToolCall = drainSmoothedTps(r);
-
     // Next update should seed the timer instead of counting the gap
     updateSmoothedTps(r, 100);
-    // Smoothed TPS should stay at the post-tool-call value, not be dragged down by the 500ms gap
-    expect(drainSmoothedTps(r)).toBe(tpsAfterToolCall);
+    // Smoothed TPS should stay at the pre-tool value, not be dragged down by the 500ms gap
+    expect(drainSmoothedTps(r)).toBe(tpsBefore);
   });
 
   it("resumes TPS correctly after a pause", async () => {
@@ -779,8 +821,9 @@ describe("updateSmoothedTps / drainSmoothedTps", () => {
       content: [{ type: "toolCall", toolCallId: "1", toolName: "read", input: { path: "x" } }],
     };
     processFlowJsonLine(JSON.stringify({ type: "message_end", message: msg }), r);
-    const toolTokens = drainStreamingEstimate(r);
-    updateSmoothedTps(r, toolTokens);
+    // Tool tokens are separate; pass 0 text tokens to trigger pause reset
+    expect(drainToolCallEstimate(r)).toBeGreaterThan(0);
+    updateSmoothedTps(r, 0);
 
     // After pause, wait then emit — should seed
     await new Promise((res) => setTimeout(res, 200));
@@ -792,6 +835,40 @@ describe("updateSmoothedTps / drainSmoothedTps", () => {
     const tpsAfter = drainSmoothedTps(r);
     // Should be back in a reasonable range, not near zero
     expect(tpsAfter).toBeGreaterThan(tpsBefore * 0.1);
+  });
+
+  it("dampens burst spikes with reduced EMA alpha", async () => {
+    const r = makeResult();
+    updateSmoothedTps(r, 10); // seed
+    await new Promise((res) => setTimeout(res, 110));
+    updateSmoothedTps(r, 10); // first compute → establishes smoothedTps well below cap
+    const tpsBefore = drainSmoothedTps(r);
+    expect(tpsBefore).toBeGreaterThan(0);
+    expect(tpsBefore).toBeLessThan(300);
+
+    await new Promise((res) => setTimeout(res, 110));
+    // A massive burst (>2x the current smoothed rate) should be dampened
+    updateSmoothedTps(r, 5000);
+    const tpsAfter = drainSmoothedTps(r);
+    // The spike should not fully dominate the EMA
+    expect(tpsAfter).toBeGreaterThan(tpsBefore);
+    expect(tpsAfter).toBeLessThan(300);
+  });
+
+  it("computes TPS on a zero-token emit when enough time and pendingTokens have accumulated", async () => {
+    const r = makeResult();
+    updateSmoothedTps(r, 100); // seed lastEmitTime
+
+    // Immediate follow-up: accumulates but does not compute (deltaMs ≈ 0)
+    updateSmoothedTps(r, 50);
+    expect(drainSmoothedTps(r)).toBe(0);
+
+    // Wait past the sample gate, then pass 0 new tokens (simulating a render-timer
+    // tick that drains zero streaming chars because they were already consumed).
+    // pendingTokens is still 50 and deltaMs ≥ 50ms, so TPS should compute.
+    await new Promise((res) => setTimeout(res, 60));
+    updateSmoothedTps(r, 0);
+    expect(drainSmoothedTps(r)).toBeGreaterThan(0);
   });
 });
 

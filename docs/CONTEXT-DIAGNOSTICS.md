@@ -84,6 +84,11 @@ Stats are returned **out-of-band** in the `stats` property of `sanitizeForkSnaps
    └─ compression-stats missing? → sanitizeForkSnapshot did not run.
    ↓
 5. Fix the source → rebuild → retest with debug context on.
+   ↓
+6. Run `./tmp/validate-context-pipeline.js` (synthetic) and `./tmp/analyze-dump.js` (real dump).
+   ↓
+   ├─ Forbidden placeholders found? → Check `stripStrategicHints`/`stripSteeringHints` and user-message preservation.
+   └─ Pass count off or orphan error? → Check `reparentOrphans` ordering and `stripBatchRead` placement.
 ```
 
 ---
@@ -99,12 +104,43 @@ Stats are returned **out-of-band** in the `stats` property of `sanitizeForkSnaps
 | Compress batch | `compressBatchResult` | `src/snapshot/snapshot.ts:~216` |
 | Compress web | `compressWebResult` | `src/snapshot/snapshot.ts:~267` |
 | Compress ask_user | `compressAskUserResult` | `src/snapshot/snapshot.ts:~305` |
-| Snapshot assembly | `sanitizeForkSnapshot` | `src/snapshot/snapshot.ts:~726` |
+| Snapshot assembly | `sanitizeForkSnapshot` | `src/snapshot/snapshot.ts:~2025` |
 | Dump writer | `makeUniqueDumpPath` + atomic write | `src/core/flow.ts:~671` |
 
 ---
 
-## 6. Checklist: Before Escalating
+## 6. Automated Validation Instruments
+
+Two standalone scripts in `./tmp/` provide reproducible, automated validation. Run them **before** manual inspection to catch regressions fast.
+
+### `./tmp/validate-context-pipeline.js` — Synthetic Test
+
+Builds a representative snapshot with all tool types, runs `sanitizeForkSnapshot` end-to-end, and asserts:
+
+- `reparentOrphans` appears exactly twice.
+- Zero forbidden placeholders (`[orchestrator:thinking]`, `[user:mission …]`, `[user:ack]`).
+- User message content preserved verbatim.
+- `batch_read` fully stripped.
+- Flow cache hits compress to `[Flow: X accomplished]`.
+- Orphan-free `parentId` graph.
+
+```bash
+npm run build
+node ./tmp/validate-context-pipeline.js
+```
+
+### `./tmp/analyze-dump.js` — Real Dump Analyzer
+
+Scans the newest `/tmp/pi-dump.*.md`, parses header, JSONL, and compression stats. Reports placeholder ratio, forbidden placeholders, flow tool param completeness, and compression ratio.
+
+```bash
+# After a live dump capture
+node ./tmp/analyze-dump.js
+```
+
+---
+
+## 7. Checklist: Before Escalating
 
 - [ ] `PI_FLOW_DEBUG_CONTEXT=1` shows per-tool compression ratios
 - [ ] `PI_FLOW_DUMP_SNAPSHOT` produces `.md` and `.txt` files for the affected flow
@@ -112,4 +148,7 @@ Stats are returned **out-of-band** in the `stats` property of `sanitizeForkSnaps
 - [ ] No `[flow] prior result · N chars (not cached or evicted)` placeholders for recent flows
 - [ ] `batch_read` tool calls are absent from child snapshot (should be stripped entirely)
 - [ ] Reasoning blocks are absent from assistant messages in dump
+- [ ] `./tmp/validate-context-pipeline.js` reports all synthetic assertions passed
+- [ ] `./tmp/analyze-dump.js` reports zero forbidden placeholders on the latest real dump
+- [ ] No stale line-number references in docs (e.g., `snapshot.ts:~900` should read `~2025-2100`)
 - [ ] Rebuild (`npm run build`) and retest after any code change

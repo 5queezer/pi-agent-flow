@@ -7,7 +7,7 @@
 
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Type, type TUnsafe } from "@sinclair/typebox";
-import { appendStrategicHintOnce } from "../steering/tool-utils.js";
+import { appendDirectiveOnce } from "../steering/tool-utils.js";
 import { setPendingDecision } from "../notify/notify-state.js";
 import { scrambleManager, runScrambleTimer } from "../tui/scramble/index.js";
 import { stripAnsi } from "../tui/render-utils.js";
@@ -694,15 +694,18 @@ async function askViaDialogs(
 	ui: { select: Function; input: Function },
 	question: string,
 	options: QuestionOption[],
+	signal?: AbortSignal,
 ): Promise<AskUIResult | null> {
+	if (signal?.aborted) return null;
+
 	if (options.length === 0) {
-		const answer = await ui.input(question, "Type your answer...") as string | undefined;
+		const answer = await ui.input(question, "Type your answer...", { signal }) as string | undefined;
 		if (isCancelledInput(answer)) return null;
 		return createFreeformResponse(answer);
 	}
 
 	const selectOptions = options.map((o) => o.title);
-	const selected = await ui.select(question, selectOptions) as string | undefined;
+	const selected = await ui.select(question, selectOptions, { signal }) as string | undefined;
 	if (isCancelledInput(selected)) return null;
 	return createSelectionResponse([selected]);
 }
@@ -719,9 +722,9 @@ export function createAskUserTool() {
 		promptSnippet:
 			"Ask the user one focused question with optional multiple-choice answers to gather information interactively",
 		promptGuidelines: [
-			"Use ask_user when the user's intent is ambiguous, when a decision requires explicit user input, or when multiple valid options exist.",
-			"Ask exactly one focused question per ask_user call.",
-			"Do not combine multiple numbered, multipart, or unrelated questions into one ask_user prompt.",
+			"Use `ask_user` when the user's intent is ambiguous, when a decision requires explicit user input, or when multiple valid options exist.",
+			"Ask exactly one focused question per `ask_user` call.",
+			"Do not combine multiple numbered, multipart, or unrelated questions into one `ask_user` prompt.",
 		],
 		parameters: Type.Object({
 			question: Type.String({ description: "The question to ask the user" }),
@@ -751,16 +754,7 @@ export function createAskUserTool() {
 
 			if (!ctx.hasUI || !ctx.ui) {
 				const optionText = options.length > 0 ? `\n\nOptions:\n${formatOptionsForMessage(options)}` : "";
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Ask requires interactive mode. Please answer:\n\n${question}${optionText}`,
-						},
-					],
-					isError: true,
-					details: { question, options, response: null, cancelled: true } as AskToolDetails,
-				};
+				throw new Error(`Ask requires interactive mode. Please answer:\n\n${question}${optionText}`);
 			}
 
 			if (options.length === 0) {
@@ -778,7 +772,7 @@ export function createAskUserTool() {
 					content: [{ type: "text", text: `User answered: ${formatResponseSummary(response)}` }],
 					details: { question, options, response, cancelled: false } as AskToolDetails,
 				};
-				appendStrategicHintOnce(_result0);
+				appendDirectiveOnce(_result0);
 				return _result0;
 			}
 
@@ -843,16 +837,12 @@ export function createAskUserTool() {
 				if (customResult !== undefined) {
 					result = customResult;
 				} else {
-					result = await askViaDialogs(ctx.ui, question, options);
+					result = await askViaDialogs(ctx.ui, question, options, signal);
 				}
 			} catch (error) {
 				const message =
 					error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error);
-				return {
-					content: [{ type: "text", text: `Ask tool failed: ${message}` }],
-					isError: true,
-					details: { error: message },
-				};
+				throw new Error(`Ask tool failed: ${message}`);
 			}
 
 			if (result === null) {
@@ -895,19 +885,6 @@ export function createAskUserTool() {
 
 			if (details?.error) {
 				const line = theme.fg("error", `✖ ${details.error}`);
-				if (!canAnimate) return new Text(scrambleManager.renderStatic(line), 0, 0);
-				const scrambled = scrambleManager.updateText(id, "result", stripAnsi(line), now, false).content;
-				runScrambleTimer(args as Record<string, any> | undefined, id);
-				return new Text(scrambled, 0, 0);
-			}
-
-			if (options.isPartial) {
-				const waitingText = result.content
-					?.filter((part: { type?: string; text?: string }) => part?.type === "text")
-					.map((part: { text?: string }) => part.text ?? "")
-					.join("\n")
-					.trim() || "Waiting for user input...";
-				const line = theme.fg("muted", waitingText);
 				if (!canAnimate) return new Text(scrambleManager.renderStatic(line), 0, 0);
 				const scrambled = scrambleManager.updateText(id, "result", stripAnsi(line), now, false).content;
 				runScrambleTimer(args as Record<string, any> | undefined, id);

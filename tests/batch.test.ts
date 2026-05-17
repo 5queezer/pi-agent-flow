@@ -39,7 +39,7 @@ describe("batch tool", () => {
 				makeCtx(tmpDir),
 			);
 
-			expect(result.content[0].text).toContain("1 operations: 1 read");
+			expect(result.content[0].text).toContain("✔ 1 read");
     expect(result.content[0].text).toContain("--- test.txt (2 lines) ---");
     expect(result.content[0].text).toContain("hello world");
 			expect(result.details.results[0]).toMatchObject({
@@ -69,7 +69,7 @@ describe("batch tool", () => {
 				makeCtx(tmpDir),
 			);
 
-			expect(result.content[0].text).toContain("2 operations: 2 reads");
+			expect(result.content[0].text).toContain("✔ 2 read");
     expect(result.content[0].text).toContain("--- a.txt (2 lines) ---");
     expect(result.content[0].text).toContain("content a");
     expect(result.content[0].text).toContain("--- b.txt (2 lines) ---");
@@ -107,7 +107,7 @@ describe("batch tool", () => {
 				makeCtx(tmpDir),
 			);
 
-			expect(result.content[0].text).toContain("1 failed");
+			expect(result.content[0].text).toContain("✗ 1 read");
 			expect(result.details.results[0]).toMatchObject({
 				op: "read",
 				status: "error",
@@ -268,8 +268,8 @@ describe("batch tool", () => {
 				);
 
 				expect(result.details.results[0].truncated).toBe(true);
-				expect(result.details.results[0].content).toContain("[Showing lines 1-3000 of 4000");
-				expect(result.details.results[0].content).toContain("s=3001");
+				expect(result.details.results[0].content).toContain("[Showing lines 1-2000 of 4000");
+				expect(result.details.results[0].content).toContain("s=2001");
 				expect(result.details.results[0].totalLines).toBe(4000);
 			});
 
@@ -287,7 +287,7 @@ describe("batch tool", () => {
 				);
 
 				expect(result.content[0].text).toContain("⚠ large.txt truncated");
-				expect(result.content[0].text).toContain("s=3001");
+				expect(result.content[0].text).toContain("s=2001");
 			});
 		});
 	});
@@ -572,7 +572,7 @@ describe("batch tool", () => {
 				makeCtx(tmpDir),
 			);
 
-			expect(result.content[0].text).toContain("1 operations: 1 write");
+			expect(result.content[0].text).toContain("✔ 1 write");
     expect(result.content[0].text).toContain("write: new.txt");
     expect(result.content[0].text).toContain("12 bytes");
 			expect(result.details.results[0]).toMatchObject({
@@ -639,7 +639,7 @@ describe("batch tool", () => {
 				makeCtx(tmpDir),
 			);
 
-			expect(result.content[0].text).toContain("2 operations: 2 writes");
+			expect(result.content[0].text).toContain("✔ 2 write");
     expect(result.content[0].text).toContain("write: x.txt");
     expect(result.content[0].text).toContain("write: y.txt");
 			expect(fs.readFileSync(path.join(tmpDir, "x.txt"), "utf-8")).toBe("x\n");
@@ -668,7 +668,7 @@ describe("batch tool", () => {
 				makeCtx(tmpDir),
 			);
 
-			expect(result.content[0].text).toContain("1 operations: 1 edit");
+			expect(result.content[0].text).toContain("✔ 1 edit");
     expect(result.content[0].text).toContain("edit: edit.txt");
 			expect(result.details.results[0]).toMatchObject({
 				op: "edit",
@@ -739,7 +739,7 @@ describe("batch tool", () => {
 				makeCtx(tmpDir),
 			);
 
-			expect(result.content[0].text).toContain("2 operations: 2 edits");
+			expect(result.content[0].text).toContain("✔ 2 edit");
     expect(result.content[0].text).toContain("edit: a.txt");
     expect(result.content[0].text).toContain("edit: b.txt");
 			expect(fs.readFileSync(path.join(tmpDir, "a.txt"), "utf-8")).toBe("ALPHA\n");
@@ -989,7 +989,7 @@ describe("batch tool", () => {
 				makeCtx(tmpDir),
 			);
 
-			expect(result.content[0].text).toContain("1 operations: 1 delete");
+			expect(result.content[0].text).toContain("✔ 1 delete");
 			expect(result.content[0].text).toContain("delete: delete-me.txt");
 			expect(result.details.results[0]).toMatchObject({
 				op: "delete",
@@ -1040,7 +1040,7 @@ describe("batch tool", () => {
 				makeCtx(tmpDir),
 			);
 
-			expect(result.content[0].text).toContain("3 operations: 1 read, 1 write, 1 edit");
+			expect(result.content[0].text).toContain("✔ 1 read, 1 write, 1 edit");
     expect(result.content[0].text).toContain("--- existing.txt");
     expect(result.content[0].text).toContain("write: new.txt");
     expect(result.content[0].text).toContain("edit: existing.txt");
@@ -1086,8 +1086,8 @@ describe("batch tool", () => {
 		});
 	});
 
-	describe("skip-on-failure", () => {
-		it("skips remaining operations after failure", async () => {
+	describe("continue-on-failure", () => {
+		it("continues remaining operations after failure", async () => {
 			fs.writeFileSync(path.join(tmpDir, "ok.txt"), "ok\n", "utf-8");
 
 			const tool = createTool();
@@ -1097,7 +1097,7 @@ describe("batch tool", () => {
 					o: [
 						{ op: "read", path: "ok.txt" },
 						{ op: "read", path: "missing.txt" },
-						{ op: "write", path: "skipped.txt", content: "should not be written\n" },
+						{ op: "write", path: "continued.txt", content: "should be written\n" },
 					],
 				},
 				undefined,
@@ -1107,24 +1107,23 @@ describe("batch tool", () => {
 
 			expect(result.details.results[0].status).toBe("ok");
 			expect(result.details.results[1].status).toBe("error");
-			expect(result.details.results[2].status).toBe("skipped");
+			expect(result.details.results[2].status).toBe("ok");
 
-			// The skipped write should not have created the file
-			expect(fs.existsSync(path.join(tmpDir, "skipped.txt"))).toBe(false);
+			// The write should still have been created despite prior read failure
+			expect(fs.existsSync(path.join(tmpDir, "continued.txt"))).toBe(true);
 
-			// Summary should show the failure with hint
-			expect(result.content[0].text).toContain("1 failed, 1 skipped");
-			expect(result.content[0].text).toContain("1 read ok");
+			// Summary should show the failure without skipped count
+			expect(result.content[0].text).toContain("✔ 1 read, 1 write | ✗ 1 read");
 		});
 
-		it("continues after skipped operations are not executed", async () => {
+		it("continues after failure — write runs even if prior read failed", async () => {
 			const tool = createTool();
 			const result = await tool.execute(
 				"call-1",
 				{
 					o: [
 						{ op: "read", path: "nonexistent.txt" },
-						{ op: "write", path: "should-skip.txt", content: "nope\n" },
+						{ op: "write", path: "should-run.txt", content: "yep\n" },
 					],
 				},
 				undefined,
@@ -1133,7 +1132,8 @@ describe("batch tool", () => {
 			);
 
 			expect(result.details.results[0].status).toBe("error");
-			expect(result.details.results[1].status).toBe("skipped");
+			expect(result.details.results[1].status).toBe("ok");
+			expect(fs.existsSync(path.join(tmpDir, "should-run.txt"))).toBe(true);
 		});
 	});
 
@@ -1298,20 +1298,20 @@ describe("batch tool", () => {
 			expect(result.details.results[1].error).toBe("Operation aborted.");
 		});
 
-		it("returns error when signal is already aborted", async () => {
+		it("throws when signal is already aborted", async () => {
 			const tool = createTool();
 			const controller = new AbortController();
 			controller.abort();
 
-			const result = await tool.execute(
-				"call-1",
-				{ o: [{ op: "read", path: "any.txt" }] },
-				controller.signal,
-				undefined,
-				makeCtx(tmpDir),
-			);
-
-			expect(result.isError).toBe(true);
+			await expect(
+				tool.execute(
+					"call-1",
+					{ o: [{ op: "read", path: "any.txt" }] },
+					controller.signal,
+					undefined,
+					makeCtx(tmpDir),
+				),
+			).rejects.toThrow("Operation aborted.");
 		});
 	});
 
@@ -1513,18 +1513,11 @@ describe("batch tool", () => {
 		});
 	});
 	describe("empty operations", () => {
-		it("returns error for empty operations array", async () => {
+		it("throws for empty operations array", async () => {
 			const tool = createTool();
-			const result = await tool.execute(
-				"call-1",
-				{ o: [] },
-				undefined,
-				undefined,
-				makeCtx(tmpDir),
-			);
-
-			expect(result.isError).toBe(true);
-			expect(result.content[0].text).toContain("o array is required");
+			await expect(
+				tool.execute("call-1", { o: [] }, undefined, undefined, makeCtx(tmpDir)),
+			).rejects.toThrow("o array is required");
 		});
 	});
 
@@ -1605,7 +1598,7 @@ describe("batch tool", () => {
 				{
 					o: [
 						{ op: "read", path: "missing.txt" },
-						{ op: "write", path: "skipped.txt", content: "nope" },
+						{ op: "write", path: "continued.txt", content: "nope" },
 					],
 				},
 				undefined,
@@ -1614,9 +1607,119 @@ describe("batch tool", () => {
 			);
 
 			const text = result.content[0].text;
-			expect(text).toContain("1 failed, 1 skipped");
+			expect(text).toContain("✔ 1 write | ✗ 1 read");
 			expect(text).toContain("read missing.txt:");
 			expect(text).toContain("— Verify the path exists.");
+		});
+	});
+
+	describe("structured error responses", () => {
+		it("returns retryable=true for missing file (ENOENT)", async () => {
+			const tool = createTool();
+			const result = await tool.execute(
+				"call-1",
+				{ o: [{ op: "read", path: "missing.txt" }] },
+				undefined,
+				undefined,
+				makeCtx(tmpDir),
+			);
+
+			expect(result.details.results[0]).toMatchObject({
+				status: "error",
+				error: expect.stringContaining("missing.txt"),
+				hint: "Verify the path exists.",
+				retryable: true,
+				suggestedFix: "Verify the path exists.",
+			});
+		});
+
+		it("returns retryable=true for duplicate oldText", async () => {
+			fs.writeFileSync(path.join(tmpDir, "dup.txt"), "same same different\n", "utf-8");
+
+			const tool = createTool();
+			const result = await tool.execute(
+				"call-1",
+				{
+					o: [
+						{
+							op: "edit",
+							path: "dup.txt",
+							edits: [{ oldText: "same", newText: "changed" }],
+						},
+					],
+				},
+				undefined,
+				undefined,
+				makeCtx(tmpDir),
+			);
+
+			expect(result.details.results[0]).toMatchObject({
+				status: "error",
+				retryable: true,
+				suggestedFix: "Add more surrounding context to make oldText unique.",
+			});
+		});
+
+		it("returns retryable=false for no-changes edit", async () => {
+			fs.writeFileSync(path.join(tmpDir, "same.txt"), "same content\n", "utf-8");
+
+			const tool = createTool();
+			const result = await tool.execute(
+				"call-1",
+				{
+					o: [
+						{
+							op: "edit",
+							path: "same.txt",
+							edits: [{ oldText: "same content\n", newText: "same content\n" }],
+						},
+					],
+				},
+				undefined,
+				undefined,
+				makeCtx(tmpDir),
+			);
+
+			expect(result.details.results[0]).toMatchObject({
+				status: "error",
+				retryable: false,
+				suggestedFix: "File already has this content. No edit needed.",
+			});
+		});
+
+		it("returns retryable=false for directory delete", async () => {
+			fs.mkdirSync(path.join(tmpDir, "a-dir"));
+
+			const tool = createTool();
+			const result = await tool.execute(
+				"call-1",
+				{
+					o: [{ op: "delete", path: "a-dir" }],
+				},
+				undefined,
+				undefined,
+				makeCtx(tmpDir),
+			);
+
+			expect(result.details.results[0]).toMatchObject({
+				status: "error",
+				retryable: false,
+				error: expect.stringContaining("Cannot delete directory"),
+			});
+		});
+
+		it("preserves string error for backward compatibility", async () => {
+			const tool = createTool();
+			const result = await tool.execute(
+				"call-1",
+				{ o: [{ op: "read", path: "missing.txt" }] },
+				undefined,
+				undefined,
+				makeCtx(tmpDir),
+			);
+
+			expect(typeof result.details.results[0].error).toBe("string");
+			expect(result.details.results[0].error).toContain("missing.txt");
 		});
 	});
 
@@ -2226,18 +2329,11 @@ describe("edge cases", () => {
 			});
 		});
 
-		it("returns error for non-object input", async () => {
+		it("throws for non-object input", async () => {
 			const tool = createTool();
-			const result = await tool.execute(
-				"call-1",
-				null as any,
-				undefined,
-				undefined,
-				makeCtx(tmpDir),
-			);
-
-			expect(result.isError).toBe(true);
-			expect(result.content[0].text).toContain("o array is required");
+			await expect(
+				tool.execute("call-1", null as any, undefined, undefined, makeCtx(tmpDir)),
+			).rejects.toThrow("o array is required");
 		});
 	});
 
@@ -2271,10 +2367,7 @@ describe("edge cases", () => {
 			);
 
 			const text = result.content[0].text;
-			expect(text).toContain("2 reads");
-			expect(text).toContain("2 writes");
-			expect(text).toContain("2 edits");
-			expect(text).toContain("2 deletes");
+			expect(text).toContain("✔ 2 read, 2 write, 2 edit, 2 delete");
 		});
 
 		it("includes byte truncation warning in summary", async () => {
@@ -2324,9 +2417,56 @@ describe("edge cases", () => {
 				op: "read",
 				path: "batch-agg-3.txt",
 				status: "skipped",
+				skipped: true,
+				reason: "aggregate_line_limit",
+				consumed: { lines: 1500, bytes: expect.any(Number) },
+				remainingOps: 0,
 				error: expect.stringContaining("aggregate line limit of 1500"),
 			});
 			expect(result.content[0].text).toContain("⚠ Aggregate line limit (1500) reached — skipped 1 read: batch-agg-3.txt");
+			expect(result.content[0].text).toContain("1 skipped");
+			expect(result.content[0].text).toContain("Skipped: aggregate line limit");
+		});
+
+		it("skips remaining reads when aggregate byte limit is exceeded", async () => {
+			// 3 files × 51200 bytes = 153600 bytes = exactly at cap
+			// File 4 is skipped because aggregate is already at cap
+			for (let i = 0; i < 4; i++) {
+				fs.writeFileSync(path.join(tmpDir, `byte-agg-${i}.txt`), "x".repeat(51200) + "\n", "utf-8");
+			}
+
+			const tool = createTool();
+			const result = await tool.execute(
+				"call-1",
+				{
+					o: [
+						{ op: "read", path: "byte-agg-0.txt" },
+						{ op: "read", path: "byte-agg-1.txt" },
+						{ op: "read", path: "byte-agg-2.txt" },
+						{ op: "read", path: "byte-agg-3.txt" },
+					],
+				},
+				undefined,
+				undefined,
+				makeCtx(tmpDir),
+			);
+
+			expect(result.details.results[0].status).toBe("ok");
+			expect(result.details.results[1].status).toBe("ok");
+			expect(result.details.results[2].status).toBe("ok");
+			expect(result.details.results[3]).toMatchObject({
+				op: "read",
+				path: "byte-agg-3.txt",
+				status: "skipped",
+				skipped: true,
+				reason: "aggregate_byte_limit",
+				consumed: { lines: 3, bytes: 153744 },
+				remainingOps: 0,
+				error: expect.stringContaining("aggregate byte limit of 153600"),
+			});
+			expect(result.content[0].text).toContain("⚠ Aggregate byte limit (153600) reached — skipped 1 read: byte-agg-3.txt");
+			expect(result.content[0].text).toContain("1 skipped");
+			expect(result.content[0].text).toContain("Skipped: aggregate byte limit");
 		});
 
 		it("continues non-read operations after aggregate line limit is reached", async () => {
@@ -2471,24 +2611,24 @@ describe("edge cases", () => {
 		it("collapsed shows only summary line", () => {
 			const tool = createTool();
 			const result = {
-				content: [{ type: "text", text: "3 operations: 2 reads, 1 edit\n\n--- file.ts ---\ncontent" }],
+				content: [{ type: "text", text: "✔ 2 read, 1 edit\n\n--- file.ts ---\ncontent" }],
 				details: { results: [] },
 			};
 			const rendered = tool.renderResult!(result, { expanded: false }, makeTheme(), undefined);
 			const text = rendered.toString();
-			expect(text).toContain("3 operations");
+			expect(text).toContain("✔");
 			expect(text).not.toContain("--- file.ts ---");
 		});
 
 		it("expanded shows full content", () => {
 			const tool = createTool();
 			const result = {
-				content: [{ type: "text", text: "3 operations: 2 reads, 1 edit\n\n--- file.ts ---\ncontent" }],
+				content: [{ type: "text", text: "✔ 2 read, 1 edit\n\n--- file.ts ---\ncontent" }],
 				details: { results: [] },
 			};
 			const rendered = tool.renderResult!(result, { expanded: true }, makeTheme(), undefined);
 			const text = rendered.toString();
-			expect(text).toContain("3 operations");
+			expect(text).toContain("✔");
 			expect(text).toContain("--- file.ts ---");
 			expect(text).toContain("content");
 		});
@@ -2536,7 +2676,7 @@ describe("batch_read tool", () => {
 				makeCtx(tmpDir),
 			);
 
-			expect(result.content[0].text).toContain("1 operations: 1 read");
+			expect(result.content[0].text).toContain("✔ 1 read");
 			expect(result.details.results[0]).toMatchObject({
 				op: "read",
 				path: "test.txt",
@@ -2562,7 +2702,7 @@ describe("batch_read tool", () => {
 				makeCtx(tmpDir),
 			);
 
-			expect(result.content[0].text).toContain("2 operations: 2 reads");
+			expect(result.content[0].text).toContain("✔ 2 read");
 			expect(result.details.results).toHaveLength(2);
 		});
 
@@ -2845,9 +2985,53 @@ describe("batch_read tool", () => {
 				op: "read",
 				path: "agg-3.txt",
 				status: "skipped",
+				skipped: true,
+				reason: "aggregate_line_limit",
+				consumed: { lines: 1500, bytes: expect.any(Number) },
+				remainingOps: 0,
 				error: expect.stringContaining("aggregate line limit of 1500"),
 			});
 			expect(result.content[0].text).toContain("⚠ Aggregate line limit (1500) reached — skipped 1 read: agg-3.txt");
+		});
+
+		it("skips remaining reads when aggregate byte limit is exceeded", async () => {
+			// 3 files of ~51201 bytes each > 153600 cap, so File 4 is skipped
+			for (let i = 0; i < 4; i++) {
+				fs.writeFileSync(path.join(tmpDir, `byte-agg-${i}.txt`), "x".repeat(51200) + "\n", "utf-8");
+			}
+
+			const tool = createTool();
+			const result = await tool.execute(
+				"call-1",
+				{
+					o: [
+						{ o: "read", p: "byte-agg-0.txt" },
+						{ o: "read", p: "byte-agg-1.txt" },
+						{ o: "read", p: "byte-agg-2.txt" },
+						{ o: "read", p: "byte-agg-3.txt" },
+					],
+				},
+				undefined,
+				undefined,
+				makeCtx(tmpDir),
+			);
+
+			expect(result.details.results[0].status).toBe("ok");
+			expect(result.details.results[1].status).toBe("ok");
+			expect(result.details.results[2].status).toBe("ok");
+			expect(result.details.results[3]).toMatchObject({
+				op: "read",
+				path: "byte-agg-3.txt",
+				status: "skipped",
+				skipped: true,
+				reason: "aggregate_byte_limit",
+				consumed: { lines: 6, bytes: 153603 },
+				remainingOps: 0,
+				error: expect.stringContaining("aggregate byte limit of 153600"),
+			});
+			expect(result.content[0].text).toContain("⚠ Aggregate byte limit (153600) reached — skipped 1 read: byte-agg-3.txt");
+			expect(result.content[0].text).toContain("1 skipped");
+			expect(result.content[0].text).toContain("Skipped: aggregate byte limit");
 		});
 
 		it("does not count context maps toward aggregate line limit", async () => {
@@ -2885,67 +3069,63 @@ describe("batch_read tool", () => {
 	describe("defensive rejection", () => {
 		it("rejects write operations", async () => {
 			const tool = createTool();
-			const result = await tool.execute(
-				"call-1",
-				{ o: [{ o: "write", p: "new.txt", c: "content" }] },
-				undefined,
-				undefined,
-				makeCtx(tmpDir),
-			);
-
-			expect(result.isError).toBe(true);
-			expect(result.content[0].text).toContain("batch_read only supports read operations");
+			await expect(
+				tool.execute(
+					"call-1",
+					{ o: [{ o: "write", p: "new.txt", c: "content" }] },
+					undefined,
+					undefined,
+					makeCtx(tmpDir),
+				),
+			).rejects.toThrow("batch_read only supports read operations");
 		});
 
 		it("rejects edit operations", async () => {
 			fs.writeFileSync(path.join(tmpDir, "edit.txt"), "hello\n", "utf-8");
 
 			const tool = createTool();
-			const result = await tool.execute(
-				"call-1",
-				{ o: [{ o: "edit", p: "edit.txt", e: [{ f: "hello", r: "world" }] }] },
-				undefined,
-				undefined,
-				makeCtx(tmpDir),
-			);
-
-			expect(result.isError).toBe(true);
-			expect(result.content[0].text).toContain("batch_read only supports read operations");
+			await expect(
+				tool.execute(
+					"call-1",
+					{ o: [{ o: "edit", p: "edit.txt", e: [{ f: "hello", r: "world" }] }] },
+					undefined,
+					undefined,
+					makeCtx(tmpDir),
+				),
+			).rejects.toThrow("batch_read only supports read operations");
 		});
 
 		it("rejects delete operations", async () => {
 			const tool = createTool();
-			const result = await tool.execute(
-				"call-1",
-				{ o: [{ o: "delete", p: "file.txt" }] },
-				undefined,
-				undefined,
-				makeCtx(tmpDir),
-			);
-
-			expect(result.isError).toBe(true);
-			expect(result.content[0].text).toContain("batch_read only supports read operations");
+			await expect(
+				tool.execute(
+					"call-1",
+					{ o: [{ o: "delete", p: "file.txt" }] },
+					undefined,
+					undefined,
+					makeCtx(tmpDir),
+				),
+			).rejects.toThrow("batch_read only supports read operations");
 		});
 
 		it("rejects mixed read and write operations", async () => {
 			fs.writeFileSync(path.join(tmpDir, "ok.txt"), "ok\n", "utf-8");
 
 			const tool = createTool();
-			const result = await tool.execute(
-				"call-1",
-				{
-					o: [
-						{ o: "read", p: "ok.txt" },
-						{ o: "write", p: "bad.txt", c: "bad" },
-					],
-				},
-				undefined,
-				undefined,
-				makeCtx(tmpDir),
-			);
-
-			expect(result.isError).toBe(true);
-			expect(result.content[0].text).toContain("batch_read only supports read operations");
+			await expect(
+				tool.execute(
+					"call-1",
+					{
+						o: [
+							{ o: "read", p: "ok.txt" },
+							{ o: "write", p: "bad.txt", c: "bad" },
+						],
+					},
+					undefined,
+					undefined,
+					makeCtx(tmpDir),
+				),
+			).rejects.toThrow("batch_read only supports read operations");
 		});
 
 		it("allows rg operations", async () => {
@@ -2961,8 +3141,8 @@ describe("batch_read tool", () => {
 				makeCtx(tmpDir),
 			);
 
-			expect(result.isError).toBeFalsy();
-			expect(result.content[0].text).toContain("1 operations: 1 rg");
+			expect(result.failed).toBeFalsy();
+			expect(result.content[0].text).toContain("✔ 1 rg");
 			expect(result.content[0].text).toContain("alpha.txt");
 		});
 
@@ -2984,9 +3164,77 @@ describe("batch_read tool", () => {
 				makeCtx(tmpDir),
 			);
 
-			expect(result.isError).toBeFalsy();
+			expect(result.failed).toBeFalsy();
 			expect(result.content[0].text).toContain("alpha content");
 			expect(result.content[0].text).toContain("beta.txt");
+		});
+	});
+
+	describe("incremental streaming", () => {
+		it("calls onUpdate with partial results during file ops", async () => {
+			fs.writeFileSync(path.join(tmpDir, "a.txt"), "content a\n", "utf-8");
+			fs.writeFileSync(path.join(tmpDir, "b.txt"), "content b\n", "utf-8");
+
+			const updates: any[] = [];
+			const onUpdate = (partial: any) => updates.push(partial);
+
+			const tool = createTool();
+			const result = await tool.execute(
+				"call-1",
+				{
+					o: [
+						{ op: "read", path: "a.txt" },
+						{ op: "read", path: "b.txt" },
+					],
+				},
+				undefined,
+				onUpdate,
+				makeCtx(tmpDir),
+			);
+
+			expect(result.content[0].text).toContain("✔ 2 read");
+			expect(updates.length).toBeGreaterThanOrEqual(1);
+			const lastUpdate = updates[updates.length - 1];
+			expect(lastUpdate.content[0].text).toContain("✔");
+			expect(lastUpdate.details.results.length).toBeLessThanOrEqual(2);
+		});
+
+		it("marks remaining ops skipped when aborted", async () => {
+			fs.writeFileSync(path.join(tmpDir, "a.txt"), "content a\n", "utf-8");
+			fs.writeFileSync(path.join(tmpDir, "b.txt"), "content b\n", "utf-8");
+
+			const updates: any[] = [];
+			const onUpdate = (partial: any) => updates.push(partial);
+			const controller = new AbortController();
+
+			const tool = createTool();
+			const promise = tool.execute(
+				"call-1",
+				{
+					o: [
+						{ op: "read", path: "a.txt" },
+						{ op: "read", path: "b.txt" },
+						{ op: "read", path: "c.txt" },
+					],
+				},
+				controller.signal,
+				onUpdate,
+				makeCtx(tmpDir),
+			);
+
+			controller.abort();
+			const result = await promise;
+
+			expect(result.details.results).toHaveLength(3);
+			expect(result.details.results[0].status).toBe("ok");
+			expect(result.details.results[1].status).toBe("skipped");
+			expect(result.details.results[2].status).toBe("skipped");
+			expect(result.details.results[1].error).toBe("Operation aborted.");
+			expect(result.content[0].text).toContain("2 skipped");
+			expect(result.content[0].text).toContain("Operation aborted.");
+			expect(updates.length).toBeGreaterThanOrEqual(1);
+			const lastUpdate = updates[updates.length - 1];
+			expect(lastUpdate.details.results.filter((r: any) => r.status === "skipped").length).toBe(2);
 		});
 	});
 
@@ -3040,24 +3288,24 @@ describe("batch_read tool", () => {
 		it("collapsed shows only summary line", () => {
 			const tool = createTool();
 			const result = {
-				content: [{ type: "text", text: "2 operations: 2 reads\n\n--- file.ts ---\ncontent" }],
+				content: [{ type: "text", text: "✔ 2 read\n\n--- file.ts ---\ncontent" }],
 				details: { results: [] },
 			};
 			const rendered = tool.renderResult!(result, { expanded: false }, makeTheme(), undefined);
 			const text = rendered.toString();
-			expect(text).toContain("2 operations");
+			expect(text).toContain("✔");
 			expect(text).not.toContain("--- file.ts ---");
 		});
 
 		it("expanded shows full content", () => {
 			const tool = createTool();
 			const result = {
-				content: [{ type: "text", text: "2 operations: 2 reads\n\n--- file.ts ---\ncontent" }],
+				content: [{ type: "text", text: "✔ 2 read\n\n--- file.ts ---\ncontent" }],
 				details: { results: [] },
 			};
 			const rendered = tool.renderResult!(result, { expanded: true }, makeTheme(), undefined);
 			const text = rendered.toString();
-			expect(text).toContain("2 operations");
+			expect(text).toContain("✔");
 			expect(text).toContain("--- file.ts ---");
 		});
 	});

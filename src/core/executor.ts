@@ -33,9 +33,9 @@ import type { GoalContext } from '../flow/types.js';
 export interface FlowExecutorDeps {
 	/** All discovered flow configs. */
 	flows: FlowConfig[];
-	/** Current delegation depth. */
+	/** Current transition depth. */
 	currentDepth: number;
-	/** Maximum delegation depth. */
+	/** Maximum transition depth. */
 	maxDepth: number;
 	/** Ancestor flow stack (names). */
 	ancestorFlowStack: string[];
@@ -102,7 +102,7 @@ export interface ExecuteFlowParams {
 export interface ExecuteFlowResult {
 	content: Array<{ type: string; text: string }>;
 	details: FlowDetails;
-	isError?: boolean;
+	failed?: boolean;
 	_toolCallId?: string;
 }
 
@@ -236,7 +236,7 @@ export async function executeFlows(
 					text: `Blocked: cycle detected. Flow(s) in stack: ${violations.join(", ")}\nStack: ${stack}`,
 				}],
 				details: makeDetails([]),
-				isError: true,
+				failed: true,
 			};
 		}
 	}
@@ -249,7 +249,7 @@ export async function executeFlows(
 			return {
 				content: [{ type: "text", text: blocked ?? "Canceled: project-local flows not approved." }],
 				details: makeDetails([]),
-				isError: !blocked,
+				failed: !blocked,
 			};
 		}
 	}

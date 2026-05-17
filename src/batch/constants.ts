@@ -15,8 +15,11 @@ function getEnvInt(name: string, fallback: number): number {
 // Limits
 // ---------------------------------------------------------------------------
 
-export const MAX_LINES = getEnvInt("PI_BATCH_MAX_LINES", 3000);
-export const MAX_BYTES = getEnvInt("PI_BATCH_MAX_BYTES", 100 * 1024); // 100KB (Pi spec: 50KB)
+// Pi spec defaults (lines 2000 / bytes 50KB). Override via env vars if you need
+// the legacy higher limits: PI_BATCH_MAX_LINES=3000, PI_BATCH_MAX_BYTES=102400,
+// PI_BASH_MAX_LINES=4000, PI_BASH_MAX_BYTES=102400.
+export const MAX_LINES = getEnvInt("PI_BATCH_MAX_LINES", 2000);
+export const MAX_BYTES = getEnvInt("PI_BATCH_MAX_BYTES", 50 * 1024); // 50KB (Pi spec)
 export const SAFE_FULL_READ_LIMIT = 400;
 export const TARGETED_READ_LINE_LIMIT = 500;
 export const MAX_CONTEXT_MAP_ENTRIES = 100;
@@ -24,8 +27,8 @@ export const MAX_TOTAL_RESULT_LINES = 1500;
 export const BATCH_READ_MAX_TOTAL_BYTES = 150 * 1024; // 150KB
 export const BASH_SOFT_TIMEOUT_MS = 20_000;
 export const BASH_POLL_TAIL_LINES = 50;
-export const MAX_BASH_OUTPUT_BYTES = getEnvInt("PI_BASH_MAX_BYTES", 100 * 1024); // 100KB (Pi spec: 50KB)
-export const MAX_BASH_OUTPUT_LINES = getEnvInt("PI_BASH_MAX_LINES", 4000);
+export const MAX_BASH_OUTPUT_BYTES = getEnvInt("PI_BASH_MAX_BYTES", 50 * 1024); // 50KB (Pi spec)
+export const MAX_BASH_OUTPUT_LINES = getEnvInt("PI_BASH_MAX_LINES", 2000);
 
 // Pi spec limits for warnings
 const PI_SPEC_MAX_LINES = 2000;
@@ -38,8 +41,9 @@ if (
 	MAX_BASH_OUTPUT_BYTES > PI_SPEC_MAX_BYTES
 ) {
 	logWarn(
-		`[pi-agent-flow] Batch limits exceed Pi spec (lines>${PI_SPEC_MAX_LINES}, bytes>${PI_SPEC_MAX_BYTES}). ` +
-		`Current: MAX_LINES=${MAX_LINES}, MAX_BYTES=${MAX_BYTES}, MAX_BASH_OUTPUT_LINES=${MAX_BASH_OUTPUT_LINES}, MAX_BASH_OUTPUT_BYTES=${MAX_BASH_OUTPUT_BYTES}`,
+		`[pi-agent-flow] Batch limits exceed Pi spec (lines≤${PI_SPEC_MAX_LINES}, bytes≤${PI_SPEC_MAX_BYTES}). ` +
+		`Current: MAX_LINES=${MAX_LINES}, MAX_BYTES=${MAX_BYTES}, MAX_BASH_OUTPUT_LINES=${MAX_BASH_OUTPUT_LINES}, MAX_BASH_OUTPUT_BYTES=${MAX_BASH_OUTPUT_BYTES}. ` +
+		`Set env vars to ≤spec or accept the risk of provider rejection.`,
 	);
 }
 
@@ -101,7 +105,7 @@ export interface EditReplacement {
 }
 
 export interface FileOpInput {
-	o: "read" | "write" | "edit" | "delete" | "bash" | "rg";
+	o: "read" | "write" | "edit" | "delete" | "bash" | "rg" | "patch";
 	p: string;
 	c?: string;
 	e?: EditReplacement[];
@@ -136,7 +140,7 @@ export interface ContextMapEntry {
 }
 
 export interface OpResult {
-	op: "read" | "write" | "edit" | "delete" | "bash" | "rg";
+	op: "read" | "write" | "edit" | "delete" | "bash" | "rg" | "patch";
 	path: string;
 	status: "ok" | "error" | "skipped" | "pending";
 	content?: string;
@@ -151,8 +155,14 @@ export interface OpResult {
 	truncated?: boolean;
 	nextOffset?: number;
 	enclosingSignatures?: Record<string, string>;
+	skipped?: boolean;
+	reason?: "aggregate_line_limit" | "aggregate_byte_limit";
+	consumed?: { lines: number; bytes: number };
+	remainingOps?: number;
 	error?: string;
 	hint?: string;
+	retryable?: boolean;
+	suggestedFix?: string;
 	id?: string;
 	command?: string;
 	exitCode?: number;
@@ -160,6 +170,11 @@ export interface OpResult {
 	stderr?: string;
 	duration?: number;
 	timingTier?: string;
+	q?: string;
+	s?: number;
+	l?: number;
+	affected?: { added: string[]; modified: string[]; deleted: string[] };
+	exact?: boolean;
 }
 
 export interface ReadOptions {
@@ -198,6 +213,14 @@ export type BatchTheme = {
 	bold: (s: string) => string;
 	bg: (color: string, text: string) => string;
 };
+
+export type BatchToolResult = {
+	content: Array<{ type: "text"; text: string }>;
+	details?: { results: OpResult[] };
+	_toolCallId?: string;
+};
+
+export type BatchOnUpdate = (partial: BatchToolResult) => void;
 
 export interface PendingBashResult {
 	id: string;

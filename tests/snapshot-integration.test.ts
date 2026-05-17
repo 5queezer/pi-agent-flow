@@ -39,7 +39,11 @@ function buildDumpArtifact(
 			`- Reduction: ${stats.reductionPercent}%`;
 	}
 
-	const passesList = passesApplied.length > 0 ? passesApplied.join(", ") : "(none — cold start)";
+	const passesList = passesApplied.length > 0
+	  ? passesApplied.join(", ")
+	  : stats || snapshot
+	    ? "sanitizeForkSnapshot (no passes applied)"
+	    : "(none — cold start)";
 	const sanitizationHeader =
 		`<!-- pi-agent-flow dump | State: post-sanitization | Passes: ${passesList} | Flow: ${flowName} | Tier: ${tier} | Pipeline: ${pipelineVersion} | Generated: ${new Date().toISOString()} -->`;
 
@@ -241,7 +245,7 @@ describe("SNAPSHOT INTEGRATION TEST — depth-aware compression & dump artifacts
 					id: "a-5",
 					parentId: "tr-ask-1",
 					content: [
-						{ type: "text", text: "Proceeding with RS256. Delegating to build flow." },
+						{ type: "text", text: "Proceeding with RS256. Transitioning to build flow." },
 						{
 							type: "toolCall",
 							id: "tc-flow-1",

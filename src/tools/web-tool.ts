@@ -8,7 +8,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { JSDOM } from "jsdom";
 import TurndownService from "turndown";
-import { appendStrategicHintOnce } from "../steering/tool-utils.js";
+import { appendDirectiveOnce } from "../steering/tool-utils.js";
 import { scrambleManager, runScrambleTimer } from "../tui/scramble/index.js";
 import { stripAnsi } from "../tui/render-utils.js";
 import { logWarn } from "../config/log.js";
@@ -77,15 +77,14 @@ function formatWebOpsSummary(args: Record<string, unknown>): string {
 		if (op.o === "search") return `search: "${op.q ?? ""}"`;
 		if (op.o === "fetch") return `fetch: ${op.u ?? ""}`;
 	}
-	const counts = { search: 0, fetch: 0 };
+	const counts: Record<string, number> = {};
 	for (const op of ops) {
-		if (op.o === "search") counts.search++;
-		else if (op.o === "fetch") counts.fetch++;
+		counts[op.o] = (counts[op.o] || 0) + 1;
 	}
 	const parts: string[] = [];
-	if (counts.search) parts.push(`${counts.search} search`);
-	if (counts.fetch) parts.push(`${counts.fetch} fetch`);
-	return parts.join(", ");
+	if (counts.search > 0) parts.push(`${counts.search} search`);
+	if (counts.fetch > 0) parts.push(`${counts.fetch} fetch`);
+	return `✔ ${parts.join(", ")}`;
 }
 
 export function createWebTool() {
@@ -97,9 +96,10 @@ export function createWebTool() {
 		promptSnippet: "Search the web or fetch a webpage when local files are insufficient",
 		promptGuidelines: [
 			"Pass ops as an array: [{ o: 'search', q: '<query>' }] to find pages.",
-			"Pass ops as an array: [{ o: 'fetch', u: '<url>', f: 'markdown' }] to download a URL. Content is saved to a temp file — use the read tool to access it in chunks.",
-			"The tool returns the file path, title, content length, and a short preview of the content when fetching.",
-			"Do NOT ask the web tool a question directly. Search or fetch first, then read the results or file to find what you need.",
+			"Pass ops as an array: [{ o: 'fetch', u: '<url>', f: 'markdown' }] to download a URL. Content is saved to a temp file — use the `read` tool to access it in chunks.",
+			"The `web` tool returns the file path, title, content length, and a short preview of the content when fetching.",
+			"Do NOT ask the `web` tool a question directly. Search or fetch first, then read the results or file to find what you need.",
+			`Results are truncated to ${DEFAULT_MAX_LINES} lines and ${DEFAULT_MAX_BYTES} bytes per Pi spec.`,
 		],
 		parameters: webSchema,
 
@@ -178,7 +178,7 @@ async function runWebOps(params: WebParams, ctx: ExtensionContext, signal?: Abor
 		content: [{ type: "text" as const, text: truncated }],
 		details: { ops: details },
 	};
-	appendStrategicHintOnce(webResult);
+	appendDirectiveOnce(webResult);
 	return webResult;
 }
 

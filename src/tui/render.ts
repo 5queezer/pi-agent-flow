@@ -48,7 +48,7 @@ function getLiveTextWithFallback(id: string): string | undefined {
 	const fallbackId = id.includes("#") ? "collapsed" + id.slice(id.indexOf("#")) : "collapsed";
 	return getLiveText(fallbackId);
 }
-import { formatCompactStats, formatFlowTypeName, lowerFirstWord, truncateChars, tailText, getTruncationBudget, visibleLength, stripAnsi, formatModelLabel, formatContextLabel } from "./render-utils.js";
+import { formatCompactStats, formatFlowTypeName, lowerFirstWord, truncateChars, tailText, getTruncationBudget, visibleLength, stripAnsi, formatModelLabel, formatContextLabel, formatTps } from "./render-utils.js";
 
 function shortenPath(p: string): string {
 	const home = os.homedir();
@@ -156,6 +156,30 @@ function sectionHeader(label: string): string {
 	const left = "─".repeat(Math.floor(side));
 	const right = "─".repeat(Math.ceil(side));
 	return `${left} ${label} ${right}`;
+}
+
+/** Single segment of a multi-part header with its original plain length and style. */
+export interface HeaderSegment {
+	text: string;
+	style: (text: string) => string;
+}
+
+/** Reconstruct multi-segment ANSI styles on a flat string by splitting at
+ *  original segment boundaries and re-applying each segment's style function.
+ */
+export function reconstructHeader(content: string, segments: HeaderSegment[]): string {
+	let offset = 0;
+	const parts: string[] = [];
+	for (const seg of segments) {
+		const len = seg.text.length;
+		if (offset >= content.length) break;
+		parts.push(seg.style(content.slice(offset, offset + len)));
+		offset += len;
+	}
+	if (offset < content.length) {
+		parts.push(content.slice(offset));
+	}
+	return parts.join("");
 }
 
 
@@ -346,16 +370,22 @@ function renderFlowExpanded(
 	const mdTheme = getMarkdownTheme();
 	const container = new Container();
 
-	// Header: uppercase type name with dots, no icon, no source
 	const typeName = formatFlowTypeName(r.type);
 	let header = applyRole("flowName", typeName, theme, config);
-	if (error && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
-	const plainHeader = typeName + (error && r.stopReason ? ` [${r.stopReason}]` : "");
+	const errorSegment = error && r.stopReason ? ` [${r.stopReason}]` : "";
+	if (errorSegment) header += ` ${theme.fg("error", errorSegment)}`;
+	const plainHeader = typeName + errorSegment;
+	const headerSegments: HeaderSegment[] = [
+		{ text: typeName, style: (s) => applyRole("flowName", s, theme, config) },
+	];
+	if (errorSegment) {
+		headerSegments.push({ text: errorSegment, style: (s) => theme.fg("error", s) });
+	}
 	container.addChild(new DynamicScrambleText(
 		header,
 		() => {
 			const result = scrambleManager.updateText(id, 'header', plainHeader, Date.now(), isComplete);
-			return result.isAnimating ? applyRole("flowName", result.content, theme, config) : header;
+			return result.isAnimating ? reconstructHeader(result.content, headerSegments) : header;
 		}
 	));
 	if (error && r.errorMessage) {
@@ -560,28 +590,37 @@ function renderFlowCollapsed(
 		const ctxLabel = formatContextLabel(r.usage.contextTokens, r.maxContextTokens);
 		statsParts.push(ctxLabel);
 	}
-	const tpsValue = r.usage.smoothedTps;
-	const tpsDisplay = tpsValue && tpsValue >= 100 ? `${Math.round(tpsValue)}` : (tpsValue && tpsValue > 0 ? tpsValue.toFixed(1) : undefined);
-	if (tpsDisplay) statsParts.push(`${tpsDisplay} t/s`);
-	else statsParts.push("---- t/s");
+	const tpsFormatted = formatTps(r.usage.smoothedTps);
+	statsParts.push(tpsFormatted);
 	let displayStats = statsParts.join(" · ");
 
 	// Flash TPS value when it changes
-	if (tpsDisplay) {
-		const scrambledTps = scrambleManager.updateTps(id, tpsDisplay, now, isComplete, true);
-		if (scrambledTps !== tpsDisplay) {
-			displayStats = displayStats.replace(`${tpsDisplay} t/s`, `${scrambledTps} t/s`);
+	const tpsNum = tpsFormatted.slice(0, -4); // remove " t/s" suffix
+	if (r.usage.smoothedTps && r.usage.smoothedTps > 0) {
+		const scrambledTps = scrambleManager.updateTps(id, tpsNum, now, isComplete, true);
+		if (scrambledTps !== tpsNum) {
+			displayStats = displayStats.replace(`${tpsNum} t/s`, `${scrambledTps} t/s`);
 		}
 	}
-	let header = `${applyRole("flowName", typeName, theme, config)}${applyRole("modelName", modelLabel ? `    ${modelLabel} · ` : "    ", theme, config)}${applyRole("stats", displayStats, theme, config)}`;
-	if (error && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
-	// Scramble header on first render; show full styled header when complete
-	const plainHeader = typeName + (modelLabel ? `    ${modelLabel} · ` : "    ") + stripAnsi(displayStats) + (error && r.stopReason ? ` [${r.stopReason}]` : "");
+	const modelSegment = modelLabel ? `    ${modelLabel} · ` : "    ";
+	const statsSegment = stripAnsi(displayStats);
+	const errorSegment = error && r.stopReason ? ` [${r.stopReason}]` : "";
+	let header = `${applyRole("flowName", typeName, theme, config)}${applyRole("modelName", modelSegment, theme, config)}${applyRole("stats", displayStats, theme, config)}`;
+	if (errorSegment) header += ` ${theme.fg("error", errorSegment)}`;
+	const plainHeader = typeName + modelSegment + statsSegment + errorSegment;
+	const headerSegments: HeaderSegment[] = [
+		{ text: typeName, style: (s) => applyRole("flowName", s, theme, config) },
+		{ text: modelSegment, style: (s) => applyRole("modelName", s, theme, config) },
+		{ text: statsSegment, style: (s) => applyRole("stats", s, theme, config) },
+	];
+	if (errorSegment) {
+		headerSegments.push({ text: errorSegment, style: (s) => theme.fg("error", s) });
+	}
 	container.addChild(new DynamicScrambleText(
 		header,
 		() => {
 			const result = scrambleManager.updateText(id, 'header', plainHeader, Date.now(), isComplete, true);
-			return result.isAnimating ? applyRole("flowName", result.content, theme, config) : header;
+			return result.isAnimating ? reconstructHeader(result.content, headerSegments) : header;
 		},
 		true,
 	));
@@ -868,35 +907,45 @@ function renderActivityPanel(
 			const ctxLabel = formatContextLabel(r.usage.contextTokens, r.maxContextTokens);
 			statsParts.push(ctxLabel);
 		}
-		const tpsValue = r.usage.smoothedTps;
-		const tpsDisplay = tpsValue && tpsValue >= 100 ? `${Math.round(tpsValue)}` : (tpsValue && tpsValue > 0 ? tpsValue.toFixed(1) : undefined);
-		if (tpsDisplay) statsParts.push(`${tpsDisplay} t/s`);
-		else statsParts.push("---- t/s");
+		const tpsFormatted = formatTps(r.usage.smoothedTps);
+		statsParts.push(tpsFormatted);
 		let displayStats = statsParts.join(" · ");
 
 		const flowComplete = r.exitCode !== -1;
 
 		// Flash TPS value when it changes
-		if (tpsDisplay) {
-			const scrambledTps = scrambleManager.updateTps(flowId, tpsDisplay, now, flowComplete, true);
-			if (scrambledTps !== tpsDisplay) {
-				displayStats = displayStats.replace(`${tpsDisplay} t/s`, `${scrambledTps} t/s`);
+		const tpsNum = tpsFormatted.slice(0, -4); // remove " t/s" suffix
+		if (r.usage.smoothedTps && r.usage.smoothedTps > 0) {
+			const scrambledTps = scrambleManager.updateTps(flowId, tpsNum, now, flowComplete, true);
+			if (scrambledTps !== tpsNum) {
+				displayStats = displayStats.replace(`${tpsNum} t/s`, `${scrambledTps} t/s`);
 			}
 		}
 
 		const error = isFlowError(r);
 
-		// Header line
-		let headerLine = `${applyRole("treeChars", headerPrefix, theme, config)} ${applyRole("flowName", typeName, theme, config)}${applyRole("modelName", modelLabel ? `    ${modelLabel} · ` : "    ", theme, config)}${applyRole("stats", displayStats, theme, config)}`;
-		if (error && r.stopReason) {
-			headerLine += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
+		const modelSegment = modelLabel ? `    ${modelLabel} · ` : "    ";
+		const statsSegment = stripAnsi(displayStats);
+		const errorSegment = error && r.stopReason ? ` [${r.stopReason}]` : "";
+		let headerLine = `${applyRole("treeChars", headerPrefix, theme, config)} ${applyRole("flowName", typeName, theme, config)}${applyRole("modelName", modelSegment, theme, config)}${applyRole("stats", displayStats, theme, config)}`;
+		if (errorSegment) {
+			headerLine += ` ${theme.fg("error", errorSegment)}`;
 		}
-		const plainHeader = headerPrefix + " " + typeName + (modelLabel ? `    ${modelLabel} · ` : "    ") + stripAnsi(displayStats) + (error && r.stopReason ? ` [${r.stopReason}]` : "");
+		const plainHeader = headerPrefix + " " + typeName + modelSegment + statsSegment + errorSegment;
+		const headerSegments: HeaderSegment[] = [
+			{ text: headerPrefix + " ", style: (s) => applyRole("treeChars", s, theme, config) },
+			{ text: typeName, style: (s) => applyRole("flowName", s, theme, config) },
+			{ text: modelSegment, style: (s) => applyRole("modelName", s, theme, config) },
+			{ text: statsSegment, style: (s) => applyRole("stats", s, theme, config) },
+		];
+		if (errorSegment) {
+			headerSegments.push({ text: errorSegment, style: (s) => theme.fg("error", s) });
+		}
 		container.addChild(new DynamicScrambleText(
 			headerLine,
 			() => {
 				const result = scrambleManager.updateText(flowId, 'header', plainHeader, Date.now(), flowComplete, true);
-				return result.isAnimating ? applyRole("flowName", result.content, theme, config) : headerLine;
+				return result.isAnimating ? reconstructHeader(result.content, headerSegments) : headerLine;
 			},
 			true,
 		));

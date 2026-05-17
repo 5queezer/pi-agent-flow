@@ -1,4 +1,4 @@
-import { appendStrategicHintOnce } from "../steering/tool-utils.js";
+import { appendDirectiveOnce } from "../steering/tool-utils.js";
 import { compressOutput } from "./shell-compress.js";
 
 /**
@@ -12,6 +12,13 @@ import { compressOutput } from "./shell-compress.js";
  * wait time before the batch tool returns partial results. Commands that
  * haven't finished continue running in the background and can be polled
  * via the `batch_bash_poll` tool.
+ *
+ * Why not `createLocalBashOperations` from `@mariozechner/pi-coding-agent`?
+ * That helper is a simple exec wrapper (returns a promise when the process exits).
+ * Our tracker needs background execution + polling: processes must outlive the
+ * soft timeout and be queried later via `batch_bash_poll`. We therefore use raw
+ * `node:child_process.spawn` directly to retain full control over detached mode,
+ * per-process AbortControllers, and background lifecycle.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -270,14 +277,23 @@ export function truncateBashOutput(
 	const resultBytes = Buffer.byteLength(result, "utf-8");
 	if (resultBytes > maxBytes) {
 		const buf = Buffer.from(result, "utf-8");
-		// Find last newline before maxBytes
+		// Find last newline before maxBytes, never cutting inside a multi-byte UTF-8 character
 		let cutAt = maxBytes;
-		while (cutAt > 0 && buf[cutAt] !== 0x0a) {
+		while (cutAt > 0) {
+			// Skip UTF-8 continuation bytes so we land on a character boundary
+			while (cutAt > 0 && (buf[cutAt] & 0xc0) === 0x80) {
+				cutAt--;
+			}
+			if (cutAt <= 0) break;
+			if (buf[cutAt] === 0x0a) break;
 			cutAt--;
 		}
 		if (cutAt <= 0) {
-			// No newline found within safe range; force cut at maxBytes
+			// No newline found within safe range; force cut at maxBytes aligned to char boundary
 			cutAt = maxBytes;
+			while (cutAt > 0 && (buf[cutAt] & 0xc0) === 0x80) {
+				cutAt--;
+			}
 		}
 		result = buf.slice(0, cutAt).toString("utf-8");
 		result += `\n[... truncated at ${(maxBytes / 1024).toFixed(0)} KB, ${totalBytes} total ...]`;
@@ -462,7 +478,7 @@ export function createBatchBashPollTool(tracker: BashProcessTracker) {
 		].join("\n"),
 		promptSnippet: "Poll pending bash commands for results",
 		promptGuidelines: [
-			"Use batch_bash_poll to check on bash commands that returned pending from a batch call.",
+			"Use `batch_bash_poll` to check on bash commands that returned pending from a batch call.",
 			"Pass the `i` (id) values from the pending results.",
 		],
 		parameters: BatchBashPollParams,
@@ -485,10 +501,7 @@ export function createBatchBashPollTool(tracker: BashProcessTracker) {
 			const ids = Array.isArray(args.i) ? (args.i as string[]) : Array.isArray(args.ids) ? (args.ids as string[]) : [];
 
 			if (ids.length === 0) {
-				return {
-					content: [{ type: "text", text: "Error: i (ids) array is required and must not be empty." }],
-					isError: true,
-				};
+				throw new Error("Error: i (ids) array is required and must not be empty.");
 			}
 
 			const results = pollBatchBashResults(ids, tracker);
@@ -512,7 +525,7 @@ export function createBatchBashPollTool(tracker: BashProcessTracker) {
 				content: [{ type: "text", text: lines.join("\n").trimEnd() }],
 				details: { results },
 			};
-			appendStrategicHintOnce(pollResult);
+			appendDirectiveOnce(pollResult);
 			return pollResult;
 		},
 	};

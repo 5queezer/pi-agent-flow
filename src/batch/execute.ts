@@ -8,12 +8,14 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
+import { withFileMutationQueue } from "@mariozechner/pi-coding-agent";
 import {
 	type FileOpInput,
 	type RgOpInput,
 	type ExecuteOptions,
 	type ReadOptions,
 	type OpResult,
+	type BatchOnUpdate,
 	MAX_LINES,
 	MAX_BYTES,
 	SAFE_FULL_READ_LIMIT,
@@ -32,6 +34,7 @@ import {
 	expandTilde,
 	validatePath,
 } from "./fuzzy-edit.js";
+import { applyPatch } from "./apply-patch.js";
 import { buildFileContextMap } from "./symbols.js";
 
 // ---------------------------------------------------------------------------
@@ -181,6 +184,13 @@ export async function suggestSimilarFiles(
 // Error hints
 // ---------------------------------------------------------------------------
 
+export interface BatchError {
+	error: string;
+	hint: string;
+	retryable: boolean;
+	suggestedFix?: string;
+}
+
 function getErrorHint(error: string): string {
 	if (error.includes("File not found") || error.includes("file not found"))
 		return "Verify the path exists.";
@@ -203,6 +213,18 @@ function getErrorHint(error: string): string {
 	return "";
 }
 
+function isRetryable(error: string): boolean {
+	const transient = [
+		"File not found",
+		"file not found",
+		"ENOENT",
+		"no such file",
+		"Could not find",
+		"occurrences",
+	];
+	return transient.some((p) => error.includes(p));
+}
+
 // ---------------------------------------------------------------------------
 // Main execute function
 // ---------------------------------------------------------------------------
@@ -212,11 +234,10 @@ export async function executeOperations(
 	cwd: string,
 	signal?: AbortSignal,
 	options: ExecuteOptions = {},
+	onUpdate?: BatchOnUpdate,
 ): Promise<{ summary: string; contentText: string; results: OpResult[] }> {
 	const results: OpResult[] = [];
-	let failed = false;
-
-	const counts = { read: 0, write: 0, edit: 0, delete: 0, rg: 0, error: 0, skipped: 0 };
+	const counts = { read: 0, write: 0, edit: 0, delete: 0, rg: 0, patch: 0, bash: 0, error: 0, skipped: 0 };
 	const errors: { path: string; op: string; message: string; hint?: string }[] = [];
 	const truncatedFiles: { path: string; shown: number; total: number; nextOffset?: number }[] = [];
 	const aggregateLimitSkipped: { path: string }[] = [];
@@ -225,30 +246,60 @@ export async function executeOperations(
 	let aggregateBytesRead = 0;
 	const includeLimitWarnings = options.includeLimitWarnings ?? true;
 
-	for (const op of operations) {
-		if (signal?.aborted) {
-			results.push({ op: op.o, path: op.p, status: "skipped", error: "Operation aborted." });
-			counts.skipped++;
-			continue;
-		}
+	let lastUpdateTime = 0;
+	let finalUpdateEmitted = false;
+	function emitPartialUpdate() {
+		if (!onUpdate) return;
+		const now = Date.now();
+		const isFinal = results.length === operations.length;
+		if (!isFinal && now - lastUpdateTime < 100) return;
+		if (isFinal && finalUpdateEmitted) return;
+		finalUpdateEmitted = isFinal;
+		lastUpdateTime = now;
+		const partialSummary = buildSummary(
+			counts,
+			errors,
+			truncatedFiles,
+			aggregateLimitSkipped,
+			aggregateByteLimitSkipped,
+		);
+		const partialContentText = buildContentText(partialSummary, results);
+		onUpdate({
+			content: [{ type: "text", text: partialContentText }],
+			details: { results: [...results] },
+		});
+	}
 
-		if (failed) {
-			results.push({ op: op.o, path: op.p, status: "skipped" });
-			counts.skipped++;
-			continue;
+	for (let i = 0; i < operations.length; i++) {
+		const op = operations[i];
+		if (signal?.aborted) {
+			for (let j = i; j < operations.length; j++) {
+				const r = operations[j];
+				results.push({ op: r.o, path: r.p, status: "skipped", error: "Operation aborted.", s: r.s, l: r.l, q: r.q });
+				counts.skipped++;
+			}
+			emitPartialUpdate();
+			break;
 		}
 
 		try {
-			const resolvedPath = await validatePath(op.p, cwd);
+			const { path: resolvedPath, warning: pathWarning } = await validatePath(op.p, cwd);
 
 			switch (op.o) {
 				case "read": {
 					if (aggregateLinesRead >= MAX_TOTAL_RESULT_LINES) {
+						const remainingOps = operations.length - i - 1;
 						results.push({
 							op: "read",
 							path: op.p,
 							status: "skipped",
-							error: `Skipped: aggregate line limit of ${MAX_TOTAL_RESULT_LINES} already reached. Use separate batch/batch_read calls.`,
+							skipped: true,
+							reason: "aggregate_line_limit",
+							consumed: { lines: aggregateLinesRead, bytes: aggregateBytesRead },
+							remainingOps,
+							error: `Skipped: aggregate line limit of ${MAX_TOTAL_RESULT_LINES} reached (${aggregateLinesRead} lines consumed). ${remainingOps} remaining operation(s) will still execute. Use separate batch/batch_read calls.`,
+							s: op.s,
+							l: op.l,
 						});
 						counts.skipped++;
 						aggregateLimitSkipped.push({ path: op.p });
@@ -256,11 +307,18 @@ export async function executeOperations(
 					}
 
 					if (aggregateBytesRead >= BATCH_READ_MAX_TOTAL_BYTES) {
+						const remainingOps = operations.length - i - 1;
 						results.push({
 							op: "read",
 							path: op.p,
 							status: "skipped",
-							error: `Skipped: aggregate byte limit of ${BATCH_READ_MAX_TOTAL_BYTES} already reached. Use separate batch/batch_read calls.`,
+							skipped: true,
+							reason: "aggregate_byte_limit",
+							consumed: { lines: aggregateLinesRead, bytes: aggregateBytesRead },
+							remainingOps,
+							error: `Skipped: aggregate byte limit of ${BATCH_READ_MAX_TOTAL_BYTES} reached (${aggregateBytesRead} bytes consumed). ${remainingOps} remaining operation(s) will still execute. Use separate batch/batch_read calls.`,
+							s: op.s,
+							l: op.l,
 						});
 						counts.skipped++;
 						aggregateByteLimitSkipped.push({ path: op.p });
@@ -337,9 +395,11 @@ export async function executeOperations(
 						status: "ok",
 						content: finalContent,
 						totalLines: totalFileLines,
-						warning: safetyWarning,
+						warning: [pathWarning, safetyWarning].filter(Boolean).join("\n") || undefined,
 						truncated: finalTruncated || undefined,
 						nextOffset,
+						s: op.s,
+						l: op.l,
 					});
 					counts.read++;
 					break;
@@ -349,13 +409,16 @@ export async function executeOperations(
 					if (!op.c && op.c !== "") {
 						throw new Error("c (content) is required for write operations.");
 					}
-					await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
-					await fs.writeFile(resolvedPath, op.c!, "utf-8");
+					await withFileMutationQueue(resolvedPath, async () => {
+						await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
+						await fs.writeFile(resolvedPath, op.c!, "utf-8");
+					});
 					results.push({
 						op: "write",
 						path: op.p,
 						status: "ok",
 						bytes: Buffer.byteLength(op.c!, "utf-8"),
+						warning: pathWarning,
 					});
 					counts.write++;
 					break;
@@ -365,46 +428,53 @@ export async function executeOperations(
 					if (!op.e || op.e.length === 0) {
 						throw new Error("e (edits) array is required for edit operations.");
 					}
+					const edits = op.e;
 
-					const rawContent = await fs.readFile(resolvedPath, "utf-8");
-					const { bom, text: contentWithoutBom } = stripBom(rawContent);
-					const originalEnding = detectLineEnding(contentWithoutBom);
-					const normalizedContent = normalizeToLF(contentWithoutBom);
+					const blocksChanged = await withFileMutationQueue(resolvedPath, async () => {
+						const rawContent = await fs.readFile(resolvedPath, "utf-8");
+						const { bom, text: contentWithoutBom } = stripBom(rawContent);
+						const originalEnding = detectLineEnding(contentWithoutBom);
+						const normalizedContent = normalizeToLF(contentWithoutBom);
 
-					const { newContent, blocksChanged } = applyEdits(
-						normalizedContent,
-						op.e,
-						op.p,
-					);
+						const { newContent, blocksChanged: changed } = applyEdits(
+							normalizedContent,
+							edits,
+							op.p,
+						);
 
-					const finalContent = bom + restoreLineEndings(newContent, originalEnding);
-					await fs.writeFile(resolvedPath, finalContent, "utf-8");
+						const finalContent = bom + restoreLineEndings(newContent, originalEnding);
+						await fs.writeFile(resolvedPath, finalContent, "utf-8");
+						return changed;
+					});
 
 					results.push({
 						op: "edit",
 						path: op.p,
 						status: "ok",
 						blocksChanged,
+						warning: pathWarning,
 					});
 					counts.edit++;
 					break;
 				}
 
 				case "delete": {
-					let stat;
-					try {
-						stat = await fs.lstat(resolvedPath);
-					} catch (err: any) {
-						if (err.code === "ENOENT") {
-							throw new Error(`File not found: ${op.p}`);
+					await withFileMutationQueue(resolvedPath, async () => {
+						let stat;
+						try {
+							stat = await fs.lstat(resolvedPath);
+						} catch (err: any) {
+							if (err.code === "ENOENT") {
+								throw new Error(`File not found: ${op.p}`);
+							}
+							throw err;
 						}
-						throw err;
-					}
-					if (stat.isDirectory()) {
-						throw new Error(`Cannot delete directory: ${op.p}. Use a recursive removal tool or delete files individually.`);
-					}
-					await fs.unlink(resolvedPath);
-					results.push({ op: "delete", path: op.p, status: "ok" });
+						if (stat.isDirectory()) {
+							throw new Error(`Cannot delete directory: ${op.p}. Use a recursive removal tool or delete files individually.`);
+						}
+						await fs.unlink(resolvedPath);
+					});
+					results.push({ op: "delete", path: op.p, status: "ok", warning: pathWarning });
 					counts.delete++;
 					break;
 				}
@@ -416,7 +486,7 @@ export async function executeOperations(
 					}
 					const searchPath = (rgOp.p.startsWith("~") || path.isAbsolute(rgOp.p)) ? resolvedPath : rgOp.p;
 					const args = buildRgArgs({ ...rgOp, p: searchPath });
-					const matches = await execRg(args, cwd);
+					const matches = await execRg(args, cwd, signal);
 					const content = matches.join("\n");
 
 					// Try to attach enclosing signatures (only when we have line numbers)
@@ -433,8 +503,27 @@ export async function executeOperations(
 						content,
 						totalLines: matches.length,
 						enclosingSignatures,
+						warning: pathWarning,
+						q: rgOp.q,
 					});
 					counts.rg++;
+					break;
+				}
+
+				case "patch": {
+					if (!op.c && op.c !== "") {
+						throw new Error("c (patch text) is required for patch operations.");
+					}
+					const { affected, exact } = await applyPatch(op.c!, cwd);
+					results.push({
+						op: "patch",
+						path: op.p,
+						status: "ok",
+						affected,
+						exact,
+						warning: pathWarning,
+					});
+					counts.patch++;
 					break;
 				}
 
@@ -442,10 +531,21 @@ export async function executeOperations(
 					throw new Error(`Unknown operation type: ${op.o}`);
 			}
 		} catch (err) {
-			failed = true;
-			counts.error++;
 			const message = err instanceof Error ? err.message : String(err);
 
+			// Treat mid-flight rg abort as skipped rather than error
+			if (message === "Aborted" && signal?.aborted) {
+				counts.skipped++;
+				results.push({
+					op: op.o,
+					path: op.p,
+					status: "skipped",
+					error: "Operation aborted.",
+				});
+				continue;
+			}
+
+			counts.error++;
 			// Enrich file-not-found errors with fuzzy filename suggestions
 			let hint = getErrorHint(message);
 			if (
@@ -460,6 +560,9 @@ export async function executeOperations(
 				}
 			}
 
+			const retryable = isRetryable(message);
+			const suggestedFix = hint || undefined;
+
 			errors.push({ path: op.p, op: op.o, message, hint });
 			results.push({
 				op: op.o,
@@ -467,9 +570,16 @@ export async function executeOperations(
 				status: "error",
 				error: message,
 				hint,
+				retryable,
+				suggestedFix,
+				s: op.s,
+				l: op.l,
+				q: op.q,
 			});
 		}
+		emitPartialUpdate();
 	}
+	emitPartialUpdate();
 	// Build the enhanced summary and content text
 	const summary = buildSummary(counts, errors, truncatedFiles, aggregateLimitSkipped, aggregateByteLimitSkipped);
 	const contentText = buildContentText(summary, results);
@@ -482,57 +592,64 @@ export async function executeOperations(
 // ---------------------------------------------------------------------------
 
 function buildSummary(
-	counts: { read: number; write: number; edit: number; delete: number; rg: number; error: number; skipped: number },
+	counts: { read: number; write: number; edit: number; delete: number; rg: number; patch: number; bash: number; error: number; skipped: number },
 	errors: { path: string; op: string; message: string; hint?: string }[],
 	truncatedFiles: { path: string; shown: number; total: number; nextOffset?: number }[],
 	aggregateLimitSkipped: { path: string }[] = [],
 	aggregateByteLimitSkipped: { path: string }[] = [],
 ): string {
-	const totalSuccess =
-		counts.read + counts.write + counts.edit + counts.delete + counts.rg;
-	const totalOps = totalSuccess + counts.error + counts.skipped;
-
 	const parts: string[] = [];
 
-	// Build the success breakdown
+	// Build success parts from counts
 	const successParts: string[] = [];
-	if (counts.read > 0)
-		successParts.push(
-			`${counts.read} read${counts.read > 1 ? "s" : ""}`,
-		);
-	if (counts.write > 0)
-		successParts.push(
-			`${counts.write} write${counts.write > 1 ? "s" : ""}`,
-		);
-	if (counts.edit > 0)
-		successParts.push(
-			`${counts.edit} edit${counts.edit > 1 ? "s" : ""}`,
-		);
-	if (counts.delete > 0)
-		successParts.push(
-			`${counts.delete} delete${counts.delete > 1 ? "s" : ""}`,
-		);
-	if (counts.rg > 0)
-		successParts.push(
-			`${counts.rg} rg${counts.rg > 1 ? "s" : ""}`,
-		);
+	if (counts.read > 0) successParts.push(`${counts.read} read`);
+	if (counts.write > 0) successParts.push(`${counts.write} write`);
+	if (counts.edit > 0) successParts.push(`${counts.edit} edit`);
+	if (counts.delete > 0) successParts.push(`${counts.delete} delete`);
+	if (counts.rg > 0) successParts.push(`${counts.rg} rg`);
+	if (counts.patch > 0) successParts.push(`${counts.patch} patch`);
+	if (counts.bash > 0) successParts.push(`${counts.bash} bash`);
 
-	if (counts.error === 0) {
-		// All success
-		parts.push(`${totalOps} operations: ${successParts.join(", ")}`);
+	// Build failure parts from errors
+	const failedCounts: Record<string, number> = {};
+	for (const err of errors) {
+		failedCounts[err.op] = (failedCounts[err.op] || 0) + 1;
+	}
+	const failedParts: string[] = [];
+	if (failedCounts.read > 0) failedParts.push(`${failedCounts.read} read`);
+	if (failedCounts.write > 0) failedParts.push(`${failedCounts.write} write`);
+	if (failedCounts.edit > 0) failedParts.push(`${failedCounts.edit} edit`);
+	if (failedCounts.delete > 0) failedParts.push(`${failedCounts.delete} delete`);
+	if (failedCounts.rg > 0) failedParts.push(`${failedCounts.rg} rg`);
+	if (failedCounts.patch > 0) failedParts.push(`${failedCounts.patch} patch`);
+	if (failedCounts.bash > 0) failedParts.push(`${failedCounts.bash} bash`);
+
+	const hasSuccess = successParts.length > 0;
+	const hasFailure = failedParts.length > 0;
+	const hasSkipped = counts.skipped > 0;
+
+	if (!hasFailure) {
+		// All success (or skipped)
+		const summaryParts = [...successParts];
+		if (hasSkipped) summaryParts.push(`${counts.skipped} skipped`);
+		parts.push(`✔ ${summaryParts.join(", ")}`);
 	} else {
-		// Mixed success/failure
-		parts.push(
-			`${counts.error} failed${counts.skipped > 0 ? `, ${counts.skipped} skipped` : ""}`,
-		);
-		if (totalSuccess > 0) {
-			parts.push(`  ${successParts.join(", ")} ok`);
+		// Mixed or all failed
+		if (hasSuccess) {
+			parts.push(`✔ ${successParts.join(", ")} | ✗ ${failedParts.join(", ")}`);
+		} else {
+			parts.push(`✗ ${failedParts.join(", ")}`);
 		}
-		for (const err of errors) {
-			const hint = err.hint ?? "";
-			const hintSuffix = hint ? ` — ${hint}` : "";
-			parts.push(`  ${err.op} ${err.path}: ${err.message}${hintSuffix}`);
+		if (hasSkipped) {
+			parts.push(`${counts.skipped} skipped`);
 		}
+	}
+
+	// Error details
+	for (const err of errors) {
+		const hint = err.hint ?? "";
+		const hintSuffix = hint ? ` — ${hint}` : "";
+		parts.push(`  ${err.op} ${err.path}: ${err.message}${hintSuffix}`);
 	}
 
 	// Truncation warnings
@@ -613,6 +730,14 @@ function buildContentText(summary: string, results: OpResult[]): string {
 			}
 		} else if (r.status === "error") {
 			sections.push(`\n--- ${r.op}: ${r.path} ---\nError: ${r.error}`);
+		} else if (r.op === "patch" && r.status === "ok") {
+			const parts: string[] = [];
+			if (r.affected?.added.length) parts.push(`A ${r.affected.added.join(', ')}`);
+			if (r.affected?.modified.length) parts.push(`M ${r.affected.modified.join(', ')}`);
+			if (r.affected?.deleted.length) parts.push(`D ${r.affected.deleted.join(', ')}`);
+			sections.push(`\n--- patch: ${r.path} ---\n${parts.join('\n')}`);
+		} else if (r.status === "skipped") {
+			sections.push(`\n--- ${r.op}: ${r.path} ---\n${r.error ?? "Skipped"}`);
 		}
 	}
 
@@ -743,9 +868,9 @@ function groupRgMatchesByFile(content: string, sigMap: Record<string, string>): 
 	return out.join("\n");
 }
 
-function execRg(args: string[], cwd: string): Promise<string[]> {
+function execRg(args: string[], cwd: string, signal?: AbortSignal): Promise<string[]> {
 	return new Promise((resolve, reject) => {
-		execFile("rg", args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+		const child = execFile("rg", args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
 			if (err) {
 				// ripgrep exits with code 1 when no matches are found
 				if ((err as any).code === 1) {
@@ -769,5 +894,17 @@ function execRg(args: string[], cwd: string): Promise<string[]> {
 			const lines = stdout.split("\n").filter((line) => line.length > 0);
 			resolve(lines);
 		});
+		if (signal) {
+			const onAbort = () => {
+				try { child.kill("SIGTERM"); } catch { /* already dead */ }
+				reject(new Error("Aborted"));
+			};
+			if (signal.aborted) {
+				onAbort();
+			} else {
+				signal.addEventListener("abort", onAbort, { once: true });
+				child.on("close", () => signal.removeEventListener("abort", onAbort));
+			}
+		}
 	});
 }

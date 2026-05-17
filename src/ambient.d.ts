@@ -11,6 +11,8 @@ declare module "@mariozechner/pi-coding-agent" {
 			name: string;
 			label: string;
 			description: string;
+			promptSnippet?: string;
+			promptGuidelines?: string[];
 			parameters: any;
 			execute: (...args: any[]) => Promise<any>;
 			renderCall?: (...args: any[]) => any;
@@ -20,8 +22,28 @@ declare module "@mariozechner/pi-coding-agent" {
 		registerCommand(name: string, config: { description: string; handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> }): void;
 		sendUserMessage(content: string, opts?: { deliverAs?: string }): void;
 		sendMessage(msg: { content: string; customType?: string; display?: boolean; details?: any }, opts?: { deliverAs?: string; triggerTurn?: boolean }): void;
+		appendEntry(customType: string, data?: unknown): void;
+		setSessionName(name: string): void;
+		getSessionName(): string | undefined;
 	}
-	export interface ExtensionContext {
+	export interface SessionManager {
+	getSessionDir(): string;
+	getSessionFile(): string;
+	getHeader(): unknown;
+	getBranch(): unknown[];
+	getSessionId(): string;
+	appendMessage(message: any): string;
+	appendSessionInfo(name: string): string;
+	appendCustomEntry(customType: string, data?: unknown): string;
+}
+export interface SessionEntry {
+	id: string;
+	type: string;
+	message?: any;
+	customType?: string;
+	data?: any;
+}
+export interface ExtensionContext {
 		cwd: string;
 		hasUI: boolean;
 		ui: {
@@ -34,7 +56,8 @@ declare module "@mariozechner/pi-coding-agent" {
 			setEditorText?: (text: string) => void;
 			editor: (title: string, text: string) => Promise<string | undefined>;
 		};
-		sessionManager: { getSessionDir(): string; getSessionFile(): string; getHeader(): unknown; getBranch(): unknown[]; getSessionId(): string };
+		sessionManager: SessionManager;
+		isIdle(): boolean;
 	}
 	export interface Theme {
 		fg(key: string, text: string): string;
@@ -45,6 +68,7 @@ declare module "@mariozechner/pi-coding-agent" {
 	export const DEFAULT_MAX_BYTES: number;
 	export const DEFAULT_MAX_LINES: number;
 	export function truncateHead(text: string, options: { maxBytes?: number; maxLines?: number }): { content: string };
+	export function withFileMutationQueue<T>(filePath: string, fn: () => Promise<T>): Promise<T>;
 	export function convertToLlm(branch: unknown[]): any[];
 	export function serializeConversation(messages: any[]): string;
 	export function createBashToolDefinition(
@@ -77,23 +101,31 @@ declare module "@mariozechner/pi-coding-agent" {
 		render(width: number): string[];
 		handleInput?(data: string): void;
 	}
+	export interface WithSessionContext {
+		sendUserMessage(content: string, opts?: { deliverAs?: string }): Promise<void>;
+		ui?: {
+			notify?: (message: string, type: string) => void;
+		};
+	}
+
 	export interface ExtensionCommandContext {
 		cwd: string;
 		hasUI: boolean;
 		ui: {
 			confirm: (title: string, body: string) => Promise<boolean>;
-			notify?: (message: string, type: string) => void;
+			notify: (message: string, type: string) => void;
 			select: (prompt: string, options: string[], opts?: any) => Promise<string | null>;
 			input: (prompt: string, placeholder: string, opts?: any) => Promise<string | null>;
 			custom: <T>(factory: (...args: any[]) => any, options?: any) => Promise<T | undefined>;
 			onTerminalInput?: (handler: (data: string) => { consume?: boolean } | undefined) => (() => void);
-			setEditorText?: (text: string) => void;
+			setEditorText: (text: string) => void;
 			editor: (title: string, text: string) => Promise<string | undefined>;
 		};
-		sessionManager: { getSessionDir(): string; getSessionFile(): string; getHeader(): unknown; getBranch(): unknown[]; getSessionId(): string };
+		sessionManager: SessionManager;
 		newSession(opts?: {
 			parentSession?: string;
-			withSession?: (ctx: ReplacedSessionContext) => Promise<void>;
+			setup?: (sessionManager: SessionManager) => Promise<void>;
+			withSession?: (ctx: WithSessionContext) => Promise<void>;
 		}): Promise<{ cancelled: boolean }>;
 		navigateTree(targetId: string, opts?: { label?: string; summarize?: boolean }): Promise<{ cancelled: boolean }>;
 		waitForIdle(): Promise<void>;
@@ -106,11 +138,7 @@ declare module "@mariozechner/pi-coding-agent" {
 			getApiKeyAndHeaders(model: any): Promise<{ ok: boolean; apiKey?: string; headers?: Record<string, string>; error?: string }>;
 		};
 		model?: any;
-	}
-
-	/** Fresh command-capable context bound to the replacement session after a session switch. */
-	export interface ReplacedSessionContext extends ExtensionCommandContext {
-		sendUserMessage(content: string, opts?: { deliverAs?: string }): Promise<void>;
+		isIdle(): boolean;
 	}
 
 	/** Event payload for pi.on("turn_end", ...) callbacks. */
@@ -281,7 +309,7 @@ declare module "@mariozechner/pi-agent-core" {
 	export interface AgentToolResult<T = any> {
 		content: any[];
 		details?: T;
-		isError?: boolean;
+		failed?: boolean;
 		_toolCallId?: string;
 	}
 }

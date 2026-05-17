@@ -49,6 +49,21 @@ describe("truncateBashOutput", () => {
 		expect(result).toContain("[... truncated at 100 lines, 5000 total ...]");
 		expect(Buffer.byteLength(result, "utf-8")).toBeLessThanOrEqual(12 * 1024);
 	});
+
+	it("truncates multi-byte UTF-8 safely without mojibake", () => {
+		// Single line (no newlines) forces byte truncation to hit maxBytes exactly
+		const prefix = "a".repeat(98); // 98 bytes
+		const cjk = "中"; // 3 bytes: E4 B8 AD
+		const emoji = "😀"; // 4 bytes: F0 9F 98 80
+		const text = prefix + cjk + emoji + " trailing text";
+		const maxBytes = 100; // lands inside the CJK character (second continuation byte)
+
+		const result = truncateBashOutput(text, maxBytes, 10000);
+		// Must not contain Unicode replacement character (sign of invalid UTF-8 slicing)
+		expect(result).not.toContain("\uFFFD");
+		// Must contain truncation marker
+		expect(result).toContain("[... truncated at");
+	});
 });
 
 describe("BashProcessTracker", () => {
@@ -459,14 +474,14 @@ describe("batch tool with bash operations", () => {
 		tracker.abortAll();
 	});
 
-	it("file op failure skips bash ops", async () => {
+	it("file op failure does not skip bash ops", async () => {
 		const tool = createBatchTool(tracker);
 		const result = await tool.execute(
 			"call-1",
 			{
 				o: [
 					{ o: "read", p: "nonexistent.txt" },
-					{ o: "bash", c: "echo should-not-run", i: "skip1" },
+					{ o: "bash", c: "echo still-runs", i: "still1" },
 				],
 			},
 			undefined,
@@ -476,8 +491,8 @@ describe("batch tool with bash operations", () => {
 
 		expect(result.details.results[0].status).toBe("error");
 		expect(result.details.results[1]).toMatchObject({
-			status: "skipped",
-			error: expect.stringContaining("file operation failed"),
+			status: "ok",
+			stdout: expect.stringContaining("still-runs"),
 		});
 	});
 
@@ -608,16 +623,10 @@ describe("batch_bash_poll tool", () => {
 		tracker.abortAll();
 	});
 
-	it("returns error for empty ids", async () => {
-		const result = await pollTool.execute(
-			"call-1",
-			{ i: [] },
-			undefined,
-			undefined,
-			{},
-		);
-
-		expect(result.isError).toBe(true);
+	it("throws for empty ids", async () => {
+		await expect(
+			pollTool.execute("call-1", { i: [] }, undefined, undefined, {}),
+		).rejects.toThrow("Error: i (ids) array is required and must not be empty.");
 	});
 
 	it("handles multiple poll ids", async () => {

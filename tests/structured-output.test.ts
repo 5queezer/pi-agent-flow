@@ -101,7 +101,9 @@ not json at all
 		expect(result!.notDone).toEqual([]);
 		expect(result!.nextSteps).toEqual([]);
 		expect(result!.reasoning).toEqual([]);
-		expect(result!.notes).toEqual([]);
+		// notes receives the E2 synthetic warning for complete status with no verification
+		expect(result!.notes).toHaveLength(1);
+		expect(result!.notes[0]).toContain("no verification evidence");
 	});
 
 	it("trims string fields", () => {
@@ -149,6 +151,12 @@ describe("verification evidence", () => {
 		const text = '```json\n{"version":"1","status":"complete","summary":"s","verification":[{"command":"npm test","result":"pass","evidence":"42 passed"}]}\n```';
 		const out = extractStructuredOutput(text);
 		expect(out?.verification).toEqual([{ command: "npm test", result: "pass", evidence: "42 passed" }]);
+	});
+
+	it("flags a complete status with no verification evidence", () => {
+		const text = '```json\n{"version":"1","status":"complete","summary":"done"}\n```';
+		const out = extractStructuredOutput(text);
+		expect(out?.notes.some((n) => n.includes("no verification evidence"))).toBe(true);
 	});
 });
 

@@ -421,7 +421,9 @@ function buildFlowArgs(
 	if (structuredOutput && directiveBody && !skipStructuredDirective) {
 		directiveBody +=
 			`\n\n## Structured Output\n` +
-			`End with a \`\`\`json block: { version, status, summary, files[], actions[], notDone[], nextSteps[], reasoning[], notes[] }. Commands auto-extracted; omit empty arrays. Keep snippets under 300 chars. List at most 10 items per array.`;
+			`End with a \`\`\`json block: { version, status, summary, files[], actions[], verification[], notDone[], nextSteps[], reasoning[], notes[] }. ` +
+			`When status is "complete", verification[] MUST list the exact command(s) run and their result ({command,result,evidence}). ` +
+			`Commands auto-extracted; omit empty arrays. Keep snippets under 300 chars. List at most 10 items per array.`;
 	}
 
 	const directive = directiveBody

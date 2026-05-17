@@ -94,6 +94,11 @@ export function extractStructuredOutput(text: string): FlowStructuredOutput | un
 
 	// Sanitize: trim string fields and normalize omitted arrays to [] for
 	// backward compatibility with earlier structured-output prompts.
+	const verification = parsed.verification ?? [];
+	const notes = (parsed.notes ?? []).map((n) => String(n).trim());
+	if (parsed.status === "complete" && verification.length === 0) {
+		notes.push("⚠️ status=complete with no verification evidence (ADR 0006 E2)");
+	}
 	return {
 		version: parsed.version.trim(),
 		status: parsed.status,
@@ -101,11 +106,11 @@ export function extractStructuredOutput(text: string): FlowStructuredOutput | un
 		files: parsed.files ?? [],
 		actions: parsed.actions ?? [],
 		commands: parsed.commands ?? [],
-		verification: parsed.verification ?? [],
+		verification,
 		notDone: parsed.notDone ?? [],
 		nextSteps: parsed.nextSteps ?? [],
 		reasoning: parsed.reasoning ?? [],
-		notes: parsed.notes ?? [],
+		notes,
 		...(parsed.extensions !== undefined ? { extensions: parsed.extensions } : {}),
 	};
 }

@@ -163,3 +163,12 @@ describe("build flow plan integration", () => {
 		expect(build?.systemPrompt).toMatch(/per-task verification/i);
 	});
 });
+
+describe("revise flow", () => {
+	it("discovers a revise flow with flash tier", () => {
+		const { flows } = discoverFlows(process.cwd(), "bundled");
+		const revise = flows.find((f) => f.name === "revise");
+		expect(revise).toBeTruthy();
+		expect(revise?.tier).toBe("flash");
+	});
+});
